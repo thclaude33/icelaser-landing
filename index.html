@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Avaliação Gratuita — IceLaser Recife</title>
-  <meta name="description" content="Agende sua avaliação gratuita de depilação a laser na IceLaser Recife. Sem compromisso, sem dor, resultado desde a 1ª sessão." />
+  <title>Avaliação Gratuita — IceLaser Recife | Depilação a Laser</title>
+  <meta name="description" content="Agende sua avaliação gratuita de depilação a laser na IceLaser Recife. Sem dor, sem ingrown, resultado desde a 1ª sessão. Tecnologia Crystal 3D Plus." />
 
-  <!-- Meta Pixel -->
+  <!-- Meta Pixel — disparo imediato -->
   <script>
     !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
     n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
@@ -15,349 +15,564 @@
     document,'script','https://connect.facebook.net/en_US/fbevents.js');
     fbq('init', '2774496306216737');
     fbq('track', 'PageView');
+    fbq('track', 'ViewContent', {
+      content_name: 'LP Avaliacao Gratuita',
+      content_category: 'depilacao_laser',
+      value: 0,
+      currency: 'BRL'
+    });
   </script>
   <noscript><img height="1" width="1" style="display:none"
     src="https://www.facebook.com/tr?id=2774496306216737&ev=PageView&noscript=1"/></noscript>
 
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet" />
-
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --roxo:   #6B0F6B;
-      --rosa:   #C2185B;
-      --rosa2:  #E91E8C;
-      --verde:  #22C55E;
-      --cinza:  #F5F5F7;
-      --texto:  #1A1A2E;
+      --roxo:  #6B0F6B;
+      --rosa:  #C2185B;
+      --rosa2: #E91E8C;
+      --verde: #22C55E;
+      --cinza: #F5F5F7;
+      --texto: #1A1A2E;
     }
-
+    html { scroll-behavior: smooth; }
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       background: #fff;
       color: var(--texto);
       overflow-x: hidden;
     }
 
-    /* ── HERO ─────────────────────────────────────── */
+    /* STICKY HEADER */
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--roxo);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.3);
+    }
+    .header-logo { font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 1px; }
+    .header-logo span { color: #FFD700; }
+    .header-cta {
+      background: var(--verde); color: #fff;
+      font-size: 13px; font-weight: 700;
+      padding: 8px 14px; border-radius: 999px; text-decoration: none; white-space: nowrap;
+    }
+
+    /* URGENCY BAR */
+    .urgency-bar {
+      background: #FFF3CD; border-bottom: 2px solid #FFB300;
+      text-align: center; padding: 9px 16px;
+      font-size: 13px; font-weight: 700; color: #7D5A00;
+    }
+    .urgency-bar .red { color: #C62828; }
+
+    /* HERO */
     .hero {
-      background: linear-gradient(135deg, var(--roxo) 0%, var(--rosa) 100%);
-      color: #fff;
-      text-align: center;
-      padding: 40px 20px 48px;
+      background: linear-gradient(150deg, var(--roxo) 0%, var(--rosa) 100%);
+      color: #fff; padding: 28px 20px 0;
     }
-
-    .logo {
-      font-size: 22px;
-      font-weight: 900;
-      letter-spacing: 1px;
-      margin-bottom: 24px;
-      opacity: .92;
-    }
-    .logo span { color: #FFD700; }
-
     .badge {
-      display: inline-block;
-      background: rgba(255,255,255,.18);
-      border: 1px solid rgba(255,255,255,.35);
-      border-radius: 999px;
-      padding: 6px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: .5px;
-      margin-bottom: 20px;
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.35);
+      border-radius: 999px; padding: 6px 16px;
+      font-size: 13px; font-weight: 700; letter-spacing: .4px; margin-bottom: 14px;
     }
-
     .hero h1 {
-      font-size: clamp(26px, 7vw, 40px);
-      font-weight: 900;
-      line-height: 1.15;
-      margin-bottom: 14px;
+      font-size: clamp(25px, 7vw, 40px); font-weight: 900;
+      line-height: 1.12; margin-bottom: 10px; text-align: center;
     }
     .hero h1 span { color: #FFD700; }
-
-    .hero p {
-      font-size: clamp(15px, 4vw, 18px);
-      opacity: .92;
-      max-width: 480px;
-      margin: 0 auto 28px;
-      line-height: 1.55;
+    .hero-sub {
+      font-size: clamp(14px, 3.8vw, 17px); opacity: .93;
+      line-height: 1.55; margin-bottom: 18px; max-width: 440px;
+      text-align: center; margin-left: auto; margin-right: auto;
     }
 
-    /* ── BULLETS ──────────────────────────────────── */
-    .bullets {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      max-width: 360px;
-      margin: 0 auto 32px;
-      text-align: left;
+    /* Hero bullets rápidos */
+    .hero-checks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; align-items: center; }
+    .hero-check {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 14px; font-weight: 600;
     }
-    .bullet {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: rgba(255,255,255,.14);
-      border-radius: 10px;
-      padding: 10px 14px;
-      font-size: 14px;
-      font-weight: 600;
-    }
-    .bullet-icon { font-size: 18px; flex-shrink: 0; }
+    .hero-check::before { content: '✅'; flex-shrink: 0; }
 
-    /* ── FORM CARD ────────────────────────────────── */
+    /* Mini stats */
+    .hero-stats { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; justify-content: center; }
+    .hero-stat {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,.14); border-radius: 10px;
+      padding: 7px 12px; font-size: 13px; font-weight: 700;
+    }
+    .hero-stat-num { color: #FFD700; font-size: 16px; font-weight: 900; }
+
+    /* FORM CARD */
     .card {
-      background: #fff;
-      border-radius: 20px 20px 0 0;
-      margin: -16px -20px -48px;
-      padding: 28px 24px 36px;
-      box-shadow: 0 -4px 30px rgba(0,0,0,.12);
+      background: #fff; border-radius: 20px 20px 0 0;
+      margin: 0 -20px; padding: 26px 22px 30px;
+      box-shadow: 0 -6px 30px rgba(0,0,0,.2);
     }
+    .card-title { font-size: 19px; font-weight: 900; color: var(--roxo); text-align: center; margin-bottom: 4px; }
+    .card-sub { text-align: center; font-size: 14px; color: #666; margin-bottom: 20px; }
 
-    .card-title {
-      font-size: 20px;
-      font-weight: 800;
-      color: var(--roxo);
-      text-align: center;
-      margin-bottom: 6px;
-    }
-    .card-sub {
-      text-align: center;
-      font-size: 14px;
-      color: #666;
-      margin-bottom: 22px;
-    }
-
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: #444;
-      margin-bottom: 6px;
-    }
-
-    input, select {
-      width: 100%;
-      padding: 14px 16px;
-      border: 2px solid #E5E5E5;
-      border-radius: 12px;
-      font-size: 16px;
-      font-family: inherit;
-      color: var(--texto);
-      background: #FAFAFA;
-      transition: border .2s;
-      margin-bottom: 16px;
+    .field { margin-bottom: 14px; }
+    label { display: block; font-size: 13px; font-weight: 700; color: #444; margin-bottom: 5px; }
+    input {
+      width: 100%; padding: 15px 16px;
+      border: 2px solid #E5E5E5; border-radius: 12px;
+      font-size: 16px; font-family: inherit; color: var(--texto);
+      background: #FAFAFA; transition: border .2s, box-shadow .2s;
       -webkit-appearance: none;
     }
-    input:focus, select:focus {
-      outline: none;
-      border-color: var(--rosa);
-      background: #fff;
+    input:focus {
+      outline: none; border-color: var(--rosa); background: #fff;
+      box-shadow: 0 0 0 4px rgba(194,24,91,.08);
+    }
+    .field-error { display: none; font-size: 12px; color: #C62828; margin-top: 4px; font-weight: 600; }
+    input.invalid { border-color: #C62828; }
+    input.invalid + .field-error { display: block; }
+
+    /* Âncora de preço */
+    .price-anchor {
+      background: #FFF8E1; border: 1.5px solid #FFB300;
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 16px;
+      font-size: 13px; color: #5D4037; text-align: center; line-height: 1.5;
+    }
+    .price-anchor strong { color: #BF360C; }
+
+    .btn-submit {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 18px;
+      background: var(--verde); color: #fff;
+      font-size: 17px; font-weight: 900;
+      border: none; border-radius: 14px; cursor: pointer;
+      box-shadow: 0 6px 24px rgba(34,197,94,.45);
+      transition: transform .15s, background .15s;
+      animation: pulse 2.2s infinite; font-family: inherit;
+    }
+    .btn-submit:active { transform: scale(.97); }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 6px 24px rgba(34,197,94,.45); }
+      50%      { box-shadow: 0 6px 38px rgba(34,197,94,.78); }
     }
 
-    .btn-whatsapp {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      width: 100%;
-      padding: 18px;
-      background: var(--verde);
-      color: #fff;
-      font-size: 18px;
-      font-weight: 800;
-      border: none;
-      border-radius: 14px;
-      cursor: pointer;
-      box-shadow: 0 6px 24px rgba(34,197,94,.4);
-      transition: transform .15s, box-shadow .15s;
-      margin-top: 6px;
+    /* Trust badges */
+    .trust-badges {
+      display: flex; justify-content: center; gap: 12px;
+      margin-top: 14px; flex-wrap: wrap;
     }
-    .btn-whatsapp:active {
-      transform: scale(.97);
-      box-shadow: 0 3px 12px rgba(34,197,94,.3);
-    }
-    .btn-whatsapp svg { flex-shrink: 0; }
-
-    .disclaimer {
-      text-align: center;
-      font-size: 12px;
-      color: #999;
-      margin-top: 14px;
-      line-height: 1.5;
+    .trust-badge {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: #666; font-weight: 600;
     }
 
-    /* ── PROOF SECTION ────────────────────────────── */
-    .proof {
-      background: var(--cinza);
-      padding: 40px 20px;
+    /* SUCCESS */
+    #success-msg {
+      display: none; background: #ECFDF5;
+      border: 2px solid var(--verde); border-radius: 14px;
+      padding: 24px; text-align: center; color: #166534;
     }
-    .proof-title {
-      text-align: center;
-      font-size: 20px;
-      font-weight: 800;
-      margin-bottom: 24px;
-      color: var(--roxo);
-    }
+    #success-msg .ok-icon { font-size: 44px; margin-bottom: 10px; }
+    #success-msg strong { font-size: 19px; font-weight: 900; display: block; margin-bottom: 6px; }
+    #success-msg p { font-size: 14px; line-height: 1.5; }
 
+    /* COMPARATIVO */
+    .compare-section { padding: 40px 20px; background: var(--cinza); }
+    .compare-table { max-width: 480px; margin: 0 auto; border-collapse: collapse; width: 100%; }
+    .compare-table th {
+      padding: 12px; font-size: 14px; font-weight: 900;
+      border-radius: 0; background: transparent;
+    }
+    .compare-table th:first-child { text-align: left; color: #666; font-weight: 700; }
+    .compare-table th.col-cera { background: #FFEBEE; color: #C62828; border-radius: 12px 12px 0 0; }
+    .compare-table th.col-laser { background: var(--roxo); color: #FFD700; border-radius: 12px 12px 0 0; }
+    .compare-table td { padding: 10px 12px; font-size: 13px; border-top: 1px solid #E0E0E0; }
+    .compare-table td:first-child { font-weight: 600; color: #555; }
+    .compare-table td.cera { background: #FFF8F8; text-align: center; color: #C62828; }
+    .compare-table td.laser { background: #F3E5F5; text-align: center; color: var(--roxo); font-weight: 700; }
+    .compare-table tr:last-child td.cera { border-radius: 0 0 0 0; }
+    .compare-table tr:last-child td.laser { border-radius: 0 0 12px 12px; }
+
+    /* COMO FUNCIONA */
+    .como-funciona { padding: 40px 20px; }
+    .section-title { text-align: center; font-size: 20px; font-weight: 900; margin-bottom: 24px; color: var(--roxo); }
+    .steps { display: flex; flex-direction: column; gap: 16px; max-width: 440px; margin: 0 auto; }
+    .step { display: flex; gap: 14px; align-items: flex-start; }
+    .step-num {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--rosa); color: #fff;
+      font-size: 16px; font-weight: 900;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .step-content h3 { font-size: 15px; font-weight: 800; margin-bottom: 3px; }
+    .step-content p { font-size: 13px; color: #666; line-height: 1.45; }
+
+    /* PROOF */
+    .proof { background: #fff; padding: 40px 20px; }
     .stats {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-      max-width: 480px;
-      margin: 0 auto 36px;
+      display: grid; grid-template-columns: repeat(3,1fr);
+      gap: 12px; max-width: 480px; margin: 0 auto 36px;
     }
     .stat {
-      background: #fff;
-      border-radius: 14px;
-      padding: 16px 10px;
-      text-align: center;
-      box-shadow: 0 2px 10px rgba(0,0,0,.06);
+      background: var(--cinza); border-radius: 14px;
+      padding: 16px 8px; text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,.05);
     }
-    .stat-num {
-      font-size: 26px;
-      font-weight: 900;
-      color: var(--rosa);
-      line-height: 1;
-    }
-    .stat-label {
-      font-size: 11px;
-      color: #666;
-      margin-top: 4px;
-      font-weight: 600;
-    }
+    .stat-num { font-size: 26px; font-weight: 900; color: var(--rosa); line-height: 1; }
+    .stat-label { font-size: 11px; color: #666; margin-top: 4px; font-weight: 700; }
 
     /* Depoimentos */
     .depoimentos { display: flex; flex-direction: column; gap: 14px; max-width: 480px; margin: 0 auto; }
     .dep {
-      background: #fff;
-      border-radius: 14px;
-      padding: 16px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.06);
+      background: var(--cinza); border-radius: 14px;
+      padding: 16px; position: relative;
     }
-    .dep-stars { color: #FFB300; font-size: 14px; margin-bottom: 8px; }
-    .dep-text { font-size: 14px; color: #444; line-height: 1.5; margin-bottom: 10px; }
-    .dep-autor { font-size: 13px; font-weight: 700; color: var(--roxo); }
+    .dep::before {
+      content: '"'; position: absolute; top: 8px; right: 14px;
+      font-size: 52px; color: var(--rosa2); opacity: .12; line-height: 1;
+    }
+    .dep-stars { color: #FFB300; font-size: 15px; margin-bottom: 8px; }
+    .dep-text { font-size: 14px; color: #444; line-height: 1.55; margin-bottom: 10px; }
+    .dep-autor { font-size: 13px; font-weight: 800; color: var(--roxo); }
+    .dep-bairro { font-size: 12px; color: #999; font-weight: 400; }
 
-    /* ── CTA FINAL ────────────────────────────────── */
+    /* FAQ */
+    .faq-section { padding: 40px 20px; background: var(--cinza); }
+    .faq-list { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+    .faq-item {
+      background: #fff; border-radius: 14px; overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,.05);
+    }
+    .faq-q {
+      width: 100%; background: none; border: none; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px; font-size: 14px; font-weight: 700; color: var(--roxo);
+      font-family: inherit; text-align: left; gap: 10px;
+    }
+    .faq-q .chevron { flex-shrink: 0; transition: transform .25s; font-style: normal; font-size: 18px; }
+    .faq-item.open .faq-q .chevron { transform: rotate(180deg); }
+    .faq-a {
+      max-height: 0; overflow: hidden; transition: max-height .3s ease;
+      font-size: 14px; color: #555; line-height: 1.6; padding: 0 16px;
+    }
+    .faq-item.open .faq-a { max-height: 200px; padding: 0 16px 16px; }
+
+    /* GARANTIA */
+    .garantia-section {
+      padding: 32px 20px; text-align: center;
+      background: linear-gradient(135deg, #F3E5F5 0%, #FCE4EC 100%);
+    }
+    .garantia-icon { font-size: 48px; margin-bottom: 10px; }
+    .garantia-section h3 { font-size: 18px; font-weight: 900; color: var(--roxo); margin-bottom: 8px; }
+    .garantia-section p { font-size: 14px; color: #555; line-height: 1.55; max-width: 400px; margin: 0 auto; }
+
+    /* CTA FINAL */
     .cta-final {
       background: linear-gradient(135deg, var(--roxo) 0%, var(--rosa) 100%);
-      color: #fff;
-      text-align: center;
-      padding: 40px 20px;
+      color: #fff; text-align: center; padding: 40px 20px;
     }
     .cta-final h2 { font-size: clamp(20px, 6vw, 28px); font-weight: 900; margin-bottom: 10px; }
     .cta-final p { font-size: 15px; opacity: .9; margin-bottom: 24px; }
-
     .btn-cta2 {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      background: var(--verde);
-      color: #fff;
-      font-size: 17px;
-      font-weight: 800;
-      padding: 16px 28px;
-      border-radius: 14px;
-      text-decoration: none;
+      display: inline-flex; align-items: center; gap: 10px;
+      background: var(--verde); color: #fff;
+      font-size: 17px; font-weight: 800; padding: 16px 28px;
+      border-radius: 14px; text-decoration: none;
       box-shadow: 0 6px 24px rgba(34,197,94,.4);
     }
 
-    /* ── FOOTER ───────────────────────────────────── */
+    /* FOOTER */
     footer {
-      background: #1A1A2E;
-      color: #aaa;
-      text-align: center;
-      padding: 20px;
-      font-size: 12px;
-      line-height: 1.7;
+      background: #1A1A2E; color: #aaa;
+      text-align: center; padding: 20px;
+      font-size: 12px; line-height: 1.7;
     }
     footer strong { color: #fff; }
 
-    /* ── SUCCESS ──────────────────────────────────── */
-    #success-msg {
-      display: none;
-      background: #ECFDF5;
-      border: 2px solid var(--verde);
-      border-radius: 14px;
-      padding: 20px;
-      text-align: center;
-      color: #166534;
-      font-weight: 700;
-      font-size: 16px;
-      margin-top: 10px;
+    /* FLOATING BUTTON */
+    .fab {
+      position: fixed; bottom: 20px; right: 16px; z-index: 200;
+      background: var(--verde); color: #fff;
+      border: none; border-radius: 999px;
+      padding: 14px 18px; font-size: 14px; font-weight: 800;
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer; text-decoration: none; font-family: inherit;
+      box-shadow: 0 6px 24px rgba(34,197,94,.55);
+      animation: fabPulse 3s infinite;
+    }
+    .fab.hidden { display: none; }
+    @keyframes fabPulse {
+      0%,100% { box-shadow: 0 6px 24px rgba(34,197,94,.55); }
+      50%      { box-shadow: 0 6px 42px rgba(34,197,94,.88); }
     }
 
-    /* mobile pulse no botão */
-    @keyframes pulse {
-      0%, 100% { box-shadow: 0 6px 24px rgba(34,197,94,.4); }
-      50%       { box-shadow: 0 6px 32px rgba(34,197,94,.7); }
+    /* ═══════════════════════════════════════════════
+       DESKTOP — layout de 2 colunas a partir de 768px
+    ═══════════════════════════════════════════════ */
+    @media (min-width: 768px) {
+
+      /* Header mais largo */
+      .header { padding: 12px 48px; }
+      .header-logo { font-size: 22px; }
+      .header-cta { font-size: 15px; padding: 10px 22px; }
+
+      /* Urgency bar */
+      .urgency-bar { font-size: 15px; padding: 10px 24px; }
+
+      /* HERO — 2 colunas: texto | form */
+      .hero {
+        padding: 60px 48px 0;
+        display: grid;
+        grid-template-columns: 1fr 420px;
+        grid-template-rows: auto;
+        column-gap: 56px;
+        align-items: start;
+      }
+
+      /* Coluna esquerda — tudo alinhado à esquerda no desktop */
+      .badge { margin-bottom: 18px; }
+      .hero h1 { text-align: left; font-size: clamp(32px, 3.5vw, 48px); margin-bottom: 14px; }
+      .hero-sub { text-align: left; margin-left: 0; margin-right: 0; font-size: 18px; margin-bottom: 22px; }
+      .hero-checks { align-items: flex-start; margin-bottom: 28px; }
+      .hero-check { font-size: 15px; }
+      .hero-stats { justify-content: flex-start; margin-bottom: 0; }
+
+      /* Card do form — coluna direita, flutua ao lado */
+      .card {
+        grid-column: 2;
+        grid-row: 1 / span 6;
+        border-radius: 20px;
+        margin: 0;
+        margin-bottom: 40px;
+        box-shadow: 0 8px 40px rgba(0,0,0,.18);
+        align-self: start;
+        position: sticky;
+        top: 80px;
+      }
+
+      /* Seções internas — container centralizado */
+      .compare-section,
+      .como-funciona,
+      .proof,
+      .faq-section,
+      .garantia-section,
+      .cta-final {
+        padding-left: 48px;
+        padding-right: 48px;
+      }
+
+      .compare-table,
+      .steps,
+      .depoimentos,
+      .faq-list {
+        max-width: 720px;
+      }
+
+      .stats { max-width: 640px; }
+
+      /* Depoimentos em grid 2x2 */
+      .depoimentos {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      /* FAQ em 2 colunas */
+      .faq-list {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      /* Steps em 2 colunas */
+      .steps {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+
+      /* Footer */
+      footer { padding: 28px 48px; font-size: 14px; }
+
+      /* FAB no desktop — posição diferente */
+      .fab { bottom: 32px; right: 32px; font-size: 15px; padding: 16px 22px; }
     }
-    .btn-whatsapp { animation: pulse 2s infinite; }
+
+    @media (min-width: 1200px) {
+      .hero { padding: 72px 80px 0; column-gap: 72px; grid-template-columns: 1fr 460px; }
+      .compare-section, .como-funciona, .proof, .faq-section, .garantia-section, .cta-final {
+        padding-left: 80px; padding-right: 80px;
+      }
+    }
   </style>
 </head>
 <body>
 
-<!-- ── HERO ─────────────────────────────────── -->
+<!-- STICKY HEADER -->
+<header class="header">
+  <div class="header-logo">ICE<span>LASER</span> Recife</div>
+  <a href="#form" class="header-cta">🎁 Avaliação Grátis</a>
+</header>
+
+<!-- URGENCY BAR -->
+<div class="urgency-bar">
+  ⚡ Apenas <span class="red" id="vagas">3</span> vagas gratuitas restantes esta semana —
+  oferta expira em <span class="red" id="countdown">14:59</span>
+</div>
+
+<!-- HERO -->
 <section class="hero">
-  <div class="logo">ICE<span>LASER</span> Recife</div>
+  <div class="badge">✨ Avaliação 100% Gratuita — Sem Compromisso</div>
 
-  <div class="badge">✨ Avaliação 100% Gratuita</div>
+  <h1>Chega de se depilar<br><span>todo mês sem resultado!</span></h1>
 
-  <h1>Chega de<br><span>se depilar todo mês!</span></h1>
+  <p class="hero-sub">
+    Depilação a laser com tecnologia Crystal 3D Plus — <strong style="color:#FFD700">sem dor, sem ingrown</strong>,
+    resultado visível desde a 1ª sessão. Atendemos em Recife, bairro das Graças.
+  </p>
 
-  <p>Depilação a laser com resultado desde a 1ª sessão — sem dor, sem ingrown, sem gastar com lâmina para sempre.</p>
-
-  <div class="bullets">
-    <div class="bullet"><span class="bullet-icon">✅</span> Tecnologia Crystal 3D Plus — 3 ondas integradas</div>
-    <div class="bullet"><span class="bullet-icon">💳</span> 12x sem juros no cartão</div>
-    <div class="bullet"><span class="bullet-icon">📍</span> Rua Amélia, 896 — Graças, Recife</div>
-    <div class="bullet"><span class="bullet-icon">🎁</span> Avaliação gratuita + brinde surpresa</div>
+  <div class="hero-checks">
+    <div class="hero-check">Tecnologia Crystal 3D Plus — 3 ondas integradas</div>
+    <div class="hero-check">Resultado desde a 1ª sessão</div>
+    <div class="hero-check">Parcelamos em 12x sem juros no cartão</div>
+    <div class="hero-check">Avaliação gratuita + brinde surpresa</div>
   </div>
 
-  <!-- FORM dentro do hero, sobreposto com card branco -->
-  <div class="card">
-    <div class="card-title">Quero minha avaliação gratuita!</div>
-    <div class="card-sub">Preencha abaixo e fale direto com a gente no WhatsApp 👇</div>
+  <div class="hero-stats">
+    <div class="hero-stat"><span class="hero-stat-num">3k+</span> clientes</div>
+    <div class="hero-stat"><span class="hero-stat-num">5★</span> Google</div>
+    <div class="hero-stat"><span class="hero-stat-num">12x</span> sem juros</div>
+  </div>
 
-    <form id="lead-form" novalidate>
-      <label for="nome">Seu nome</label>
-      <input type="text" id="nome" name="nome" placeholder="Ex: Maria Silva" autocomplete="name" required />
+  <!-- FORM CARD -->
+  <div class="card" id="form">
+    <div id="form-content">
+      <div class="card-title">Quero minha avaliação gratuita!</div>
+      <div class="card-sub">Preencha e fale com a gente agora pelo WhatsApp 👇</div>
 
-      <label for="tel">Seu WhatsApp</label>
-      <input type="tel" id="tel" name="tel" placeholder="(81) 9 9999-9999" autocomplete="tel" required />
+      <!-- Âncora de preço — cria valor antes do CTA -->
+      <div class="price-anchor">
+        💸 Você gasta em média <strong>R$80–R$150/mês</strong> com cera e lâmina.<br>
+        Nossa avaliação é <strong>100% gratuita</strong> e mostramos como eliminar isso de vez.
+      </div>
 
-      <label for="area">Área de interesse</label>
-      <select id="area" name="area">
-        <option value="Avaliação geral">Avaliação geral (quero conhecer)</option>
-        <option value="Pernas completas">Pernas completas</option>
-        <option value="Buço e axilas">Buço e axilas</option>
-        <option value="Virilha completa">Virilha completa</option>
-        <option value="Corpo inteiro">Corpo inteiro</option>
-        <option value="Rosto">Rosto</option>
-      </select>
+      <form id="lead-form" novalidate>
+        <div class="field">
+          <label for="nome">Seu nome</label>
+          <input type="text" id="nome" name="nome" placeholder="Ex: Maria Silva"
+                 autocomplete="name" required inputmode="text" />
+          <div class="field-error">Por favor, informe seu nome.</div>
+        </div>
+        <div class="field">
+          <label for="tel">Seu WhatsApp</label>
+          <input type="tel" id="tel" name="tel" placeholder="(81) 9 9999-9999"
+                 autocomplete="tel" required inputmode="tel" />
+          <div class="field-error">Por favor, informe um WhatsApp válido.</div>
+        </div>
 
-      <button type="submit" class="btn-whatsapp">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
-        </svg>
-        Quero minha avaliação gratuita!
-      </button>
+        <button type="submit" class="btn-submit" id="btn-submit">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
+          </svg>
+          Agendar minha avaliação grátis!
+        </button>
+      </form>
 
-      <div id="success-msg">✅ Ótimo! Abrindo o WhatsApp agora...</div>
-    </form>
+      <div class="trust-badges">
+        <div class="trust-badge">🔒 Dados protegidos</div>
+        <div class="trust-badge">✅ Sem compromisso</div>
+        <div class="trust-badge">💳 12x sem juros</div>
+      </div>
+    </div>
 
-    <p class="disclaimer">🔒 Seus dados estão seguros. Não compartilhamos com terceiros.</p>
+    <div id="success-msg">
+      <div class="ok-icon">🎉</div>
+      <strong>Ótimo, <span id="nome-success"></span>!</strong>
+      <p>O WhatsApp foi aberto com sua mensagem.<br>
+      Nossa equipe responde em <strong>poucos minutos</strong> — fique de olho!</p>
+    </div>
   </div>
 </section>
 
-<!-- ── PROVA SOCIAL ───────────────────────────── -->
-<section class="proof">
-  <div class="proof-title">Por que escolher a IceLaser Recife?</div>
+<!-- COMPARATIVO LASER VS CERA -->
+<section class="compare-section">
+  <div class="section-title">Laser vs. Cera & Lâmina</div>
+  <table class="compare-table" aria-label="Comparativo entre depilação a laser e cera">
+    <thead>
+      <tr>
+        <th></th>
+        <th class="col-cera">Cera / Lâmina</th>
+        <th class="col-laser">Laser IceLaser</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Duração do resultado</td>
+        <td class="cera">2–4 semanas</td>
+        <td class="laser">Permanente ✓</td>
+      </tr>
+      <tr>
+        <td>Dor / desconforto</td>
+        <td class="cera">Alta 😣</td>
+        <td class="laser">Mínima 😊</td>
+      </tr>
+      <tr>
+        <td>Ingrown / foliculite</td>
+        <td class="cera">Frequente ❌</td>
+        <td class="laser">Eliminado ✓</td>
+      </tr>
+      <tr>
+        <td>Gasto em 2 anos</td>
+        <td class="cera">R$2.400+</td>
+        <td class="laser">1 pacote só ✓</td>
+      </tr>
+      <tr>
+        <td>Resultado visível</td>
+        <td class="cera">Nunca definitivo</td>
+        <td class="laser">Desde a 1ª sessão ✓</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
 
+<!-- COMO FUNCIONA -->
+<section class="como-funciona">
+  <div class="section-title">Como funciona?</div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Agende sua avaliação gratuita agora</h3>
+        <p>Preencha o formulário e fale com nossa equipe pelo WhatsApp. Rápido, sem burocracia.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Venha à clínica sem compromisso</h3>
+        <p>Conheça o espaço, faça o teste de pele gratuito e receba um orçamento personalizado.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Inicie o tratamento no seu ritmo</h3>
+        <p>Escolha o pacote ideal, parcele em 12x sem juros e comece a ver resultado desde a 1ª sessão.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Pele lisinha para sempre 🎉</h3>
+        <p>Em média 6–8 sessões para redução permanente de 90%+ dos pelos. Chega de gastar todo mês!</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROVA SOCIAL -->
+<section class="proof">
+  <div class="section-title">O que nossas clientes dizem</div>
   <div class="stats">
     <div class="stat">
       <div class="stat-num">3k+</div>
@@ -365,104 +580,249 @@
     </div>
     <div class="stat">
       <div class="stat-num">5★</div>
-      <div class="stat-label">Avaliação no Google</div>
+      <div class="stat-label">Google Reviews</div>
     </div>
     <div class="stat">
-      <div class="stat-num">1ª</div>
-      <div class="stat-label">Sessão com resultado</div>
+      <div class="stat-num">98%</div>
+      <div class="stat-label">Recomendam</div>
     </div>
   </div>
-
   <div class="depoimentos">
     <div class="dep">
       <div class="dep-stars">★★★★★</div>
-      <div class="dep-text">"Fiz a avaliação gratuita e fechei na mesma hora. Já na primeira sessão deu pra ver diferença! Recomendo demais."</div>
-      <div class="dep-autor">— Juliana M., Boa Viagem</div>
+      <div class="dep-text">"Fiz a avaliação gratuita e fechei na mesma hora. Já na primeira sessão deu pra ver diferença! Atendimento impecável."</div>
+      <div class="dep-autor">Juliana M. <span class="dep-bairro">• Boa Viagem</span></div>
     </div>
     <div class="dep">
       <div class="dep-stars">★★★★★</div>
-      <div class="dep-text">"Tinha medo de doer mas foi super tranquilo. Atendimento incrível, clínica muito bem equipada."</div>
-      <div class="dep-autor">— Fernanda C., Graças</div>
+      <div class="dep-text">"Tinha medo de doer mas foi super tranquilo. Tecnologia de ponta e equipe muito atenciosa. Resultado incrível desde a 1ª sessão!"</div>
+      <div class="dep-autor">Fernanda C. <span class="dep-bairro">• Graças</span></div>
     </div>
     <div class="dep">
       <div class="dep-stars">★★★★★</div>
-      <div class="dep-text">"Investi no pacote e foi a melhor decisão. Sem ingrown, sem manchas, pele lisinha o tempo todo!"</div>
-      <div class="dep-autor">— Camila S., Derby</div>
+      <div class="dep-text">"Gastava R$120/mês com cera. Fiz o pacote, parcelei tranquilo e em 4 sessões já reduzi 80% dos pelos. Melhor investimento!"</div>
+      <div class="dep-autor">Camila S. <span class="dep-bairro">• Derby</span></div>
+    </div>
+    <div class="dep">
+      <div class="dep-stars">★★★★★</div>
+      <div class="dep-text">"Fiz virilha completa e o resultado foi além do esperado. Zero ingrown, zero dor durante a sessão. Clínica super limpa e organizada."</div>
+      <div class="dep-autor">Mariana T. <span class="dep-bairro">• Espinheiro</span></div>
     </div>
   </div>
 </section>
 
-<!-- ── CTA FINAL ──────────────────────────────── -->
+<!-- FAQ -->
+<section class="faq-section">
+  <div class="section-title">Perguntas frequentes</div>
+  <div class="faq-list">
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        Dói fazer depilação a laser?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        Nossa tecnologia Crystal 3D Plus é uma das mais modernas do mercado e causa desconforto mínimo —
+        a maioria das clientes descreve como um leve beliscão. Nada comparado à cera!
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        Funciona para minha cor de pele e tipo de pelo?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        O Crystal 3D Plus tem 3 comprimentos de onda que atendem todos os fototipos de pele
+        (inclusive peles negras) e diferentes espessuras de pelo. Na avaliação gratuita,
+        fazemos o teste de pele personalizado para garantir o melhor resultado para você.
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        Quantas sessões vou precisar?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        Em média 6 a 8 sessões para uma redução permanente de 90%+ dos pelos.
+        O resultado começa a aparecer já na 1ª sessão, com queda progressiva
+        a cada mês de tratamento.
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        Quanto custa o pacote? Tem parcelamento?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        O valor varia conforme as áreas escolhidas. Na avaliação gratuita você recebe
+        um orçamento personalizado. Parcelamos em até 12x sem juros no cartão — sem susto no bolso!
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        A avaliação é realmente gratuita? Tem alguma obrigação?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        100% gratuita e sem nenhum compromisso. Você vem, conhece a clínica,
+        faz o teste de pele e recebe o orçamento. A decisão de iniciar o tratamento é inteiramente sua!
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- GARANTIA -->
+<section class="garantia-section">
+  <div class="garantia-icon">🛡️</div>
+  <h3>Sua satisfação é nossa prioridade</h3>
+  <p>
+    Atendemos mais de 3.000 clientes com nota 5 estrelas no Google.
+    Se na sua avaliação gratuita você não ficar satisfeita com o que viu,
+    não tem problema — você vai embora sem pagar nada e sem pressão.
+  </p>
+</section>
+
+<!-- CTA FINAL -->
 <section class="cta-final">
-  <h2>Vagas limitadas esta semana</h2>
-  <p>Garanta sua avaliação gratuita agora e receba um brinde surpresa na sua visita.</p>
-  <a href="#lead-form" class="btn-cta2" onclick="document.getElementById('nome').focus()">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+  <h2>Garanta sua vaga esta semana</h2>
+  <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>
+  Apenas <strong id="vagas2">3</strong> vagas disponíveis — oferta expira em <strong id="countdown2">--:--</strong></p>
+  <a href="#form" class="btn-cta2" id="cta-final-btn">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
     </svg>
-    Agendar avaliação gratuita
+    Quero minha avaliação gratuita!
   </a>
 </section>
 
-<!-- ── FOOTER ─────────────────────────────────── -->
+<!-- FOOTER -->
 <footer>
   <strong>Espaço IceLaser Recife</strong><br>
   Rua Amélia, 896 — Graças, Recife — PE<br>
   WhatsApp: (81) 9 9381-4558<br><br>
-  © 2025 IceLaser Recife. Todos os direitos reservados.
+  © 2026 IceLaser Recife. Todos os direitos reservados.
 </footer>
+
+<!-- FLOATING ACTION BUTTON -->
+<a href="#form" class="fab" id="fab" aria-label="Agendar avaliação gratuita">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
+  </svg>
+  Agendar grátis
+</a>
 
 <script>
   const WA_NUMBER = '5581993814558';
 
-  // Máscara de telefone
-  document.getElementById('tel').addEventListener('input', function(e) {
-    let v = e.target.value.replace(/\D/g, '').substring(0, 11);
-    if (v.length >= 7) {
-      v = '(' + v.substring(0,2) + ') ' + v.substring(2,7) + '-' + v.substring(7);
-    } else if (v.length >= 3) {
-      v = '(' + v.substring(0,2) + ') ' + v.substring(2);
-    } else if (v.length >= 1) {
-      v = '(' + v;
+  /* COUNTDOWN ─────────────────────────────────────── */
+  (function() {
+    const KEY = 'ice_cd2_end';
+    let end = parseInt(localStorage.getItem(KEY) || '0');
+    if (!end || Date.now() > end) {
+      end = Date.now() + 15 * 60 * 1000;
+      localStorage.setItem(KEY, end);
     }
+    function fmt(ms) {
+      const left = Math.max(0, ms);
+      const m = String(Math.floor(left/60000)).padStart(2,'0');
+      const s = String(Math.floor((left%60000)/1000)).padStart(2,'0');
+      return m+':'+s;
+    }
+    function update() {
+      const left = end - Date.now();
+      const str  = fmt(left);
+      ['countdown','countdown2'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = str;
+      });
+      if (left > 0) setTimeout(update, 500);
+    }
+    update();
+  })();
+
+  /* FAB VISIBILITY ────────────────────────────────── */
+  (function() {
+    const fab  = document.getElementById('fab');
+    const form = document.getElementById('form');
+    if (!fab || !form) return;
+    const obs = new IntersectionObserver(entries => {
+      fab.classList.toggle('hidden', entries[0].isIntersecting);
+    }, { threshold: 0.2 });
+    obs.observe(form);
+  })();
+
+  /* PHONE MASK ────────────────────────────────────── */
+  document.getElementById('tel').addEventListener('input', function(e) {
+    let v = e.target.value.replace(/\D/g,'').substring(0,11);
+    if (v.length >= 7)      v = '('+v.slice(0,2)+') '+v.slice(2,7)+'-'+v.slice(7);
+    else if (v.length >= 3) v = '('+v.slice(0,2)+') '+v.slice(2);
+    else if (v.length >= 1) v = '('+v;
     e.target.value = v;
   });
 
+  /* PIXEL: InitiateCheckout ao focar form ─────────── */
+  let formFocused = false;
+  ['nome','tel'].forEach(id => {
+    document.getElementById(id).addEventListener('focus', function() {
+      if (!formFocused) {
+        formFocused = true;
+        try { fbq('track', 'InitiateCheckout', {content_name:'Form Avaliacao Gratuita'}); } catch(e){}
+      }
+    });
+  });
+
+  /* SUBMIT ────────────────────────────────────────── */
   document.getElementById('lead-form').addEventListener('submit', function(e) {
     e.preventDefault();
 
-    const nome  = document.getElementById('nome').value.trim();
-    const tel   = document.getElementById('tel').value.trim();
-    const area  = document.getElementById('area').value;
+    const nomeEl = document.getElementById('nome');
+    const telEl  = document.getElementById('tel');
+    const nome   = nomeEl.value.trim();
+    const tel    = telEl.value.trim();
+    let valid    = true;
 
-    if (!nome || !tel) {
-      alert('Por favor, preencha seu nome e WhatsApp.');
-      return;
-    }
+    if (!nome)                                { nomeEl.classList.add('invalid'); valid=false; } else nomeEl.classList.remove('invalid');
+    if (tel.replace(/\D/g,'').length < 10)   { telEl.classList.add('invalid');  valid=false; } else telEl.classList.remove('invalid');
+    if (!valid) return;
 
-    // Mostrar mensagem de sucesso
-    const btn = document.querySelector('.btn-whatsapp');
-    btn.textContent = '✅ Abrindo WhatsApp...';
-    btn.style.background = '#16a34a';
-    document.getElementById('success-msg').style.display = 'block';
+    // 1. DISPARA PIXEL ANTES DO REDIRECT — CRÍTICO
+    try {
+      fbq('track', 'Lead', { content_name:'Avaliacao Gratuita LP', content_category:'depilacao_laser', value:0, currency:'BRL' });
+      fbq('track', 'CompleteRegistration', { content_name:'Avaliacao Gratuita LP', status:'submitted' });
+    } catch(ex) {}
 
-    // Mensagem pré-preenchida
+    // 2. Monta mensagem WA
     const msg = encodeURIComponent(
-      `Olá! Vim pela IceLaser e quero agendar minha *avaliação gratuita*! 🎉\n\n` +
-      `*Nome:* ${nome}\n` +
-      `*Área de interesse:* ${area}\n\n` +
+      `Olá! Vim pelo anúncio da IceLaser e quero agendar minha *avaliação gratuita*! 🎉\n\n`+
+      `*Nome:* ${nome}\n`+
+      `*WhatsApp:* ${tel}\n\n`+
       `Podem me ajudar?`
     );
 
-    // Disparar evento Lead no pixel
-    if (typeof fbq !== 'undefined') {
-      fbq('track', 'Lead', { content_name: area });
-    }
+    // 3. Mostra success state (mantém a página — não redireciona, pixel não morre)
+    document.getElementById('nome-success').textContent = nome.split(' ')[0];
+    document.getElementById('form-content').style.display = 'none';
+    document.getElementById('success-msg').style.display  = 'block';
 
-    // Redirecionar para WhatsApp após 1.2s
-    setTimeout(() => {
-      window.location.href = `https://wa.me/${WA_NUMBER}?text=${msg}`;
-    }, 1200);
+    // 4. Abre WA em nova aba (página não fecha, pixel completa a requisição)
+    window.open(`https://wa.me/${WA_NUMBER}?text=${msg}`, '_blank');
+
+    // 5. Urgência dinâmica — reduz vagas
+    ['vagas','vagas2'].forEach(id => {
+      const el  = document.getElementById(id);
+      const cur = parseInt(el.textContent)||3;
+      if (cur > 1) el.textContent = cur-1;
+    });
+  });
+
+  /* FAQ ACCORDION ─────────────────────────────────── */
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const item = this.closest('.faq-item');
+      const open = item.classList.contains('open');
+      document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
+      if (!open) item.classList.add('open');
+      this.setAttribute('aria-expanded', !open);
+    });
   });
 </script>
 </body>
