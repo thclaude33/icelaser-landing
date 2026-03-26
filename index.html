@@ -862,8 +862,8 @@
     document.getElementById('form-content').style.display = 'none';
     document.getElementById('success-msg').style.display  = 'block';
 
-    // 4. Abre WA em nova aba (página não fecha, pixel completa a requisição)
-    window.open(`https://wa.me/${WA_NUMBER}?text=${msg}`, '_blank');
+    // 4. Abre WA — usa location.href para evitar bloqueio de popup no iOS Safari
+    location.href = `https://wa.me/${WA_NUMBER}?text=${msg}`;
 
     // 5. Urgência dinâmica — reduz vagas
     ['vagas','vagas2'].forEach(id => {
