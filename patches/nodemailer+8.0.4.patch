@@ -1,0 +1,60 @@
+diff --git a/node_modules/nodemailer/lib/fetch/index.js b/node_modules/nodemailer/lib/fetch/index.js
+index 6c83836..250880c 100644
+--- a/node_modules/nodemailer/lib/fetch/index.js
++++ b/node_modules/nodemailer/lib/fetch/index.js
+@@ -34,7 +34,14 @@ function nmfetch(url, options) {
+     }
+ 
+     const fetchRes = options.fetchRes;
+-    const parsed = urllib.parse(url);
++    const _pu = new URL(url);
++    const parsed = {
++        protocol: _pu.protocol,
++        hostname: _pu.hostname,
++        port: _pu.port,
++        path: _pu.pathname + _pu.search,
++        auth: (_pu.username || _pu.password) ? `${decodeURIComponent(_pu.username)}:${decodeURIComponent(_pu.password)}` : null
++    };
+     let method = (options.method || '').toString().trim().toUpperCase() || 'GET';
+     let finished = false;
+     let cookies;
+diff --git a/node_modules/nodemailer/lib/mailer/index.js b/node_modules/nodemailer/lib/mailer/index.js
+index 971438b..b19f80c 100644
+--- a/node_modules/nodemailer/lib/mailer/index.js
++++ b/node_modules/nodemailer/lib/mailer/index.js
+@@ -310,7 +310,14 @@ class Mail extends EventEmitter {
+      * @param {String} proxyUrl Proxy configuration url
+      */
+     setupProxy(proxyUrl) {
+-        const proxy = urllib.parse(proxyUrl);
++        const _pu = new URL(proxyUrl);
++        const proxy = {
++            protocol: _pu.protocol,
++            href: _pu.href,
++            port: _pu.port,
++            hostname: _pu.hostname,
++            auth: (_pu.username || _pu.password) ? `${_pu.username}:${_pu.password}` : null
++        };
+ 
+         // setup socket handler for the mailer object
+         this.getSocket = (options, callback) => {
+diff --git a/node_modules/nodemailer/lib/shared/index.js b/node_modules/nodemailer/lib/shared/index.js
+index 2f923c2..76d8722 100644
+--- a/node_modules/nodemailer/lib/shared/index.js
++++ b/node_modules/nodemailer/lib/shared/index.js
+@@ -294,7 +294,14 @@ module.exports.resolveHostname = (options, callback) => {
+ module.exports.parseConnectionUrl = str => {
+     str = str || '';
+     const options = {};
+-    const url = urllib.parse(str, true);
++    const _u = new URL(str);
++    const url = {
++        protocol: _u.protocol,
++        port: _u.port,
++        hostname: _u.hostname,
++        auth: (_u.username || _u.password) ? `${decodeURIComponent(_u.username)}:${decodeURIComponent(_u.password)}` : null,
++        query: Object.fromEntries(_u.searchParams)
++    };
+ 
+     switch (url.protocol) {
+         case 'smtp:':

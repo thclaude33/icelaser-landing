@@ -3,13 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Depilação Laser Recife | 1ª Sessão Grátis — IceLaser Graças</title>
-  <meta name="description" content="Depilação a laser em Recife. Primeira sessão gratuita nas axilas. Tecnologia Crystal 3D Plus. Clínica nas Graças. Resultado desde a 1ª sessão. Agende agora." />
+  <title>Depilação Laser Recife | Pele Lisa para Sempre — 1ª Sessão Grátis | IceLaser</title>
+  <meta name="description" content="Chega de cera. 3.000+ clientes em Recife, nas Graças. Laser Crystal 3D Plus — resultado desde a 1ª sessão, sem dor. Garanta sua 1ª sessão grátis nas axilas." />
+
+  <!-- Vercel Web Analytics -->
+  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+  <script defer src="/_vercel/insights/script.js"></script>
+
+  <!-- Vercel Speed Insights (Core Web Vitals) -->
+  <script>window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script>
+  <script defer src="/_vercel/speed-insights/script.js"></script>
 
   <!-- Open Graph -->
-  <meta property="og:title" content="Avaliação Gratuita — Depilação Laser IceLaser Recife">
-  <meta property="og:description" content="Chega de cera. Primeira sessão grátis nas axilas. Tecnologia Crystal 3D Plus. Apenas 3 vagas esta semana.">
-  <meta property="og:image" content="https://icelaser-landing-c9in.vercel.app/og-image.jpg">
+  <meta property="og:title" content="Chega de Cera — 1ª Sessão Grátis nas Axilas | IceLaser Recife">
+  <meta property="og:description" content="3.000+ clientes em Recife. Laser Crystal 3D Plus — sem dor, sem ingrown, resultado desde a 1ª sessão. Apenas 3 vagas gratuitas esta semana.">
+  <meta property="og:image" content="https://icelaser-landing-c9in.vercel.app/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://icelaser-landing-c9in.vercel.app/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
   <meta property="og:url" content="https://icelaser-landing-c9in.vercel.app/">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="pt_BR">
@@ -33,7 +45,7 @@
     "aggregateRating": {
       "@type": "AggregateRating",
       "ratingValue": "5",
-      "reviewCount": "3000"
+      "reviewCount": 3000
     },
     "description": "Clínica de depilação a laser em Recife nas Graças. Tecnologia Crystal 3D Plus. Primeira sessão gratuita.",
     "openingHours": "Mo-Sa 09:00-19:00"
@@ -115,7 +127,7 @@
       --roxo:  #6B0F6B;
       --rosa:  #C2185B;
       --rosa2: #E91E8C;
-      --verde: #22C55E;
+      --verde: #16A34A;
       --cinza: #F5F5F7;
       --texto: #1A1A2E;
     }
@@ -140,7 +152,8 @@
     .header-cta {
       background: var(--verde); color: #fff;
       font-size: 13px; font-weight: 700;
-      padding: 8px 14px; border-radius: 999px; text-decoration: none; white-space: nowrap;
+      padding: 10px 16px; border-radius: 999px; text-decoration: none; white-space: nowrap;
+      min-height: 44px; display: inline-flex; align-items: center;
     }
 
     /* URGENCY BAR */
@@ -230,14 +243,14 @@
       background: var(--verde); color: #fff;
       font-size: 17px; font-weight: 900;
       border: none; border-radius: 14px; cursor: pointer;
-      box-shadow: 0 6px 24px rgba(34,197,94,.45);
+      box-shadow: 0 6px 24px rgba(22,163,74,.45);
       transition: transform .15s, background .15s;
       animation: pulse 2.2s infinite; font-family: inherit;
     }
     .btn-submit:active { transform: scale(.97); }
     @keyframes pulse {
-      0%,100% { box-shadow: 0 6px 24px rgba(34,197,94,.45); }
-      50%      { box-shadow: 0 6px 38px rgba(34,197,94,.78); }
+      0%,100% { box-shadow: 0 6px 24px rgba(22,163,74,.45); }
+      50%      { box-shadow: 0 6px 38px rgba(22,163,74,.78); }
     }
 
     /* Trust badges */
@@ -362,7 +375,7 @@
       background: var(--verde); color: #fff;
       font-size: 17px; font-weight: 800; padding: 16px 28px;
       border-radius: 14px; text-decoration: none;
-      box-shadow: 0 6px 24px rgba(34,197,94,.4);
+      box-shadow: 0 6px 24px rgba(22,163,74,.4);
     }
 
     /* FOOTER */
@@ -378,16 +391,16 @@
       position: fixed; bottom: 20px; right: 16px; z-index: 200;
       background: var(--verde); color: #fff;
       border: none; border-radius: 999px;
-      padding: 14px 18px; font-size: 14px; font-weight: 800;
-      display: flex; align-items: center; gap: 8px;
+      padding: 14px 20px; font-size: 14px; font-weight: 800;
+      min-height: 44px; display: flex; align-items: center; gap: 8px;
       cursor: pointer; text-decoration: none; font-family: inherit;
-      box-shadow: 0 6px 24px rgba(34,197,94,.55);
+      box-shadow: 0 6px 24px rgba(22,163,74,.55);
       animation: fabPulse 3s infinite;
     }
     .fab.hidden { display: none; }
     @keyframes fabPulse {
-      0%,100% { box-shadow: 0 6px 24px rgba(34,197,94,.55); }
-      50%      { box-shadow: 0 6px 42px rgba(34,197,94,.88); }
+      0%,100% { box-shadow: 0 6px 24px rgba(22,163,74,.55); }
+      50%      { box-shadow: 0 6px 42px rgba(22,163,74,.88); }
     }
 
     /* ═══════════════════════════════════════════════
@@ -507,18 +520,18 @@
 <section class="hero">
   <div class="badge">✨ Avaliação 100% Gratuita — Sem Compromisso</div>
 
-  <h1>Chega de se depilar<br><span>todo mês sem resultado!</span></h1>
+  <h1>Chega de Cera.<br><span>Pele Lisa para Sempre — 1ª Sessão Grátis</span></h1>
 
   <p class="hero-sub">
-    Depilação a laser com tecnologia Crystal 3D Plus — <strong style="color:#FFD700">sem dor, sem ingrown</strong>,
-    resultado visível desde a 1ª sessão. Atendemos em Recife, bairro das Graças.
+    3.000+ clientes atendidas em Recife, nas Graças. Laser Crystal 3D Plus — <strong style="color:#FFD700">sem dor, sem pelos encravados</strong>,
+    resultado visível desde a 1ª sessão.
   </p>
 
   <div class="hero-checks">
-    <div class="hero-check">Tecnologia Crystal 3D Plus — 3 ondas integradas</div>
-    <div class="hero-check">Resultado desde a 1ª sessão</div>
+    <div class="hero-check">Pele lisa por semanas — não por dias</div>
+    <div class="hero-check">Resultado visível desde a 1ª sessão</div>
     <div class="hero-check">Parcelamos em 12x sem juros no cartão</div>
-    <div class="hero-check">Avaliação gratuita + brinde surpresa</div>
+    <div class="hero-check">Avaliação 100% gratuita + brinde surpresa</div>
   </div>
 
   <div class="hero-stats">
@@ -530,8 +543,8 @@
   <!-- FORM CARD -->
   <div class="card" id="form">
     <div id="form-content">
-      <div class="card-title">Quero minha avaliação gratuita!</div>
-      <div class="card-sub">Preencha e fale com a gente agora pelo WhatsApp 👇</div>
+      <div class="card-title">Garantir minha vaga grátis</div>
+      <div class="card-sub">Preencha em 10s — resposta em minutos 👇</div>
 
       <!-- Âncora de preço — cria valor antes do CTA -->
       <div class="price-anchor">
@@ -579,7 +592,7 @@
 
 <!-- COMPARATIVO LASER VS CERA -->
 <section class="compare-section">
-  <div class="section-title">Laser vs. Cera & Lâmina</div>
+  <div class="section-title">Por que Laser é Mais Econômico que Cera?</div>
   <table class="compare-table" aria-label="Comparativo entre depilação a laser e cera">
     <thead>
       <tr>
@@ -655,7 +668,7 @@
 
 <!-- PROVA SOCIAL -->
 <section class="proof">
-  <div class="section-title">O que nossas clientes dizem</div>
+  <div class="section-title">3.000+ Clientes em Recife — Veja o que Dizem</div>
   <div class="stats">
     <div class="stat">
       <div class="stat-num">3k+</div>
@@ -756,24 +769,24 @@
 <!-- GARANTIA -->
 <section class="garantia-section">
   <div class="garantia-icon">🛡️</div>
-  <h3>Sua satisfação é nossa prioridade</h3>
+  <h3>Avalie de Graça. Sem Pressão. Sem Compromisso.</h3>
   <p>
-    Atendemos mais de 3.000 clientes com nota 5 estrelas no Google.
-    Se na sua avaliação gratuita você não ficar satisfeita com o que viu,
-    não tem problema — você vai embora sem pagar nada e sem pressão.
+    Mais de 3.000 clientes atendidas com nota 5 estrelas no Google.
+    Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento.
+    Se não quiser continuar — sem problema, sem pressão, sem pagar nada.
   </p>
 </section>
 
 <!-- CTA FINAL -->
 <section class="cta-final">
-  <h2>Garanta sua vaga esta semana</h2>
+  <h2>Chega de Cera — Garanta sua Vaga Grátis</h2>
   <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>
   Apenas <strong id="vagas2">3</strong> vagas disponíveis — válido até domingo 29/03</p>
   <a href="#form" class="btn-cta2" id="cta-final-btn">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
     </svg>
-    Quero minha avaliação gratuita!
+    Garantir Minha 1ª Sessão Grátis
   </a>
 </section>
 
@@ -790,7 +803,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
   </svg>
-  Agendar grátis
+  Garantir vaga grátis
 </a>
 
 <script>
@@ -843,11 +856,82 @@
     if (tel.replace(/\D/g,'').length < 10)   { telEl.classList.add('invalid');  valid=false; } else telEl.classList.remove('invalid');
     if (!valid) return;
 
-    // 1. DISPARA PIXEL ANTES DO REDIRECT — CRÍTICO
+    // 1. DISPARA PIXEL + CAPI — event_id garante deduplicação
+    const eventId = 'ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+
+    // Captura _fbp (cookie Meta) e fbclid (URL param) para aumentar EMQ no CAPI
+    const fbpCookie = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbp='));
+    const fbp = fbpCookie ? fbpCookie.split('=')[1] : undefined;
+    const params = new URLSearchParams(window.location.search);
+    const fbclid = params.get('fbclid') || undefined;
+    const fbc = fbclid ? ('fb.1.' + Date.now() + '.' + fbclid) : undefined;
+
+    // Captura origem completa: campanha, anúncio, público, placement (via UTM tags dinâmicos do Meta)
+    const utm = {
+      utm_source:   params.get('utm_source')   || undefined,
+      utm_medium:   params.get('utm_medium')   || undefined,
+      utm_campaign: params.get('utm_campaign') || undefined,
+      utm_content:  params.get('utm_content')  || undefined,
+      utm_term:     params.get('utm_term')     || undefined,
+      ad_id:        params.get('ad_id')        || undefined,
+      adset_id:     params.get('adset_id')     || undefined,
+      campaign_id:  params.get('campaign_id')  || undefined,
+      placement:    params.get('placement')    || undefined,
+    };
+
+    const capiData = {
+      nome, telefone: tel,
+      event_source_url: location.href,
+      client_user_agent: navigator.userAgent,
+      fbp,
+      fbc,
+      ...utm,
+    };
+
+    // Advanced Matching — reinit pixel com dados do usuário para aumentar EMQ
     try {
-      fbq('track', 'Lead', { content_name:'Avaliacao Gratuita LP', content_category:'depilacao_laser', value:0, currency:'BRL' });
-      fbq('track', 'CompleteRegistration', { content_name:'Avaliacao Gratuita LP', status:'submitted' });
+      const telDigits = tel.replace(/\D/g, '');
+      const nomeParts = nome.trim().toLowerCase().split(/\s+/);
+      fbq('init', '2774496306216737', {
+        ph: telDigits.startsWith('55') ? telDigits : '55' + telDigits,
+        fn: nomeParts[0],
+        ln: nomeParts.length > 1 ? nomeParts[nomeParts.length - 1] : undefined,
+        country: 'br',
+        st: 'pe',
+        ct: 'recife',
+      });
     } catch(ex) {}
+
+    try {
+      fbq('track', 'Lead',
+        { content_name:'Avaliacao Gratuita LP', content_category:'depilacao_laser', value:0, currency:'BRL' },
+        { eventID: eventId }
+      );
+      fbq('track', 'CompleteRegistration',
+        { content_name:'Avaliacao Gratuita LP', status:'submitted' },
+        { eventID: eventId + '_cr' }
+      );
+    } catch(ex) {}
+
+    // Vercel Analytics — evento de lead submit (inclui variante A/B ativa)
+    try {
+      const ctaVariant = document.getElementById('btn-submit')?.dataset.ctaVariant || 'avaliar';
+      window.va('event', { name: 'Lead Submit', data: { cta_variant: ctaVariant, source: 'landing_page' } });
+    } catch {}
+
+    // CAPI server-side — fire-and-forget, não bloqueia o fluxo
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_name: 'Lead', event_id: eventId, ...capiData }),
+      keepalive: true,
+    }).catch(() => {});
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_name: 'CompleteRegistration', event_id: eventId + '_cr', ...capiData }),
+      keepalive: true,
+    }).catch(() => {});
 
     // 2. Monta mensagem WA
     const msg = encodeURIComponent(
@@ -862,8 +946,8 @@
     document.getElementById('form-content').style.display = 'none';
     document.getElementById('success-msg').style.display  = 'block';
 
-    // 4. Abre WA — usa location.href para evitar bloqueio de popup no iOS Safari
-    location.href = `https://wa.me/${WA_NUMBER}?text=${msg}`;
+    // 4. Abre WA — delay 300ms garante envio dos beacons do pixel antes de navegar
+    setTimeout(() => { location.href = `https://wa.me/${WA_NUMBER}?text=${msg}`; }, 300);
 
     // 5. Urgência dinâmica — reduz vagas
     ['vagas','vagas2'].forEach(id => {
@@ -882,6 +966,77 @@
       if (!open) item.classList.add('open');
       this.setAttribute('aria-expanded', !open);
     });
+  });
+
+  /* VERCEL FEATURE FLAG — A/B test do botão CTA ───── */
+  const CTA_VARIANTS = {
+    avaliar:     'Agendar minha avaliação grátis!',
+    axila_gratis:'Quero minha 1ª Axila GRÁTIS!',
+    whatsapp:    'Falar no WhatsApp agora',
+  };
+  (async function loadFlag() {
+    try {
+      const r = await fetch('/api/flags?flag=cta-variant&fallback=avaliar');
+      const { value } = await r.json();
+      const label = CTA_VARIANTS[value] || CTA_VARIANTS.avaliar;
+      const btn = document.getElementById('btn-submit');
+      if (btn) {
+        // Preserva o SVG do ícone WA — só troca o texto (último nó de texto)
+        const textNode = [...btn.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+        if (textNode) textNode.textContent = '\n          ' + label + '\n        ';
+        btn.dataset.ctaVariant = value;
+      }
+      // Reporta flag ao Vercel Analytics para aparecer no Dashboard de Flags
+      const flagScript = document.createElement('script');
+      flagScript.type = 'application/json';
+      flagScript.setAttribute('data-flag-values', '');
+      flagScript.textContent = JSON.stringify({ 'cta-variant': value });
+      document.head.appendChild(flagScript);
+    } catch {}
+  })();
+
+  /* VERCEL EDGE CONFIG — urgência dinâmica ─────────── */
+  (async function loadConfig() {
+    try {
+      const r = await fetch('/api/config');
+      const { urgencia_vagas, urgencia_data } = await r.json();
+      ['vagas','vagas2'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = urgencia_vagas;
+      });
+      // Atualiza data em todos os elementos da página
+      document.querySelectorAll('.urgency-bar, .cta-final p').forEach(el => {
+        el.innerHTML = el.innerHTML.replace(
+          /válido até \S+ \S+/g,
+          'válido até ' + urgencia_data
+        );
+      });
+    } catch {}
+  })();
+
+  /* VERCEL ANALYTICS — eventos customizados ────────── */
+  // Rastreia scroll até o formulário
+  (function() {
+    const form = document.getElementById('form');
+    if (!form) return;
+    let tracked = false;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && !tracked) {
+        tracked = true;
+        try { window.va('event', { name: 'Scroll ao Formulario' }); } catch {}
+      }
+    }, { threshold: 0.5 });
+    obs.observe(form);
+  })();
+
+  // Rastreia clique no header CTA
+  document.querySelector('.header-cta')?.addEventListener('click', function() {
+    try { window.va('event', { name: 'Click CTA Header' }); } catch {}
+  });
+
+  // Rastreia clique no FAB
+  document.getElementById('fab')?.addEventListener('click', function() {
+    try { window.va('event', { name: 'Click FAB WhatsApp' }); } catch {}
   });
 </script>
 </body>

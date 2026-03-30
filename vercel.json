@@ -1,1 +1,121 @@
-{"version": 2}
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+
+  "regions": ["gru1"],
+
+  "fluid": true,
+
+  "crons": [
+    { "path": "/api/cron/daily-report", "schedule": "0 11 * * *" },
+    { "path": "/api/cron/daily-report", "schedule": "0 23 * * *" }
+  ],
+
+  "rewrites": [
+    {
+      "source": "/.well-known/vercel/flags",
+      "destination": "/api/flags-manifest"
+    }
+  ],
+
+  "functions": {
+    "api/flags-manifest.js": {
+      "memory": 128,
+      "maxDuration": 10,
+      "regions": ["gru1"]
+    },
+    "api/track.js": {
+      "memory": 512,
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/whatsapp.js": {
+      "memory": 256,
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/flags.js": {
+      "memory": 128,
+      "maxDuration": 10,
+      "regions": ["gru1"]
+    },
+    "api/config.js": {
+      "memory": 128,
+      "maxDuration": 10,
+      "regions": ["gru1"]
+    },
+    "api/cron/daily-report.js": {
+      "memory": 512,
+      "maxDuration": 60,
+      "regions": ["gru1"]
+    },
+    "api/og.js": {
+      "memory": 128,
+      "maxDuration": 10
+    },
+    "api/log-drain.js": {
+      "memory": 128,
+      "maxDuration": 10,
+      "regions": ["gru1"]
+    },
+    "api/vercel-webhook.js": {
+      "memory": 256,
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/conversion.js": {
+      "memory": 256,
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    }
+  },
+
+  "images": {
+    "sizes": [256, 640, 828, 1080, 1200, 1920],
+    "formats": ["image/avif", "image/webp"],
+    "minimumCacheTTL": 2592000,
+    "qualities": [60, 75, 90],
+    "localPatterns": [
+      { "pathname": "^/assets/.*$", "search": "" },
+      { "pathname": "^/images/.*$", "search": "" }
+    ],
+    "dangerouslyAllowSVG": false,
+    "contentSecurityPolicy": "script-src 'none'; frame-src 'none'; sandbox;",
+    "contentDispositionType": "inline"
+  },
+
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(self), payment=()" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" }
+      ]
+    },
+    {
+      "source": "/assets/:file",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
+        { "key": "Vary", "value": "Accept-Encoding" }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" },
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" }
+      ]
+    }
+  ],
+
+  "redirects": [
+    {
+      "source": "/home",
+      "destination": "/",
+      "permanent": true
+    }
+  ]
+}
