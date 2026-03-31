@@ -6,8 +6,49 @@ const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com'
 const EMAIL_PASS  = process.env.EMAIL_PASS;
 const EMAIL_TO    = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
 
-async function enviarEmailLead(nome, telefone) {
-  if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS não configurado — email ignorado'); return; }
+function parseDevice(ua) {
+  if (!ua) return { modelo: 'â', os: 'â', navegador: 'â' };
+  let modelo = 'â', os = 'â', navegador = 'â';
+
+  // OS
+  if (/iPhone/.test(ua)) {
+    os = 'iOS';
+    const m = ua.match(/iPhone\s*OS\s*([\d_]+)/);
+    if (m) os = 'iOS ' + m[1].replace(/_/g, '.');
+  } else if (/Android/.test(ua)) {
+    const m = ua.match(/Android\s*([\d.]+)/);
+    os = m ? 'Android ' + m[1] : 'Android';
+  }
+
+  // Modelo
+  if (/iPhone(\d+),(\d+)/.test(ua)) {
+    const gen = { '12,1':'11','13,1':'12 mini','13,2':'12','13,3':'12 Pro','13,4':'12 Pro Max',
+      '14,2':'13 Pro','14,3':'13 Pro Max','14,4':'13 mini','14,5':'13','14,7':'14',
+      '14,8':'14 Plus','15,2':'14 Pro','15,3':'14 Pro Max','15,4':'15','15,5':'15 Plus',
+      '16,1':'15 Pro','16,2':'15 Pro Max','17,1':'16','17,2':'16 Plus','17,3':'16 Pro',
+      '17,4':'16 Pro Max' };
+    const k = ua.match(/iPhone(\d+,\d+)/)[1];
+    modelo = gen[k] ? 'iPhone ' + gen[k] : 'iPhone ' + k;
+  } else if (/iPhone/.test(ua)) {
+    modelo = 'iPhone';
+  } else {
+    const m = ua.match(/;\s*([^;)]+)\s+Build\//);
+    if (m) modelo = m[1].trim();
+  }
+
+  // Navegador / App
+  if (/Instagram/.test(ua)) navegador = 'Instagram In-App';
+  else if (/FBAV|FBAN/.test(ua)) navegador = 'Facebook In-App';
+  else if (/CriOS/.test(ua)) navegador = 'Chrome iOS';
+  else if (/Safari/.test(ua) && !/Chrome/.test(ua)) navegador = 'Safari';
+  else if (/Chrome/.test(ua)) navegador = 'Chrome';
+  else navegador = 'Outro';
+
+  return { modelo, os, navegador };
+}
+
+async function enviarEmailLead(nome, telefone, origem = {}) {
+  if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS nÃ£o configurado â email ignorado'); return; }
   try {
     const nodemailer = (await import('nodemailer')).default;
     const t = nodemailer.createTransport({
@@ -17,26 +58,135 @@ async function enviarEmailLead(nome, telefone) {
     const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
     const telLimpo = telefone.replace(/\D/g, '');
     const waLink = `https://wa.me/55${telLimpo}`;
+
+    // Identifica qual LP
+    const lpUrl = origem.event_source_url || '';
+    let lpNome = 'Landing Page';
+    if (lpUrl.includes('icelaser-landing-c9in')) lpNome = 'icelaser-landing-c9in';
+    else if (lpUrl.includes('icelaser-landing.vercel')) lpNome = 'icelaser-landing';
+    else if (lpUrl.includes('landing-page-six')) lpNome = 'landing-page-six-xi-77';
+    else if (lpUrl.includes('icelaser.com.br')) lpNome = 'icelaser.com.br';
+
+    // Plataforma / Campanha / Adset / AnÃºncio
+    const plataforma = origem.utm_source === 'ig' ? 'Instagram' : origem.utm_source === 'facebook' ? 'Facebook' : origem.utm_source || 'â';
+    const campanha = origem.campaign_name || origem.utm_campaign || 'â';
+    const campanhaId = origem.campaign_id || 'â';
+    const adset = origem.adset_name || origem.utm_content || 'â';
+    const adsetId = origem.adset_id || 'â';
+    const anuncio = origem.ad_name || 'â';
+    const adId = origem.ad_id || 'â';
+    const angulo = origem.utm_term || 'â';
+    const placement = origem.placement || 'â';
+    const siteSrc = origem.site_source_name || origem.platform || 'â';
+    const temUtm = origem.utm_source ? true : false;
+
+    // Dispositivo / OS / Navegador
+    const device = parseDevice(origem.client_user_agent);
+    const ip = origem.client_ip_address || 'â';
+
+    // Pixel cookies
+    const fbp = origem.fbp || 'â';
+    const fbc = origem.fbc ? 'Sim (fbclid capturado)' : 'NÃ£o';
+
+    // Dados de qualificaÃ§Ã£o
+    const tela = (origem.screen_width && origem.screen_height) ? `${origem.screen_width}x${origem.screen_height}` : 'â';
+    const idioma = origem.language || 'â';
+    const tz = origem.timezone || 'â';
+    const referer = origem.referrer || 'â';
+    const tempoNaPagina = origem.time_on_page ? `${origem.time_on_page}s` : 'â';
+    const scrollDepth = origem.scroll_depth ? `${origem.scroll_depth}%` : 'â';
+
+    const origemBadge = temUtm
+      ? `<span style="background:#1877f2;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">ð² ${plataforma} Ads</span>`
+      : `<span style="background:#6c757d;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">ð² ${lpNome}</span>`;
+
+    const row = (label, value, color) => value && value !== 'â'
+      ? `<tr><td style="padding:6px 0;color:#666;width:120px;font-size:13px;vertical-align:top">${label}</td>
+             <td style="padding:6px 0;font-size:13px"><code style="background:${color || '#eee'};padding:2px 6px;border-radius:3px">${value}</code></td></tr>`
+      : '';
+
     const html = `
-    <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto">
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
       <div style="background:#1a1a2e;padding:20px;border-radius:8px 8px 0 0">
-        <h2 style="color:#fff;margin:0">🔥 Novo Lead — Landing Page</h2>
+        <h2 style="color:#fff;margin:0">ð¥ Novo Lead â ${lpNome}</h2>
         <p style="color:#aaa;margin:5px 0 0">${agora}</p>
       </div>
       <div style="background:#f9f9f9;padding:20px;border-radius:0 0 8px 8px;border:1px solid #eee">
-        <table style="width:100%;border-collapse:collapse">
-          <tr><td style="padding:8px 0;color:#666;width:100px">Nome</td>
-              <td style="padding:8px 0"><strong>${nome}</strong></td></tr>
-          <tr><td style="padding:8px 0;color:#666">Telefone</td>
-              <td style="padding:8px 0">
-                <a href="${waLink}" style="color:#25D366;font-weight:bold">${telefone}</a>
-              </td></tr>
-          <tr><td style="padding:8px 0;color:#666">Origem</td>
-              <td style="padding:8px 0"><span style="background:#1877f2;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">📲 Landing Page</span></td></tr>
-        </table>
+
+        <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Dados do Lead</div>
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="padding:6px 0;color:#666;width:120px;font-size:13px">Nome</td>
+                <td style="padding:6px 0;font-size:15px"><strong>${nome}</strong></td></tr>
+            <tr><td style="padding:6px 0;color:#666;font-size:13px">Telefone</td>
+                <td style="padding:6px 0"><a href="${waLink}" style="color:#25D366;font-weight:bold;font-size:15px">${telefone}</a></td></tr>
+            <tr><td style="padding:6px 0;color:#666;font-size:13px">Origem</td>
+                <td style="padding:6px 0">${origemBadge}</td></tr>
+          </table>
+        </div>
+
+        <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Dispositivo</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${row('Aparelho', device.modelo, '#e8f5e9')}
+            ${row('Sistema', device.os, '#e3f2fd')}
+            ${row('Navegador', device.navegador, '#fce4ec')}
+            ${row('IP', ip)}
+          </table>
+        </div>
+
+        <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads â Campanha</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${row('Plataforma', plataforma, '#e8eaf6')}
+            ${row('Posicionamento', placement, '#e8eaf6')}
+            ${row('Fonte', siteSrc, '#e8eaf6')}
+            ${row('Campanha', campanha, '#e8eaf6')}
+            ${row('Campaign ID', campanhaId, '#f3e5f5')}
+          </table>
+        </div>
+
+        <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads â Conjunto de AnÃºncios</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${row('Conjunto', adset, '#e0f2f1')}
+            ${row('Adset ID', adsetId, '#f3e5f5')}
+            ${row('Ãngulo Criativo', angulo, '#fff3e0')}
+          </table>
+        </div>
+
+        <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads â AnÃºncio</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${row('AnÃºncio', anuncio, '#fce4ec')}
+            ${row('Ad ID', adId, '#f3e5f5')}
+          </table>
+        </div>
+
+        <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">QualificaÃ§Ã£o do Lead</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${row('Landing Page', lpNome, '#fff3e0')}
+            ${row('Tela', tela, '#fafafa')}
+            ${row('Idioma', idioma, '#fafafa')}
+            ${row('Timezone', tz, '#fafafa')}
+            ${row('Tempo na pÃ¡gina', tempoNaPagina, '#e8f5e9')}
+            ${row('Scroll atingido', scrollDepth, '#e8f5e9')}
+            ${row('Referrer', referer, '#fafafa')}
+          </table>
+        </div>
+
+        <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Pixel & CAPI</div>
+          <table style="width:100%;border-collapse:collapse">
+            ${row('fbp (cookie)', fbp, '#fafafa')}
+            ${row('fbc (click ID)', fbc, '#fafafa')}
+          </table>
+        </div>
+
         <div style="margin-top:16px;text-align:center">
-          <a href="${waLink}" style="background:#25D366;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block">
-            💬 Abrir WhatsApp
+          <a href="${waLink}" style="background:#25D366;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px">
+            ð¬ Abrir WhatsApp
           </a>
         </div>
       </div>
@@ -44,7 +194,7 @@ async function enviarEmailLead(nome, telefone) {
     await t.sendMail({
       from: `"IceLaser Bot" <${EMAIL_FROM}>`,
       to: EMAIL_TO.join(','),
-      subject: `🔥 Lead LP — ${nome} | IceLaser`,
+      subject: `ð¥ Lead ${temUtm ? plataforma : 'LP'} â ${nome} | ${lpNome}`,
       html,
     });
   } catch (e) {
@@ -66,6 +216,7 @@ export default async function handler(req, res) {
   const allowedOrigins = [
     'https://icelaser-landing.vercel.app',
     'https://icelaser-landing-c9in.vercel.app',
+    'https://landing-page-six-xi-77.vercel.app',
     'https://icelaser.com.br',
     'https://www.icelaser.com.br',
   ];
@@ -89,10 +240,14 @@ export default async function handler(req, res) {
     fbc,
     // UTM + Meta Ads tracking params (origem completa do lead)
     utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-    ad_id, adset_id, campaign_id, placement,
+    ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
+    placement, site_source_name, platform,
+    // Dados de qualificaÃ§Ã£o do lead
+    screen_width, screen_height, language, timezone, referrer,
+    landing_url, time_on_page, scroll_depth,
   } = req.body || {};
 
-  // IP capturado server-side (Vercel injeta nos headers) — melhora EMQ
+  // IP capturado server-side (Vercel injeta nos headers) â melhora EMQ
   const client_ip_address =
     (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
     req.headers['x-real-ip'] ||
@@ -116,6 +271,20 @@ export default async function handler(req, res) {
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
 
+  // custom_data: CompleteRegistration requer value+currency para evitar diagnÃ³stico Meta
+  const custom_data = {};
+  if (event_name === 'CompleteRegistration') {
+    custom_data.value = 0;
+    custom_data.currency = 'BRL';
+    custom_data.status = 'submitted';
+    custom_data.content_name = 'Avaliacao Gratuita LP';
+  } else if (event_name === 'Lead') {
+    custom_data.value = 0;
+    custom_data.currency = 'BRL';
+    custom_data.content_name = 'Avaliacao Gratuita LP';
+    custom_data.content_category = 'depilacao_laser';
+  }
+
   const payload = {
     data: [{
       event_name,
@@ -124,6 +293,7 @@ export default async function handler(req, res) {
       event_source_url: event_source_url || 'https://icelaser-landing-c9in.vercel.app/',
       action_source: 'website',
       user_data: userData,
+      ...(Object.keys(custom_data).length > 0 && { custom_data }),
     }],
   };
 
@@ -131,7 +301,7 @@ export default async function handler(req, res) {
   if (!token) return res.status(500).json({ error: 'META_ACCESS_TOKEN not configured' });
 
   try {
-    // Roda email + CAPI em paralelo — ambos aguardados antes de responder
+    // Roda email + CAPI em paralelo â ambos aguardados antes de responder
     const promises = [
       fetch(
         `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${token}`,
@@ -143,11 +313,18 @@ export default async function handler(req, res) {
       ),
     ];
 
-    // Email + Blob só no evento Lead (evita duplicata com CompleteRegistration)
+    // Email + Blob sÃ³ no evento Lead (evita duplicata com CompleteRegistration)
     if (event_name === 'Lead' && nome && telefone) {
-      promises.push(enviarEmailLead(nome, telefone));
+      promises.push(enviarEmailLead(nome, telefone, {
+        event_source_url, utm_source, utm_medium, utm_campaign,
+        utm_content, utm_term, ad_id, ad_name, adset_id, adset_name,
+        campaign_id, campaign_name, placement, site_source_name, platform,
+        client_user_agent, client_ip_address, fbp, fbc,
+        screen_width, screen_height, language, timezone, referrer,
+        landing_url, time_on_page, scroll_depth,
+      }));
 
-      // Salva lead no Blob (só se token configurado)
+      // Salva lead no Blob (sÃ³ se token configurado)
       if (process.env.BLOB_READ_WRITE_TOKEN) {
       const ts = new Date().toISOString();
       const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${nome.split(' ')[0].toLowerCase()}.json`;
@@ -162,9 +339,13 @@ export default async function handler(req, res) {
           client_ip_address,
           fbp: fbp || undefined,
           fbc: fbc || undefined,
-          // Origem completa: campanha, anúncio, público, placement
+          // Origem completa: campanha, anÃºncio, pÃºblico, placement
           utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-          ad_id, adset_id, campaign_id, placement,
+          ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
+          placement, site_source_name, platform,
+          // QualificaÃ§Ã£o
+          screen_width, screen_height, language, timezone, referrer,
+          landing_url, time_on_page, scroll_depth,
           converted: false,
         }), {
           access: 'public',
