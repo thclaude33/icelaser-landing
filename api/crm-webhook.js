@@ -8,7 +8,7 @@
  *   💰 Compra Realizada → Lead + CR + InitiateCheckout + Purchase
  */
 
-import crypto from 'crypto'
+import crypto from 'crypto';
 
 const PIXEL_ID = '2774496306216737';
 
@@ -51,11 +51,15 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, skipped: true, event });
   }
 
-  // Extrai dados — Chatwoot pode enviar em body.conversation ou body.data
+  // Extrai dados — Chatwoot pode enviar em body.conversation, body.data ou flat (body é a conversa)
   const conversation = body.conversation || body.data || body;
   const contact = conversation.meta?.sender || conversation.contact || body.sender || {};
   const labels = conversation.labels || body.labels || [];
-  const customAttrs = contact.custom_attributes || {};
+  // Mescla atributos de CONTATO e de CONVERSA — purchase_value pode estar em qualquer um
+  const customAttrs = {
+    ...(contact.custom_attributes || {}),
+    ...(conversation.custom_attributes || {}),
+  };
 
   const nome = contact.name || '';
   const telefone = contact.phone_number || customAttrs.phone || '';
@@ -83,8 +87,14 @@ export default async function handler(req, res) {
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
 
+  // Tenta recuperar URL da LP original salva nos atributos; fallback para domínio canônico
+  const eventSourceUrl = customAttrs.landing_url
+    || customAttrs.event_source_url
+    || customAttrs.lp_url
+    || 'https://icelaser.com.br/';
+
   const baseEvent = {
-    event_source_url: 'https://icelaser-landing.vercel.app/',
+    event_source_url: eventSourceUrl,
     action_source: 'website',
     user_data: userData,
   };
