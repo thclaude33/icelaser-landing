@@ -52,7 +52,7 @@ export default async function handler(req, res) {
   }
 
   // Extrai dados — Chatwoot pode enviar em body.conversation ou body.data
-  const conversation = body.conversation || body.data || {};
+  const conversation = body.conversation || body.data || body;
   const contact = conversation.meta?.sender || conversation.contact || body.sender || {};
   const labels = conversation.labels || body.labels || [];
   const customAttrs = contact.custom_attributes || {};
