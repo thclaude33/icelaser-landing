@@ -275,8 +275,36 @@ export default async function handler(req, res) {
 
   if (client_user_agent) userData.client_user_agent = client_user_agent;
   if (client_ip_address) userData.client_ip_address = client_ip_address;
-  if (fbp) userData.fbp = fbp;
-  if (fbc) userData.fbc = fbc;
+
+  // fbp/fbc: usa valor do request, ou recupera do Blob se cookie expirou (iOS ITP 7d/_fbc 24h)
+  let finalFbp = fbp;
+  let finalFbc = fbc;
+  if ((!fbp || !fbc) && telefone && process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { list } = await import('@vercel/blob');
+      const telDigits = telefone.replace(/\D/g, '');
+      const blobs = await list({ prefix: 'leads/', limit: 100 });
+      for (const blob of blobs.blobs) {
+        if (blob.size > 200) {
+          const res = await fetch(blob.url);
+          const data = await res.json();
+          const blobTel = (data.telefone || '').replace(/\D/g, '');
+          if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
+            if (!finalFbp && data.fbp) finalFbp = data.fbp;
+            if (!finalFbc && data.fbc) finalFbc = data.fbc;
+            if (finalFbp && finalFbc) break;
+          }
+        }
+      }
+      if (finalFbp !== fbp || finalFbc !== fbc) {
+        console.log(`[TRACK] Recovered from Blob: fbp=${!!finalFbp} fbc=${!!finalFbc} for ${telefone}`);
+      }
+    } catch (e) {
+      console.warn('[TRACK] Blob recovery failed:', e.message);
+    }
+  }
+  if (finalFbp) userData.fbp = finalFbp;
+  if (finalFbc) userData.fbc = finalFbc;
 
   // custom_data: CompleteRegistration requer value+currency para evitar diagnóstico Meta
   const custom_data = {};
