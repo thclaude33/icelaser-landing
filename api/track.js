@@ -7,8 +7,8 @@ const EMAIL_PASS  = process.env.EMAIL_PASS;
 const EMAIL_TO    = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
 
 function parseDevice(ua) {
-  if (!ua) return { modelo: 'â', os: 'â', navegador: 'â' };
-  let modelo = 'â', os = 'â', navegador = 'â';
+  if (!ua) return { modelo: '—', os: '—', navegador: '—' };
+  let modelo = '—', os = '—', navegador = '—';
 
   // OS
   if (/iPhone/.test(ua)) {
@@ -48,7 +48,7 @@ function parseDevice(ua) {
 }
 
 async function enviarEmailLead(nome, telefone, origem = {}) {
-  if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS nÃ£o configurado â email ignorado'); return; }
+  if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS não configurado — email ignorado'); return; }
   try {
     const nodemailer = (await import('nodemailer')).default;
     const t = nodemailer.createTransport({
@@ -67,40 +67,40 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     else if (lpUrl.includes('landing-page-six')) lpNome = 'landing-page-six-xi-77';
     else if (lpUrl.includes('icelaser.com.br')) lpNome = 'icelaser.com.br';
 
-    // Plataforma / Campanha / Adset / AnÃºncio
-    const plataforma = origem.utm_source === 'ig' ? 'Instagram' : origem.utm_source === 'facebook' ? 'Facebook' : origem.utm_source || 'â';
-    const campanha = origem.campaign_name || origem.utm_campaign || 'â';
-    const campanhaId = origem.campaign_id || 'â';
-    const adset = origem.adset_name || origem.utm_content || 'â';
-    const adsetId = origem.adset_id || 'â';
-    const anuncio = origem.ad_name || 'â';
-    const adId = origem.ad_id || 'â';
-    const angulo = origem.utm_term || 'â';
-    const placement = origem.placement || 'â';
-    const siteSrc = origem.site_source_name || origem.platform || 'â';
+    // Plataforma / Campanha / Adset / Anúncio
+    const plataforma = origem.utm_source === 'ig' ? 'Instagram' : origem.utm_source === 'facebook' ? 'Facebook' : origem.utm_source || '—';
+    const campanha = origem.campaign_name || origem.utm_campaign || '—';
+    const campanhaId = origem.campaign_id || '—';
+    const adset = origem.adset_name || origem.utm_content || '—';
+    const adsetId = origem.adset_id || '—';
+    const anuncio = origem.ad_name || '—';
+    const adId = origem.ad_id || '—';
+    const angulo = origem.utm_term || '—';
+    const placement = origem.placement || '—';
+    const siteSrc = origem.site_source_name || origem.platform || '—';
     const temUtm = origem.utm_source ? true : false;
 
     // Dispositivo / OS / Navegador
     const device = parseDevice(origem.client_user_agent);
-    const ip = origem.client_ip_address || 'â';
+    const ip = origem.client_ip_address || '—';
 
     // Pixel cookies
-    const fbp = origem.fbp || 'â';
-    const fbc = origem.fbc ? 'Sim (fbclid capturado)' : 'NÃ£o';
+    const fbp = origem.fbp || '—';
+    const fbc = origem.fbc ? 'Sim (fbclid capturado)' : 'Não';
 
-    // Dados de qualificaÃ§Ã£o
-    const tela = (origem.screen_width && origem.screen_height) ? `${origem.screen_width}x${origem.screen_height}` : 'â';
-    const idioma = origem.language || 'â';
-    const tz = origem.timezone || 'â';
-    const referer = origem.referrer || 'â';
-    const tempoNaPagina = origem.time_on_page ? `${origem.time_on_page}s` : 'â';
-    const scrollDepth = origem.scroll_depth ? `${origem.scroll_depth}%` : 'â';
+    // Dados de qualificação
+    const tela = (origem.screen_width && origem.screen_height) ? `${origem.screen_width}x${origem.screen_height}` : '—';
+    const idioma = origem.language || '—';
+    const tz = origem.timezone || '—';
+    const referer = origem.referrer || '—';
+    const tempoNaPagina = origem.time_on_page ? `${origem.time_on_page}s` : '—';
+    const scrollDepth = origem.scroll_depth ? `${origem.scroll_depth}%` : '—';
 
     const origemBadge = temUtm
       ? `<span style="background:#1877f2;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">ð² ${plataforma} Ads</span>`
       : `<span style="background:#6c757d;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">ð² ${lpNome}</span>`;
 
-    const row = (label, value, color) => value && value !== 'â'
+    const row = (label, value, color) => value && value !== '—'
       ? `<tr><td style="padding:6px 0;color:#666;width:120px;font-size:13px;vertical-align:top">${label}</td>
              <td style="padding:6px 0;font-size:13px"><code style="background:${color || '#eee'};padding:2px 6px;border-radius:3px">${value}</code></td></tr>`
       : '';
@@ -108,7 +108,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
       <div style="background:#1a1a2e;padding:20px;border-radius:8px 8px 0 0">
-        <h2 style="color:#fff;margin:0">ð¥ Novo Lead â ${lpNome}</h2>
+        <h2 style="color:#fff;margin:0">🔥 Novo Lead — ${lpNome}</h2>
         <p style="color:#aaa;margin:5px 0 0">${agora}</p>
       </div>
       <div style="background:#f9f9f9;padding:20px;border-radius:0 0 8px 8px;border:1px solid #eee">
@@ -136,7 +136,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
         </div>
 
         <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
-          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads â Campanha</div>
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads — Campanha</div>
           <table style="width:100%;border-collapse:collapse">
             ${row('Plataforma', plataforma, '#e8eaf6')}
             ${row('Posicionamento', placement, '#e8eaf6')}
@@ -147,30 +147,30 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
         </div>
 
         <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
-          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads â Conjunto de AnÃºncios</div>
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads — Conjunto de Anúncios</div>
           <table style="width:100%;border-collapse:collapse">
             ${row('Conjunto', adset, '#e0f2f1')}
             ${row('Adset ID', adsetId, '#f3e5f5')}
-            ${row('Ãngulo Criativo', angulo, '#fff3e0')}
+            ${row('àngulo Criativo', angulo, '#fff3e0')}
           </table>
         </div>
 
         <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
-          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads â AnÃºncio</div>
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Meta Ads — Anúncio</div>
           <table style="width:100%;border-collapse:collapse">
-            ${row('AnÃºncio', anuncio, '#fce4ec')}
+            ${row('Anúncio', anuncio, '#fce4ec')}
             ${row('Ad ID', adId, '#f3e5f5')}
           </table>
         </div>
 
         <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;margin-bottom:14px">
-          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">QualificaÃ§Ã£o do Lead</div>
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Qualificação do Lead</div>
           <table style="width:100%;border-collapse:collapse">
             ${row('Landing Page', lpNome, '#fff3e0')}
             ${row('Tela', tela, '#fafafa')}
             ${row('Idioma', idioma, '#fafafa')}
             ${row('Timezone', tz, '#fafafa')}
-            ${row('Tempo na pÃ¡gina', tempoNaPagina, '#e8f5e9')}
+            ${row('Tempo na página', tempoNaPagina, '#e8f5e9')}
             ${row('Scroll atingido', scrollDepth, '#e8f5e9')}
             ${row('Referrer', referer, '#fafafa')}
           </table>
@@ -194,7 +194,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     await t.sendMail({
       from: `"IceLaser Bot" <${EMAIL_FROM}>`,
       to: EMAIL_TO.join(','),
-      subject: `ð¥ Lead ${temUtm ? plataforma : 'LP'} â ${nome} | ${lpNome}`,
+      subject: `🔥 Lead ${temUtm ? plataforma : 'LP'} — ${nome} | ${lpNome}`,
       html,
     });
   } catch (e) {
@@ -242,12 +242,12 @@ export default async function handler(req, res) {
     utm_source, utm_medium, utm_campaign, utm_content, utm_term,
     ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
     placement, site_source_name, platform,
-    // Dados de qualificaÃ§Ã£o do lead
+    // Dados de qualificação do lead
     screen_width, screen_height, language, timezone, referrer,
     landing_url, time_on_page, scroll_depth,
   } = req.body || {};
 
-  // IP capturado server-side (Vercel injeta nos headers) â melhora EMQ
+  // IP capturado server-side (Vercel injeta nos headers) — melhora EMQ
   const client_ip_address =
     (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
     req.headers['x-real-ip'] ||
@@ -271,7 +271,7 @@ export default async function handler(req, res) {
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
 
-  // custom_data: CompleteRegistration requer value+currency para evitar diagnÃ³stico Meta
+  // custom_data: CompleteRegistration requer value+currency para evitar diagnóstico Meta
   const custom_data = {};
   if (event_name === 'CompleteRegistration') {
     custom_data.value = 0;
@@ -301,7 +301,7 @@ export default async function handler(req, res) {
   if (!token) return res.status(500).json({ error: 'META_ACCESS_TOKEN not configured' });
 
   try {
-    // Roda email + CAPI em paralelo â ambos aguardados antes de responder
+    // Roda email + CAPI em paralelo — ambos aguardados antes de responder
     const promises = [
       fetch(
         `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${token}`,
@@ -313,7 +313,7 @@ export default async function handler(req, res) {
       ),
     ];
 
-    // Email + Blob sÃ³ no evento Lead (evita duplicata com CompleteRegistration)
+    // Email + Blob só no evento Lead (evita duplicata com CompleteRegistration)
     if (event_name === 'Lead' && nome && telefone) {
       promises.push(enviarEmailLead(nome, telefone, {
         event_source_url, utm_source, utm_medium, utm_campaign,
@@ -324,7 +324,7 @@ export default async function handler(req, res) {
         landing_url, time_on_page, scroll_depth,
       }));
 
-      // Salva lead no Blob (sÃ³ se token configurado)
+      // Salva lead no Blob (só se token configurado)
       if (process.env.BLOB_READ_WRITE_TOKEN) {
       const ts = new Date().toISOString();
       const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${nome.split(' ')[0].toLowerCase()}.json`;
@@ -339,11 +339,11 @@ export default async function handler(req, res) {
           client_ip_address,
           fbp: fbp || undefined,
           fbc: fbc || undefined,
-          // Origem completa: campanha, anÃºncio, pÃºblico, placement
+          // Origem completa: campanha, anúncio, público, placement
           utm_source, utm_medium, utm_campaign, utm_content, utm_term,
           ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
           placement, site_source_name, platform,
-          // QualificaÃ§Ã£o
+          // Qualificação
           screen_width, screen_height, language, timezone, referrer,
           landing_url, time_on_page, scroll_depth,
           converted: false,
