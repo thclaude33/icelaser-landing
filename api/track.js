@@ -254,7 +254,12 @@ export default async function handler(req, res) {
     req.socket?.remoteAddress ||
     undefined;
 
-  const userData = { country: [sha256('br')] };
+  const userData = {
+    country: [sha256('br')],
+    st: [sha256('pe')],
+    ct: [sha256('recife')],
+    zp: [sha256('50000')],
+  };
 
   if (telefone) {
     userData.ph = [sha256(normalizePhone(telefone))];
@@ -264,6 +269,8 @@ export default async function handler(req, res) {
     const parts = nome.trim().toLowerCase().split(/\s+/);
     userData.fn = [sha256(parts[0])];
     if (parts.length > 1) userData.ln = [sha256(parts[parts.length - 1])];
+    // external_id: hash do nome completo pra deduplicação cross-device
+    userData.external_id = [sha256(nome.trim().toLowerCase())];
   }
 
   if (client_user_agent) userData.client_user_agent = client_user_agent;
@@ -278,6 +285,10 @@ export default async function handler(req, res) {
     custom_data.currency = 'BRL';
     custom_data.status = 'submitted';
     custom_data.content_name = 'Avaliacao Gratuita LP';
+  } else if (event_name === 'InitiateCheckout') {
+    custom_data.value = 0;
+    custom_data.currency = 'BRL';
+    custom_data.content_name = 'Form Avaliacao Gratuita';
   } else if (event_name === 'Lead') {
     custom_data.value = 0;
     custom_data.currency = 'BRL';

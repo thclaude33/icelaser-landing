@@ -897,7 +897,26 @@
     document.getElementById(id).addEventListener('focus', function() {
       if (!formFocused) {
         formFocused = true;
-        try { fbq('track', 'InitiateCheckout', {content_name:'Form Avaliacao Gratuita'}); } catch(e){}
+        const icEventId = 'ic_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+        try { fbq('track', 'InitiateCheckout', {content_name:'Form Avaliacao Gratuita', value:0, currency:'BRL'}, {eventID: icEventId}); } catch(e){}
+        // CAPI server-side InitiateCheckout
+        const icParams = new URLSearchParams(window.location.search);
+        fetch('/api/track', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            event_name: 'InitiateCheckout',
+            event_id: icEventId,
+            nome: '', telefone: '',
+            event_source_url: location.href,
+            client_user_agent: navigator.userAgent,
+            utm_source: icParams.get('utm_source') || undefined,
+            utm_campaign: icParams.get('utm_campaign') || undefined,
+            fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
+            fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
+          }),
+          keepalive: true,
+        }).catch(() => {});
       }
     });
   });
@@ -1118,7 +1137,7 @@
   document.getElementById('btn-wa-hero')?.addEventListener('click', function(e) {
     // Dispara pixel Lead + CAPI quando clica no botão WA direto
     const eventId = 'wa_hero_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
-    try { fbq('track', 'Lead', {content_name:'WA Hero Direto', content_category:'depilacao_laser'}, {eventID: eventId}); } catch(ex){}
+    try { fbq('track', 'Lead', {content_name:'WA Hero Direto', content_category:'depilacao_laser', value:0, currency:'BRL'}, {eventID: eventId}); } catch(ex){}
     try { window.va('event', { name: 'Click WA Hero Direto' }); } catch {}
 
     // Captura UTMs e envia CAPI server-side
