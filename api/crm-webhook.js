@@ -8,7 +8,7 @@
  *   💰 Compra Realizada → Lead + CR + InitiateCheckout + Purchase
  */
 
-import crypto from 'crypto';
+import crypto from 'crypto'
 
 const PIXEL_ID = '2774496306216737';
 
@@ -146,7 +146,7 @@ export default async function handler(req, res) {
 
   // 💰 COMPRA REALIZADA
   if (labels.includes('compra_realizada') || labels.includes('💰 Compra Realizada') || labels.includes('💰_compra_realizada')) {
-    const valor = parseFloat(customAttrs.purchase_value) || 0;
+    const valor = parseFloat(customAttrs.purchase_value) || 497;
     events.push(
       {
         ...baseEvent,
