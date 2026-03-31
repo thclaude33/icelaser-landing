@@ -219,6 +219,8 @@ export default async function handler(req, res) {
     'https://landing-page-six-xi-77.vercel.app',
     'https://icelaser.com.br',
     'https://www.icelaser.com.br',
+    'https://icelasers.com.br',
+    'https://www.icelasers.com.br',
   ];
   const origin = req.headers['origin'] || '';
   const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];

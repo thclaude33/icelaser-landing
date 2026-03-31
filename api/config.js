@@ -24,6 +24,8 @@ const ALLOWED_ORIGINS = [
   'https://landing-page-six-xi-77.vercel.app',
   'https://icelaser.com.br',
   'https://www.icelaser.com.br',
+  'https://icelasers.com.br',
+  'https://www.icelasers.com.br',
 ];
 
 export default async function handler(req, res) {
