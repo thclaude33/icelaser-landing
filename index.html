@@ -911,6 +911,18 @@
     const link = e.target.closest('a[href*="whatsapp.com/send"], a[href*="wa.me/"]');
     if (link) {
       e.preventDefault();
+      // CAPI InitiateCheckout em todo clique WA (cobre gap pixel vs CAPI)
+      var waIcId = 'ic_wa_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+      try { fbq('track', 'InitiateCheckout', {content_name:'WA Click', value:0, currency:'BRL'}, {eventID: waIcId}); } catch(ex){}
+      fetch('/api/track', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          event_name: 'InitiateCheckout', event_id: waIcId,
+          event_source_url: location.href, client_user_agent: navigator.userAgent,
+          fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
+          fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
+        }), keepalive: true,
+      }).catch(function(){});
       // Extrai o texto da URL do href pra manter a tag [LP1]-[LP5] de cada botão
       try {
         var url = new URL(link.href);
