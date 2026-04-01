@@ -992,12 +992,12 @@
 
     // Captura _fbp (cookie Meta) e fbclid (URL param) para aumentar EMQ no CAPI
     const fbpCookie = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbp='));
-    const fbp = fbpCookie ? fbpCookie.split('=')[1] : undefined;
+    const fbp = fbpCookie ? fbpCookie.split('=').slice(1).join('=') : undefined;
     const params = new URLSearchParams(window.location.search);
     const fbclid = params.get('fbclid') || undefined;
     // Lê _fbc do cookie (capturado no page load) ou constrói do fbclid atual
     const fbcCookieVal = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbc='));
-    const fbc = fbcCookieVal ? fbcCookieVal.split('=')[1] : (fbclid ? ('fb.1.' + Date.now() + '.' + fbclid) : undefined);
+    const fbc = fbcCookieVal ? fbcCookieVal.split('=').slice(1).join('=') : (fbclid ? ('fb.1.' + Date.now() + '.' + fbclid) : undefined);
 
     // Captura origem completa: campanha, anúncio, público, placement (via UTM tags dinâmicos do Meta)
     const utm = {
