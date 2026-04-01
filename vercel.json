@@ -116,6 +116,39 @@
       "source": "/home",
       "destination": "/",
       "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "icelaser-landing-c9in.vercel.app"
+        }
+      ],
+      "destination": "https://icelasers.com.br/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "icelaser-landing.vercel.app"
+        }
+      ],
+      "destination": "https://icelasers.com.br/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "landing-page-six-xi-77.vercel.app"
+        }
+      ],
+      "destination": "https://icelasers.com.br/:path*",
+      "permanent": true
     }
   ]
 }
