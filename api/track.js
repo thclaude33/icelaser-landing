@@ -56,8 +56,8 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
       auth: { user: EMAIL_FROM, pass: EMAIL_PASS },
     });
     const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
-    const telLimpo = telefone.replace(/\D/g, '');
-    const waLink = `https://wa.me/55${telLimpo}`;
+    const telLimpo = (telefone || '').replace(/\D/g, '');
+    const waLink = telLimpo ? `https://wa.me/55${telLimpo}` : '';
 
     // Identifica qual LP
     const lpUrl = origem.event_source_url || '';
@@ -97,8 +97,8 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     const scrollDepth = origem.scroll_depth ? `${origem.scroll_depth}%` : '—';
 
     const origemBadge = temUtm
-      ? `<span style="background:#1877f2;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">ð² ${plataforma} Ads</span>`
-      : `<span style="background:#6c757d;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">ð² ${lpNome}</span>`;
+      ? `<span style="background:#1877f2;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">📲 ${plataforma} Ads</span>`
+      : `<span style="background:#6c757d;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">📲 ${lpNome}</span>`;
 
     const row = (label, value, color) => value && value !== '—'
       ? `<tr><td style="padding:6px 0;color:#666;width:120px;font-size:13px;vertical-align:top">${label}</td>
@@ -186,7 +186,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
 
         <div style="margin-top:16px;text-align:center">
           <a href="${waLink}" style="background:#25D366;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;font-size:15px">
-            ð¬ Abrir WhatsApp
+            💬 Abrir WhatsApp
           </a>
         </div>
       </div>
