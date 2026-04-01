@@ -108,7 +108,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
       <div style="background:#1a1a2e;padding:20px;border-radius:8px 8px 0 0">
-        <h2 style="color:#fff;margin:0">🔥 Novo Lead — ${lpNome}</h2>
+        <h2 style="color:#fff;margin:0">🔥 ${telefone ? 'Novo Lead' : 'Clique WA Direto'} — ${lpNome}</h2>
         <p style="color:#aaa;margin:5px 0 0">${agora}</p>
       </div>
       <div style="background:#f9f9f9;padding:20px;border-radius:0 0 8px 8px;border:1px solid #eee">
@@ -194,7 +194,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     await t.sendMail({
       from: `"IceLaser Bot" <${EMAIL_FROM}>`,
       to: EMAIL_TO.join(','),
-      subject: `🔥 Lead ${temUtm ? plataforma : 'LP'} — ${nome} | ${lpNome}`,
+      subject: `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${nome} | ${lpNome}`,
       html,
     });
   } catch (e) {
@@ -363,8 +363,8 @@ export default async function handler(req, res) {
       ),
     ];
 
-    // Email + Blob só no evento Lead (evita duplicata com CompleteRegistration)
-    if (event_name === 'Lead' && nome && telefone) {
+    // Email + Blob no evento Lead (com ou sem telefone — WA direto não tem tel)
+    if (event_name === 'Lead' && nome) {
       promises.push(enviarEmailLead(nome, telefone, {
         event_source_url, utm_source, utm_medium, utm_campaign,
         utm_content, utm_term, ad_id, ad_name, adset_id, adset_name,

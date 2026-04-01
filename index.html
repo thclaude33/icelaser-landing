@@ -907,10 +907,47 @@
   }
 
   // Intercepta todos os links WA pra usar deep link inteligente (preserva mensagem de cada botão)
+  // + Dispara Lead CAPI com tag do botão pra rastrear qual CTA converteu
+  var waClickTracked = {};
   document.addEventListener('click', function(e) {
     const link = e.target.closest('a[href*="whatsapp.com/send"], a[href*="wa.me/"]');
     if (link) {
       e.preventDefault();
+      // Identifica qual botão foi clicado pela tag [LP1]-[LP5]
+      var tag = 'LP0';
+      try {
+        var hrefText = decodeURIComponent(new URL(link.href).searchParams.get('text') || '');
+        var tagMatch = hrefText.match(/\[LP(\d)\]/);
+        if (tagMatch) tag = 'LP' + tagMatch[1];
+      } catch(ex) {}
+      // Dispara Lead CAPI com tag do botão (1x por tag por sessão)
+      if (!waClickTracked[tag]) {
+        waClickTracked[tag] = true;
+        var waLeadId = 'wa_' + tag + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+        try { fbq('track', 'Lead', {content_name:'WA ' + tag, content_category:'depilacao_laser', value:0, currency:'BRL'}, {eventID: waLeadId}); } catch(ex){}
+        var p = new URLSearchParams(location.search);
+        fetch('/api/track', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            event_name: 'Lead', event_id: waLeadId,
+            nome: 'WA Direto ' + tag,
+            event_source_url: location.href, client_user_agent: navigator.userAgent,
+            fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
+            fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
+            utm_source: p.get('utm_source') || undefined,
+            utm_medium: p.get('utm_medium') || undefined,
+            utm_campaign: p.get('utm_campaign') || undefined,
+            utm_content: p.get('utm_content') || undefined,
+            utm_term: p.get('utm_term') || undefined,
+            campaign_id: p.get('campaign_id') || undefined,
+            campaign_name: p.get('campaign_name') || undefined,
+            adset_id: p.get('adset_id') || undefined,
+            adset_name: p.get('adset_name') || undefined,
+            ad_id: p.get('ad_id') || undefined,
+            ad_name: p.get('ad_name') || undefined,
+          }), keepalive: true,
+        }).catch(function(){});
+      }
       // Extrai o texto da URL do href pra manter a tag [LP1]-[LP5] de cada botão
       try {
         var url = new URL(link.href);
@@ -1160,39 +1197,7 @@
     openWhatsApp(waMsg);
   });
 
-  // Rastreia clique no botão WA hero direto
-  document.getElementById('btn-wa-hero')?.addEventListener('click', function(e) {
-    // Dispara pixel Lead + CAPI quando clica no botão WA direto
-    const eventId = 'wa_hero_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
-    try { fbq('track', 'Lead', {content_name:'WA Hero Direto', content_category:'depilacao_laser', value:0, currency:'BRL'}, {eventID: eventId}); } catch(ex){}
-    try { window.va('event', { name: 'Click WA Hero Direto' }); } catch {}
-
-    // Captura UTMs e envia CAPI server-side
-    const params = new URLSearchParams(window.location.search);
-    fetch('/api/track', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        event_name: 'Lead',
-        event_id: eventId,
-        nome: 'WA Direto (sem form)',
-        telefone: '',
-        event_source_url: location.href,
-        client_user_agent: navigator.userAgent,
-        utm_source: params.get('utm_source') || undefined,
-        utm_medium: params.get('utm_medium') || undefined,
-        utm_campaign: params.get('utm_campaign') || undefined,
-        utm_content: params.get('utm_content') || undefined,
-        utm_term: params.get('utm_term') || undefined,
-        ad_id: params.get('ad_id') || undefined,
-        adset_id: params.get('adset_id') || undefined,
-        campaign_id: params.get('campaign_id') || undefined,
-        fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
-        fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
-      }),
-      keepalive: true,
-    }).catch(() => {});
-  });
+  // btn-wa-hero Lead tracking agora coberto pelo interceptor global acima (com tag LP3)
 
   // COUNTDOWN TIMER — expira à meia-noite do dia
   (function() {
