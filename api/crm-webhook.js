@@ -179,30 +179,28 @@ export default async function handler(req, res) {
     );
   }
 
+  // 💳 LINK DE PAGAMENTO (atendente enviou link / cliente vai pagar)
+  if (labels.includes('link_pagamento') || labels.includes('💳 Link Pagamento') || labels.includes('💳_link_pagamento')) {
+    const valor = parseFloat(customAttrs.purchase_value) || 497;
+    events.push({
+      ...baseEvent,
+      event_name: 'InitiateCheckout',
+      event_time: now,
+      event_id: `${eventId}_ic`,
+      custom_data: { currency: 'BRL', value: valor, content_name: 'Link Pagamento - CRM' },
+    });
+  }
+
   // 💰 COMPRA REALIZADA
   if (labels.includes('compra_realizada') || labels.includes('💰 Compra Realizada') || labels.includes('💰_compra_realizada')) {
     const valor = parseFloat(customAttrs.purchase_value) || 497;
     events.push(
       {
         ...baseEvent,
-        event_name: 'Lead',
-        event_time: now - 7200,
-        event_id: `${eventId}_purchase_lead`,
-        custom_data: { content_name: 'Compra CRM', lead_type: 'hot_lead' },
-      },
-      {
-        ...baseEvent,
-        event_name: 'CompleteRegistration',
-        event_time: now - 3600,
-        event_id: `${eventId}_purchase_cr`,
-        custom_data: { content_name: 'Compra CRM', status: 'converted', currency: 'BRL', value: valor || 150.00 },
-      },
-      {
-        ...baseEvent,
         event_name: 'InitiateCheckout',
         event_time: now - 1800,
         event_id: `${eventId}_purchase_ic`,
-        custom_data: { currency: 'BRL', value: valor },
+        custom_data: { currency: 'BRL', value: valor, content_name: 'Compra CRM' },
       },
       {
         ...baseEvent,
