@@ -250,8 +250,12 @@ export default async function handler(req, res) {
   } = req.body || {};
 
   // IP capturado server-side (Vercel injeta nos headers) — melhora EMQ
+  // Preferir IPv6 quando disponível (Meta recomenda pra melhor matching com pixel browser)
+  const xff = (req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
+  const ipv6 = xff.find(ip => ip.includes(':'));
+  const ipv4 = xff.find(ip => !ip.includes(':'));
   const client_ip_address =
-    (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+    ipv6 || ipv4 ||
     req.headers['x-real-ip'] ||
     req.socket?.remoteAddress ||
     undefined;
