@@ -82,8 +82,33 @@ export default async function handler(req, res) {
   }
 
   // UTMs do contato (se vieram da LP)
-  const fbp = customAttrs.fbp || undefined;
-  const fbc = customAttrs.fbclid || undefined;
+  let fbp = customAttrs.fbp || undefined;
+  let fbc = customAttrs.fbclid || customAttrs.fbc || undefined;
+
+  // Recuperar fbp/fbc do Blob se não estão nos atributos do contato
+  if ((!fbp || !fbc) && telefone && process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { list } = await import('@vercel/blob');
+      const telDigits = telefone.replace(/\D/g, '');
+      const blobs = await list({ prefix: 'leads/', limit: 100 });
+      for (const blob of blobs.blobs) {
+        if (blob.size > 200) {
+          const blobResp = await fetch(blob.url);
+          const data = await blobResp.json();
+          const blobTel = (data.telefone || '').replace(/\D/g, '');
+          if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
+            if (!fbp && data.fbp) fbp = data.fbp;
+            if (!fbc && data.fbc) fbc = data.fbc;
+            if (fbp && fbc) break;
+          }
+        }
+      }
+      if (fbp || fbc) console.log(`[CRM-WEBHOOK] Recovered from Blob: fbp=${!!fbp} fbc=${!!fbc}`);
+    } catch (e) {
+      console.warn('[CRM-WEBHOOK] Blob recovery failed:', e.message);
+    }
+  }
+
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
 
