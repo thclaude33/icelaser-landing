@@ -91,7 +91,7 @@ export default async function handler(req, res) {
   const eventSourceUrl = customAttrs.landing_url
     || customAttrs.event_source_url
     || customAttrs.lp_url
-    || 'https://icelaser.com.br/';
+    || 'https://icelasers.com.br/';
 
   const baseEvent = {
     event_source_url: eventSourceUrl,

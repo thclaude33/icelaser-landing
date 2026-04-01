@@ -308,7 +308,7 @@ export default async function handler(req, res) {
   if (finalFbp) userData.fbp = finalFbp;
   if (finalFbc) userData.fbc = finalFbc;
 
-  // custom_data: CompleteRegistration requer value+currency para evitar diagnóstico Meta
+  // custom_data: todos os eventos precisam de value+currency para evitar diagnóstico Meta
   const custom_data = {};
   if (event_name === 'CompleteRegistration') {
     custom_data.value = 0;
@@ -324,6 +324,11 @@ export default async function handler(req, res) {
     custom_data.currency = 'BRL';
     custom_data.content_name = 'Avaliacao Gratuita LP';
     custom_data.content_category = 'depilacao_laser';
+  } else if (event_name === 'ViewContent') {
+    custom_data.value = 0;
+    custom_data.currency = 'BRL';
+    custom_data.content_name = 'LP Avaliacao Gratuita';
+    custom_data.content_category = 'depilacao_laser';
   }
 
   const payload = {
@@ -331,7 +336,7 @@ export default async function handler(req, res) {
       event_name,
       event_time: Math.floor(Date.now() / 1000),
       event_id,
-      event_source_url: event_source_url || 'https://icelaser-landing-c9in.vercel.app/',
+      event_source_url: event_source_url || 'https://icelasers.com.br/',
       action_source: 'website',
       user_data: userData,
       ...(Object.keys(custom_data).length > 0 && { custom_data }),
@@ -375,7 +380,7 @@ export default async function handler(req, res) {
           telefone,
           timestamp: ts,
           event_id,
-          event_source_url: event_source_url || 'https://icelaser-landing-c9in.vercel.app/',
+          event_source_url: event_source_url || 'https://icelasers.com.br/',
           client_user_agent: client_user_agent || req.headers['user-agent'],
           client_ip_address,
           fbp: fbp || undefined,
@@ -398,6 +403,15 @@ export default async function handler(req, res) {
 
     const [metaResponse] = await Promise.all(promises);
     const result = await metaResponse.json();
+
+    // Server-set cookies: bypass iOS ITP 7-day JS cookie limit
+    // HTTP Set-Cookie headers persist up to 180 days even in Safari
+    const cookieOpts = 'Path=/; SameSite=Lax; Secure; Max-Age=15552000'; // 180 days
+    const setCookies = [];
+    if (finalFbp) setCookies.push(`_fbp=${finalFbp}; ${cookieOpts}`);
+    if (finalFbc) setCookies.push(`_fbc=${finalFbc}; ${cookieOpts}`);
+    if (setCookies.length > 0) res.setHeader('Set-Cookie', setCookies);
+
     return res.status(200).json({ ok: true, events_received: result.events_received });
   } catch (err) {
     return res.status(500).json({ error: err.message });

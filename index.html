@@ -108,17 +108,34 @@
     n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
     n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
     t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
-    document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    document,'script','/api/pixel');
     fbq('init', '2774496306216737');
     // fbc: captura fbclid da URL e armazena em cookie _fbc imediatamente (Parameter Setup Tool)
     (function(){try{var p=new URLSearchParams(window.location.search);var cl=p.get('fbclid');if(cl){var fbc='fb.1.'+Date.now()+'.'+cl;var ex=new Date(Date.now()+7776000000).toUTCString();document.cookie='_fbc='+fbc+';path=/;expires='+ex+';SameSite=Lax';}}catch(e){}}());
     fbq('track', 'PageView');
+    var vcEventId = 'vc_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
     fbq('track', 'ViewContent', {
       content_name: 'LP Avaliacao Gratuita',
       content_category: 'depilacao_laser',
       value: 0,
       currency: 'BRL'
-    });
+    }, {eventID: vcEventId});
+    // CAPI server-side ViewContent — redundancia contra iOS ITP bloqueando pixel browser
+    fetch('/api/track', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        event_name: 'ViewContent',
+        event_id: vcEventId,
+        event_source_url: location.href,
+        client_user_agent: navigator.userAgent,
+        fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
+        fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
+        utm_source: new URLSearchParams(location.search).get('utm_source') || undefined,
+        utm_campaign: new URLSearchParams(location.search).get('utm_campaign') || undefined,
+      }),
+      keepalive: true,
+    }).catch(function(){});
   </script>
   <noscript><img height="1" width="1" style="display:none"
     src="https://www.facebook.com/tr?id=2774496306216737&ev=PageView&noscript=1"/></noscript>
