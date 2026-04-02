@@ -154,6 +154,34 @@ export default async function handler(req, res) {
   const events = [];
   const eventId = `crm_${contact.id || 'unknown'}_${now}`;
 
+  // Buscar dados do Lead original no Blob (para original_event_data no Purchase)
+  let originalLeadData = null;
+  if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { list } = await import('@vercel/blob');
+      const telDigits = telefone.replace(/\D/g, '');
+      const blobs = await list({ prefix: 'leads/', limit: 100 });
+      for (const blob of blobs.blobs) {
+        if (blob.size > 200) {
+          const blobResp = await fetch(blob.url);
+          const data = await blobResp.json();
+          const blobTel = (data.telefone || '').replace(/\D/g, '');
+          if (blobTel && telDigits.endsWith(blobTel.slice(-8)) && data.event_id) {
+            originalLeadData = {
+              event_name: 'Lead',
+              event_time: Math.floor(new Date(data.timestamp).getTime() / 1000),
+              event_id: data.event_id,
+            };
+            console.log(`[CRM-WEBHOOK] Found original Lead: event_id=${data.event_id}`);
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[CRM-WEBHOOK] Original lead lookup failed:', e.message);
+    }
+  }
+
   // Determinar customer_segmentation baseado nas labels
   // Se já tem compra_realizada anterior → existing_customer
   const isExisting = labels.includes('compra_realizada') || labels.includes('💰 Compra Realizada') || labels.includes('💰_compra_realizada');
@@ -173,6 +201,7 @@ export default async function handler(req, res) {
         quality: 'unqualified',
         disqualification_reason: 'fora_do_publico_alvo',
         customer_segmentation: 'new_customer_to_business',
+        lead_event_source: 'crm_chatwoot',
       },
     });
   }
@@ -189,6 +218,7 @@ export default async function handler(req, res) {
         lead_type: 'cold_lead',
         status: 'unqualified',
         customer_segmentation: customerSeg,
+        lead_event_source: 'crm_chatwoot',
       },
     });
   }
@@ -201,7 +231,7 @@ export default async function handler(req, res) {
         event_name: 'Lead',
         event_time: now - 3600,
         event_id: `${eventId}_hot_lead`,
-        custom_data: { content_name: 'Lead Quente - CRM', lead_type: 'hot_lead', customer_segmentation: customerSeg },
+        custom_data: { content_name: 'Lead Quente - CRM', lead_type: 'hot_lead', customer_segmentation: customerSeg, lead_event_source: 'crm_chatwoot' },
       },
       {
         ...baseEvent,
@@ -241,9 +271,11 @@ export default async function handler(req, res) {
         event_name: 'Purchase',
         event_time: now,
         event_id: `${eventId}_purchase`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
         custom_data: {
           currency: 'BRL',
           value: valor,
+          predicted_ltv: 980,
           content_name: 'Pacote Depilacao Laser',
           content_type: 'product',
           num_items: 1,

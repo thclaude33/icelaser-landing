@@ -328,6 +328,7 @@ export default async function handler(req, res) {
     custom_data.currency = 'BRL';
     custom_data.content_name = 'Avaliacao Gratuita LP';
     custom_data.content_category = 'depilacao_laser';
+    custom_data.lead_event_source = 'landing_page';
   } else if (event_name === 'ViewContent') {
     custom_data.value = 0;
     custom_data.currency = 'BRL';
