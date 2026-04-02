@@ -292,6 +292,26 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── PROXY: Forward payload inteiro pro Chatwoot (assíncrono, não bloqueia resposta)
+    // Chatwoot precisa receber o webhook da Meta pra mostrar conversas no CRM
+    // Nosso endpoint processa primeiro (captura ctwa_clid, grava Blob, dispara CAPI)
+    // e depois repassa pro Chatwoot sem modificar nada
+    const CHATWOOT_WA_WEBHOOK = process.env.CHATWOOT_WEBHOOK_URL
+      || 'https://chatwoot-production-af5f.up.railway.app/webhooks/whatsapp/+558195749947';
+
+    fetch(CHATWOOT_WA_WEBHOOK, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Hub-Signature-256': sig || '',
+      },
+      body: rawBody.toString(),
+    }).then(r => {
+      console.log(`[PROXY] Chatwoot forward: ${r.status}`);
+    }).catch(e => {
+      console.error(`[PROXY] Chatwoot forward failed: ${e.message}`);
+    });
+
     return res.status(200).json({ ok: true });
   }
 
