@@ -190,7 +190,9 @@ async function enviarTemplateConfirmacao(to, nome, servico) {
 export default async function handler(req, res) {
 
   // Health check — verificar se webhook está ativo (inclui check de mTLS cert)
-  if (req.method === 'GET' && req.query['health'] === '1') {
+  // Nota: com bodyParser:false, req.query pode não estar disponível — parsear da URL
+  const urlParams = new URL(req.url, `https://${req.headers.host}`).searchParams;
+  if (req.method === 'GET' && (urlParams.get('health') === '1' || (req.query && req.query['health'] === '1'))) {
     const status = {
       ok: true,
       webhook: 'active',
