@@ -118,7 +118,7 @@ export default async function handler(req, res) {
         event_name: 'Purchase',
         event_time: Math.floor(Date.now() / 1000),
         event_id: eventId,
-        event_source_url: lead?.data?.event_source_url || 'https://icelaser-landing-c9in.vercel.app/',
+        event_source_url: lead?.data?.event_source_url || 'https://icelasers.com.br/',
         action_source: 'website',
         user_data: userData,
         custom_data: {

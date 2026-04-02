@@ -184,12 +184,13 @@ export default async function handler(req, res) {
   const eventId = `crm_${contact.id || 'unknown'}_${now}`;
 
   // Buscar dados do Lead original no Blob (para original_event_data no Purchase)
+  // Reutiliza o Blob list já importado acima (sem import duplicado)
   let originalLeadData = null;
   if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      const { list } = await import('@vercel/blob');
+      const { list: listBlobs } = await import('@vercel/blob');
       const telDigits = telefone.replace(/\D/g, '');
-      const blobs = await list({ prefix: 'leads/', limit: 100 });
+      const blobs = await listBlobs({ prefix: 'leads/', limit: 100 });
       for (const blob of blobs.blobs) {
         if (blob.size > 200) {
           const blobResp = await fetch(blob.url);
