@@ -75,6 +75,58 @@ export default async function handler(req, res) {
   // Log completo pra debug
   console.log(`[CRM-WEBHOOK] event=${event} | keys=${Object.keys(body).join(',')} | labels=${JSON.stringify((body.conversation || body.data || {}).labels || (body.changed_attributes || []))}`);
 
+  // Capturar ctwa_clid de mensagens novas (message_created do Chatwoot)
+  // O Chatwoot inclui source_id (wamid) — verificar se a msg tem referral de anúncio CTWA
+  if (event === 'message_created' && body.message_type === 0) {
+    const sourceId = body.source_id || '';
+    const phone = body.sender?.phone_number || body.conversation?.meta?.sender?.phone_number || '';
+    const inboxId = body.inbox?.id || body.conversation?.inbox_id || '';
+
+    // Só processar mensagens do inbox WhatsApp (inbox 7)
+    if (sourceId && sourceId.startsWith('wamid.') && phone) {
+      // Buscar referral via Graph API (se a msg veio de anúncio CTWA, terá referral)
+      try {
+        const msgResp = await fetch(
+          `https://graph.facebook.com/v25.0/${sourceId}?fields=referral&access_token=${token}`
+        );
+        const msgData = await msgResp.json();
+
+        if (msgData.referral?.ctwa_clid) {
+          const ctwaClid = msgData.referral.ctwa_clid;
+          const sourceUrl = msgData.referral.source_url || '';
+          const headline = msgData.referral.headline || '';
+          console.log(`[CRM-WEBHOOK] 🎯 CTWA Lead! clid=${ctwaClid.substring(0,20)}... phone=${phone} source=${sourceUrl}`);
+
+          // Salvar ctwa_clid no Blob vinculado ao telefone
+          if (process.env.BLOB_READ_WRITE_TOKEN) {
+            try {
+              const { put } = await import('@vercel/blob');
+              const telDigits = phone.replace(/\D/g, '');
+              await put(`ctwa/${telDigits}.json`, JSON.stringify({
+                ctwa_clid: ctwaClid,
+                phone: telDigits,
+                source_url: sourceUrl,
+                headline,
+                body: msgData.referral.body || '',
+                source_type: msgData.referral.source_type || '',
+                timestamp: new Date().toISOString(),
+                wamid: sourceId,
+              }), { access: 'public', contentType: 'application/json' });
+              console.log(`[CRM-WEBHOOK] ✅ ctwa_clid salvo no Blob: ctwa/${telDigits}.json`);
+            } catch (e) {
+              console.warn(`[CRM-WEBHOOK] Blob save ctwa failed: ${e.message}`);
+            }
+          }
+        }
+      } catch (e) {
+        // Graph API pode não suportar buscar referral por wamid — silenciar
+      }
+    }
+
+    // message_created não precisa de mais processamento (labels são em conversation_updated)
+    return res.status(200).json({ ok: true, event: 'message_created', processed: true });
+  }
+
   // Processa conversation_created e conversation_updated
   if (event !== 'conversation_updated' && event !== 'contact_updated' && event !== 'conversation_created') {
     return res.status(200).json({ ok: true, skipped: true, event });
