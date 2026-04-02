@@ -906,6 +906,36 @@
     }
   }
 
+  // Captura dados do anúncio na chegada e guarda em sessionStorage pra não perder
+  (function() {
+    var p = new URLSearchParams(location.search);
+    var keys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','ad_id','ad_name','adset_id','adset_name','campaign_id','campaign_name','placement','site_source_name'];
+    keys.forEach(function(k) {
+      var v = p.get(k);
+      if (v) sessionStorage.setItem('ice_' + k, v);
+    });
+    if (document.referrer) sessionStorage.setItem('ice_referrer', document.referrer);
+    if (p.get('fbclid')) sessionStorage.setItem('ice_fbclid', p.get('fbclid'));
+  })();
+
+  // Função pra pegar dados do anúncio (URL params ou sessionStorage)
+  function getAdData(key) {
+    var p = new URLSearchParams(location.search);
+    return p.get(key) || sessionStorage.getItem('ice_' + key) || undefined;
+  }
+
+  // Detecta origem quando não tem UTMs
+  function getOrigemFallback() {
+    var ref = document.referrer || sessionStorage.getItem('ice_referrer') || '';
+    var fbclid = new URLSearchParams(location.search).get('fbclid') || sessionStorage.getItem('ice_fbclid') || '';
+    if (fbclid) return 'facebook';
+    if (ref.includes('facebook.com') || ref.includes('fb.com')) return 'facebook';
+    if (ref.includes('instagram.com')) return 'instagram';
+    if (ref.includes('l.instagram.com')) return 'instagram';
+    if (ref.includes('lm.facebook.com')) return 'facebook';
+    return ref ? 'referral' : 'direto';
+  }
+
   // Intercepta todos os links WA pra usar deep link inteligente (preserva mensagem de cada botão)
   // + Dispara Lead CAPI com tag do botão pra rastrear qual CTA converteu
   var waClickTracked = {};
@@ -925,7 +955,7 @@
         waClickTracked[tag] = true;
         var waLeadId = 'wa_' + tag + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
         try { fbq('track', 'Lead', {content_name:'WA ' + tag, content_category:'depilacao_laser', value:0, currency:'BRL'}, {eventID: waLeadId}); } catch(ex){}
-        var p = new URLSearchParams(location.search);
+        var origemFallback = getOrigemFallback();
         fetch('/api/track', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
@@ -934,17 +964,18 @@
             event_source_url: location.href, client_user_agent: navigator.userAgent,
             fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
             fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
-            utm_source: p.get('utm_source') || undefined,
-            utm_medium: p.get('utm_medium') || undefined,
-            utm_campaign: p.get('utm_campaign') || undefined,
-            utm_content: p.get('utm_content') || undefined,
-            utm_term: p.get('utm_term') || undefined,
-            campaign_id: p.get('campaign_id') || undefined,
-            campaign_name: p.get('campaign_name') || undefined,
-            adset_id: p.get('adset_id') || undefined,
-            adset_name: p.get('adset_name') || undefined,
-            ad_id: p.get('ad_id') || undefined,
-            ad_name: p.get('ad_name') || undefined,
+            utm_source: getAdData('utm_source') || origemFallback,
+            utm_medium: getAdData('utm_medium') || (origemFallback !== 'direto' ? 'cpc' : undefined),
+            utm_campaign: getAdData('utm_campaign') || (origemFallback === 'facebook' || origemFallback === 'instagram' ? 'sem-utm (Meta Ads)' : undefined),
+            utm_content: getAdData('utm_content') || undefined,
+            utm_term: getAdData('utm_term') || undefined,
+            campaign_id: getAdData('campaign_id') || undefined,
+            campaign_name: getAdData('campaign_name') || (origemFallback === 'facebook' || origemFallback === 'instagram' ? 'Meta Ads (sem url_tags)' : undefined),
+            adset_id: getAdData('adset_id') || undefined,
+            adset_name: getAdData('adset_name') || undefined,
+            ad_id: getAdData('ad_id') || undefined,
+            ad_name: getAdData('ad_name') || undefined,
+            referrer: document.referrer || undefined,
           }), keepalive: true,
         }).catch(function(){});
       }
@@ -1009,22 +1040,24 @@
     const fbcCookieVal = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbc='));
     const fbc = fbcCookieVal ? fbcCookieVal.split('=').slice(1).join('=') : (fbclid ? ('fb.1.' + Date.now() + '.' + fbclid) : undefined);
 
-    // Captura origem completa: campanha, anúncio, público, placement (via UTM tags dinâmicos do Meta)
+    // Captura origem completa: URL params + sessionStorage fallback
+    var origemFB = getOrigemFallback();
     const utm = {
-      utm_source:   params.get('utm_source')   || undefined,
-      utm_medium:   params.get('utm_medium')   || undefined,
-      utm_campaign: params.get('utm_campaign') || undefined,
-      utm_content:  params.get('utm_content')  || undefined,
-      utm_term:     params.get('utm_term')     || undefined,
-      ad_id:        params.get('ad_id')        || undefined,
-      ad_name:      params.get('ad_name')      || undefined,
-      adset_id:     params.get('adset_id')     || undefined,
-      adset_name:   params.get('adset_name')   || undefined,
-      campaign_id:  params.get('campaign_id')  || undefined,
-      campaign_name:params.get('campaign_name')|| undefined,
-      placement:    params.get('placement')    || undefined,
-      site_source_name: params.get('site_source_name') || undefined,
-      platform:     params.get('platform')     || undefined,
+      utm_source:   getAdData('utm_source')   || origemFB,
+      utm_medium:   getAdData('utm_medium')   || (origemFB !== 'direto' ? 'cpc' : undefined),
+      utm_campaign: getAdData('utm_campaign') || (origemFB === 'facebook' || origemFB === 'instagram' ? 'sem-utm (Meta Ads)' : undefined),
+      utm_content:  getAdData('utm_content')  || undefined,
+      utm_term:     getAdData('utm_term')     || undefined,
+      ad_id:        getAdData('ad_id')        || undefined,
+      ad_name:      getAdData('ad_name')      || undefined,
+      adset_id:     getAdData('adset_id')     || undefined,
+      adset_name:   getAdData('adset_name')   || undefined,
+      campaign_id:  getAdData('campaign_id')  || undefined,
+      campaign_name:getAdData('campaign_name')|| (origemFB === 'facebook' || origemFB === 'instagram' ? 'Meta Ads (sem url_tags)' : undefined),
+      placement:    getAdData('placement')    || undefined,
+      site_source_name: getAdData('site_source_name') || undefined,
+      platform:     getAdData('platform')     || undefined,
+      referrer:     document.referrer         || undefined,
     };
 
     // Dados de qualificação do lead (navegador, tela, idioma, timezone)
