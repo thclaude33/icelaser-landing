@@ -119,7 +119,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
             <tr><td style="padding:6px 0;color:#666;width:120px;font-size:13px">Nome</td>
                 <td style="padding:6px 0;font-size:15px"><strong>${nome}</strong></td></tr>
             <tr><td style="padding:6px 0;color:#666;font-size:13px">Telefone</td>
-                <td style="padding:6px 0"><a href="${waLink}" style="color:#25D366;font-weight:bold;font-size:15px">${telefone}</a></td></tr>
+                <td style="padding:6px 0">${telLimpo ? `<a href="${waLink}" style="color:#25D366;font-weight:bold;font-size:15px">${telefone}</a>` : '<span style="color:#999">WA Direto (sem formulário)</span>'}</td></tr>
             <tr><td style="padding:6px 0;color:#666;font-size:13px">Origem</td>
                 <td style="padding:6px 0">${origemBadge}</td></tr>
           </table>
@@ -151,7 +151,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
           <table style="width:100%;border-collapse:collapse">
             ${row('Conjunto', adset, '#e0f2f1')}
             ${row('Adset ID', adsetId, '#f3e5f5')}
-            ${row('àngulo Criativo', angulo, '#fff3e0')}
+            ${row('Ângulo Criativo', angulo, '#fff3e0')}
           </table>
         </div>
 
