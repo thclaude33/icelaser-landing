@@ -275,8 +275,10 @@ export default async function handler(req, res) {
     const parts = nome.trim().toLowerCase().split(/\s+/);
     userData.fn = [sha256(parts[0])];
     if (parts.length > 1) userData.ln = [sha256(parts[parts.length - 1])];
-    // external_id: hash do nome completo pra deduplicação cross-device
     userData.external_id = [sha256(nome.trim().toLowerCase())];
+  } else if (fbp) {
+    // ViewContent/Lead sem nome: usar fbp como external_id pra deduplicação
+    userData.external_id = [sha256(fbp)];
   }
 
   if (client_user_agent) userData.client_user_agent = client_user_agent;

@@ -135,10 +135,10 @@
       currency: 'BRL'
     }, {eventID: vcEventId});
     // CAPI server-side ViewContent — redundancia contra iOS ITP bloqueando pixel browser
-    fetch('/api/track', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
+    // Usa sendBeacon (mais confiável que fetch — sobrevive a page unload/redirect rápido)
+    // Fallback pra fetch+keepalive se sendBeacon não disponível
+    (function(){
+      var vcPayload = JSON.stringify({
         event_name: 'ViewContent',
         event_id: vcEventId,
         event_source_url: location.href,
@@ -147,9 +147,20 @@
         fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
         utm_source: new URLSearchParams(location.search).get('utm_source') || undefined,
         utm_campaign: new URLSearchParams(location.search).get('utm_campaign') || undefined,
-      }),
-      keepalive: true,
-    }).catch(function(){});
+      });
+      var sent = false;
+      if (navigator.sendBeacon) {
+        sent = navigator.sendBeacon('/api/track', new Blob([vcPayload], {type: 'application/json'}));
+      }
+      if (!sent) {
+        fetch('/api/track', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: vcPayload,
+          keepalive: true,
+        }).catch(function(){});
+      }
+    })();
   </script>
   <noscript><img height="1" width="1" style="display:none"
     src="https://www.facebook.com/tr?id=2774496306216737&ev=PageView&noscript=1"/></noscript>
