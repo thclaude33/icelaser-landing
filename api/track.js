@@ -335,6 +335,13 @@ export default async function handler(req, res) {
     custom_data.content_category = 'depilacao_laser';
   }
 
+  // Validação: garantir campos mínimos para matching funcionar
+  // Meta rejeita batch INTEIRO se 1 evento for inválido
+  const userDataKeys = Object.keys(userData).filter(k => !['client_user_agent', 'client_ip_address'].includes(k));
+  if (userDataKeys.length === 0) {
+    return res.status(400).json({ error: 'Insufficient user_data for matching' });
+  }
+
   const payload = {
     data: [{
       event_name,

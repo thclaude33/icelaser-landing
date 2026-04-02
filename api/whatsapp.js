@@ -105,10 +105,35 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
   }
 }
 
-// ── PROCESSA MENSAGEM CTWA ────────────────────────────────────────────────────
-function processarCTWA(from, message, referral) {
+// ── PROCESSA MENSAGEM CTWA + SALVA NO BLOB ───────────────────────────────────
+async function processarCTWA(from, message, referral) {
   const clid = referral?.ctwa_clid;
-  console.log(`[CTWA] from=${from} clid=${clid} source=${referral?.source_type}`);
+  const sourceUrl = referral?.source_url || '';
+  const sourceType = referral?.source_type || '';
+  const headlineText = referral?.headline || '';
+  const bodyText = referral?.body || '';
+  console.log(`[CTWA] from=${from} clid=${clid} source=${sourceType} url=${sourceUrl}`);
+
+  // Salvar ctwa_clid no Blob vinculado ao telefone — será recuperado pelo crm-webhook
+  if (clid && from && process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { put } = await import('@vercel/blob');
+      const ts = new Date().toISOString();
+      await put(`ctwa/${from}.json`, JSON.stringify({
+        ctwa_clid: clid,
+        phone: from,
+        source_url: sourceUrl,
+        source_type: sourceType,
+        headline: headlineText,
+        body: bodyText,
+        timestamp: ts,
+      }), { access: 'public', contentType: 'application/json' });
+      console.log(`[CTWA] Saved to Blob: ctwa/${from}.json`);
+    } catch (e) {
+      console.warn('[CTWA] Blob save failed:', e.message);
+    }
+  }
+
   return clid;
 }
 
@@ -219,7 +244,7 @@ export default async function handler(req, res) {
 
           // CTWA — veio de anúncio
           if (msg.referral?.ctwa_clid) {
-            ctwaClid = processarCTWA(from, msg, msg.referral);
+            ctwaClid = await processarCTWA(from, msg, msg.referral);
           }
 
           // Lead via Flow (nfm_reply)

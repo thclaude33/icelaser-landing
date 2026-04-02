@@ -84,26 +84,52 @@ export default async function handler(req, res) {
   // UTMs do contato (se vieram da LP)
   let fbp = customAttrs.fbp || undefined;
   let fbc = customAttrs.fbclid || customAttrs.fbc || undefined;
+  let ctwaClid = customAttrs.ctwa_clid || undefined;
 
-  // Recuperar fbp/fbc do Blob se não estão nos atributos do contato
-  if ((!fbp || !fbc) && telefone && process.env.BLOB_READ_WRITE_TOKEN) {
+  // Recuperar fbp/fbc/ctwa_clid do Blob se não estão nos atributos do contato
+  if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
       const { list } = await import('@vercel/blob');
       const telDigits = telefone.replace(/\D/g, '');
-      const blobs = await list({ prefix: 'leads/', limit: 100 });
-      for (const blob of blobs.blobs) {
-        if (blob.size > 200) {
-          const blobResp = await fetch(blob.url);
-          const data = await blobResp.json();
-          const blobTel = (data.telefone || '').replace(/\D/g, '');
-          if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
-            if (!fbp && data.fbp) fbp = data.fbp;
-            if (!fbc && data.fbc) fbc = data.fbc;
-            if (fbp && fbc) break;
+
+      // 1. Recuperar ctwa_clid do Blob (salvo pelo whatsapp.js quando cliente veio de anúncio CTWA)
+      if (!ctwaClid) {
+        try {
+          const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
+          for (const blob of ctwaBlobs.blobs) {
+            if (blob.pathname.includes(telDigits.slice(-8))) {
+              const blobResp = await fetch(blob.url);
+              const data = await blobResp.json();
+              if (data.ctwa_clid) {
+                ctwaClid = data.ctwa_clid;
+                console.log(`[CRM-WEBHOOK] Recovered ctwa_clid from Blob: ${ctwaClid.substring(0, 20)}...`);
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[CRM-WEBHOOK] CTWA Blob recovery failed:', e.message);
+        }
+      }
+
+      // 2. Recuperar fbp/fbc do Blob de leads
+      if (!fbp || !fbc) {
+        const blobs = await list({ prefix: 'leads/', limit: 100 });
+        for (const blob of blobs.blobs) {
+          if (blob.size > 200) {
+            const blobResp = await fetch(blob.url);
+            const data = await blobResp.json();
+            const blobTel = (data.telefone || '').replace(/\D/g, '');
+            if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
+              if (!fbp && data.fbp) fbp = data.fbp;
+              if (!fbc && data.fbc) fbc = data.fbc;
+              if (fbp && fbc) break;
+            }
           }
         }
       }
-      if (fbp || fbc) console.log(`[CRM-WEBHOOK] Recovered from Blob: fbp=${!!fbp} fbc=${!!fbc}`);
+
+      if (fbp || fbc || ctwaClid) console.log(`[CRM-WEBHOOK] Recovered from Blob: fbp=${!!fbp} fbc=${!!fbc} ctwa=${!!ctwaClid}`);
     } catch (e) {
       console.warn('[CRM-WEBHOOK] Blob recovery failed:', e.message);
     }
@@ -111,6 +137,7 @@ export default async function handler(req, res) {
 
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
+  if (ctwaClid) userData.ctwa_clid = ctwaClid;
 
   // Tenta recuperar URL da LP original salva nos atributos; fallback para domínio canônico
   const eventSourceUrl = customAttrs.landing_url
@@ -120,12 +147,17 @@ export default async function handler(req, res) {
 
   const baseEvent = {
     event_source_url: eventSourceUrl,
-    action_source: 'website',
+    action_source: 'chat',
     user_data: userData,
   };
 
   const events = [];
   const eventId = `crm_${contact.id || 'unknown'}_${now}`;
+
+  // Determinar customer_segmentation baseado nas labels
+  // Se já tem compra_realizada anterior → existing_customer
+  const isExisting = labels.includes('compra_realizada') || labels.includes('💰 Compra Realizada') || labels.includes('💰_compra_realizada');
+  const customerSeg = isExisting ? 'existing_customer_to_business' : 'new_customer_to_business';
 
   // ❌ DESQUALIFICADO
   if (labels.includes('desqualificado') || labels.includes('❌ Desqualificado') || labels.includes('❌_desqualificado')) {
@@ -140,6 +172,7 @@ export default async function handler(req, res) {
         status: 'disqualified',
         quality: 'unqualified',
         disqualification_reason: 'fora_do_publico_alvo',
+        customer_segmentation: 'new_customer_to_business',
       },
     });
   }
@@ -155,6 +188,7 @@ export default async function handler(req, res) {
         content_name: 'Lead Frio - CRM',
         lead_type: 'cold_lead',
         status: 'unqualified',
+        customer_segmentation: customerSeg,
       },
     });
   }
@@ -167,14 +201,14 @@ export default async function handler(req, res) {
         event_name: 'Lead',
         event_time: now - 3600,
         event_id: `${eventId}_hot_lead`,
-        custom_data: { content_name: 'Lead Quente - CRM', lead_type: 'hot_lead' },
+        custom_data: { content_name: 'Lead Quente - CRM', lead_type: 'hot_lead', customer_segmentation: customerSeg },
       },
       {
         ...baseEvent,
         event_name: 'CompleteRegistration',
         event_time: now,
         event_id: `${eventId}_hot_cr`,
-        custom_data: { content_name: 'Lead Quente - CRM', status: 'converted', currency: 'BRL', value: 150.00 },
+        custom_data: { content_name: 'Lead Quente - CRM', status: 'converted', currency: 'BRL', value: 150.00, customer_segmentation: customerSeg },
       }
     );
   }
@@ -187,7 +221,7 @@ export default async function handler(req, res) {
       event_name: 'InitiateCheckout',
       event_time: now,
       event_id: `${eventId}_ic`,
-      custom_data: { currency: 'BRL', value: valor, content_name: 'Link Pagamento - CRM' },
+      custom_data: { currency: 'BRL', value: valor, content_name: 'Link Pagamento - CRM', customer_segmentation: customerSeg },
     });
   }
 
@@ -200,7 +234,7 @@ export default async function handler(req, res) {
         event_name: 'InitiateCheckout',
         event_time: now - 1800,
         event_id: `${eventId}_purchase_ic`,
-        custom_data: { currency: 'BRL', value: valor, content_name: 'Compra CRM' },
+        custom_data: { currency: 'BRL', value: valor, content_name: 'Compra CRM', customer_segmentation: customerSeg },
       },
       {
         ...baseEvent,
@@ -213,6 +247,7 @@ export default async function handler(req, res) {
           content_name: 'Pacote Depilacao Laser',
           content_type: 'product',
           num_items: 1,
+          customer_segmentation: customerSeg,
         },
       }
     );
@@ -222,15 +257,35 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, skipped: true, reason: 'no_matching_labels' });
   }
 
+  // Validação de batch: filtrar eventos inválidos antes de enviar
+  // (se 1 evento inválido no batch, a Meta rejeita o batch INTEIRO)
+  const validEvents = events.filter(evt => {
+    if (!evt.event_name || !evt.event_time || !evt.action_source) {
+      console.warn(`[CRM-WEBHOOK] Evento inválido removido: ${JSON.stringify(evt).substring(0, 100)}`);
+      return false;
+    }
+    if (!evt.user_data || Object.keys(evt.user_data).length === 0) {
+      console.warn(`[CRM-WEBHOOK] Evento sem user_data removido: ${evt.event_name}`);
+      return false;
+    }
+    return true;
+  });
+
+  if (validEvents.length === 0) {
+    return res.status(200).json({ ok: true, skipped: true, reason: 'all_events_invalid' });
+  }
+
   try {
-    const result = await sendCAPI(events, token);
-    console.log(`[CRM-WEBHOOK] ${event} | ${nome} | labels: ${labels.join(',')} | CAPI: ${result.events_received} eventos`);
+    const result = await sendCAPI(validEvents, token);
+    console.log(`[CRM-WEBHOOK] ${event} | ${nome} | labels: ${labels.join(',')} | CAPI: ${result.events_received} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
     return res.status(200).json({
       ok: true,
       contact: nome,
       labels,
-      events_sent: events.length,
+      events_sent: validEvents.length,
       events_received: result.events_received,
+      ctwa_clid: !!ctwaClid,
+      customer_segmentation: customerSeg,
     });
   } catch (err) {
     console.error('[CRM-WEBHOOK]', err.message);

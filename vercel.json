@@ -7,7 +7,8 @@
 
   "crons": [
     { "path": "/api/cron/daily-report", "schedule": "0 11 * * *" },
-    { "path": "/api/cron/daily-report", "schedule": "0 23 * * *" }
+    { "path": "/api/cron/daily-report", "schedule": "0 23 * * *" },
+    { "path": "/api/cron/emq-monitor", "schedule": "0 13 * * *" }
   ],
 
   "rewrites": [
@@ -46,6 +47,11 @@
     "api/cron/daily-report.js": {
       "memory": 512,
       "maxDuration": 60,
+      "regions": ["gru1"]
+    },
+    "api/cron/emq-monitor.js": {
+      "memory": 256,
+      "maxDuration": 30,
       "regions": ["gru1"]
     },
     "api/og.js": {
