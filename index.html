@@ -111,7 +111,21 @@
     document,'script','/api/pixel');
     fbq('init', '2774496306216737', {country: 'br', st: 'pe', ct: 'recife'});
     // fbc: captura fbclid da URL e armazena em cookie _fbc imediatamente (Parameter Setup Tool)
-    (function(){try{var p=new URLSearchParams(window.location.search);var cl=p.get('fbclid');if(cl){var fbc='fb.1.'+Date.now()+'.'+cl;var ex=new Date(Date.now()+7776000000).toUTCString();document.cookie='_fbc='+fbc+';path=/;expires='+ex+';SameSite=Lax';}}catch(e){}}());
+    (function(){try{
+      var p=new URLSearchParams(window.location.search);
+      var cl=p.get('fbclid');
+      if(cl){
+        // Só cria _fbc se não existir OU se fbclid mudou (novo clique)
+        var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
+        var existingFbclid=existingFbc.split('.').slice(3).join('.');
+        if(!existingFbc || existingFbclid!==cl){
+          // Formato oficial Meta: fb.{subdomainIndex}.{creationTime_ms}.{fbclid_inalterado}
+          var fbc='fb.1.'+Date.now()+'.'+cl;
+          var ex=new Date(Date.now()+7776000000).toUTCString();
+          document.cookie='_fbc='+fbc+';path=/;expires='+ex+';SameSite=Lax';
+        }
+      }
+    }catch(e){}}());
     fbq('track', 'PageView');
     var vcEventId = 'vc_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
     fbq('track', 'ViewContent', {
@@ -1035,10 +1049,9 @@
     const fbpCookie = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbp='));
     const fbp = fbpCookie ? fbpCookie.split('=').slice(1).join('=') : undefined;
     const params = new URLSearchParams(window.location.search);
-    const fbclid = params.get('fbclid') || undefined;
-    // Lê _fbc do cookie (capturado no page load) ou constrói do fbclid atual
+    // Lê _fbc do cookie — NUNCA reconstruir, usar valor original inalterado
     const fbcCookieVal = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbc='));
-    const fbc = fbcCookieVal ? fbcCookieVal.split('=').slice(1).join('=') : (fbclid ? ('fb.1.' + Date.now() + '.' + fbclid) : undefined);
+    const fbc = fbcCookieVal ? fbcCookieVal.split('=').slice(1).join('=') : undefined;
 
     // Captura origem completa: URL params + sessionStorage fallback
     var origemFB = getOrigemFallback();
