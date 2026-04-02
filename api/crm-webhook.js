@@ -22,7 +22,7 @@ function normalizePhone(phone) {
   return '55' + digits;
 }
 
-async function sendCAPI(events, token) {
+async function sendCAPI(events, token, retryCount = 0) {
   const res = await fetch(
     `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${token}`,
     {
@@ -31,7 +31,36 @@ async function sendCAPI(events, token) {
       body: JSON.stringify({ data: events }),
     }
   );
-  return res.json();
+
+  // Monitorar X-App-Usage pra antecipar rate limits
+  const appUsage = res.headers.get('x-app-usage');
+  if (appUsage) {
+    try {
+      const usage = JSON.parse(appUsage);
+      if (usage.call_count > 80 || usage.total_cputime > 80 || usage.total_time > 80) {
+        console.warn(`[CAPI] ⚠️ Rate limit approaching: call_count=${usage.call_count}% cpu=${usage.total_cputime}% time=${usage.total_time}%`);
+      }
+    } catch {}
+  }
+
+  const result = await res.json();
+
+  // Error handling com is_transient e blame_field_specs
+  if (result.error) {
+    const { code, error_subcode, message, is_transient, error_user_title } = result.error;
+    const blame = result.error.blame_field_specs ? ` | blame: ${JSON.stringify(result.error.blame_field_specs)}` : '';
+    console.error(`[CAPI ERROR] code=${code} subcode=${error_subcode} transient=${is_transient} msg=${message}${blame}`);
+
+    // Retry apenas em erros transientes (max 2 retries com backoff)
+    if (is_transient && retryCount < 2) {
+      const delay = (retryCount + 1) * 1000; // 1s, 2s
+      console.log(`[CAPI] Retrying in ${delay}ms (attempt ${retryCount + 1}/2)...`);
+      await new Promise(r => setTimeout(r, delay));
+      return sendCAPI(events, token, retryCount + 1);
+    }
+  }
+
+  return result;
 }
 
 export default async function handler(req, res) {

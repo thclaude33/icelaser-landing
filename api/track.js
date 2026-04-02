@@ -416,6 +416,37 @@ export default async function handler(req, res) {
     const [metaResponse] = await Promise.all(promises);
     const result = await metaResponse.json();
 
+    // Monitorar X-App-Usage pra antecipar rate limits
+    const appUsage = metaResponse.headers.get('x-app-usage');
+    if (appUsage) {
+      try {
+        const usage = JSON.parse(appUsage);
+        if (usage.call_count > 80 || usage.total_cputime > 80 || usage.total_time > 80) {
+          console.warn(`[TRACK] ⚠️ Rate limit approaching: call_count=${usage.call_count}% cpu=${usage.total_cputime}% time=${usage.total_time}%`);
+        }
+      } catch {}
+    }
+
+    // Error handling com is_transient e blame_field_specs
+    if (result.error) {
+      const { code, error_subcode, message, is_transient } = result.error;
+      const blame = result.error.blame_field_specs ? ` | blame: ${JSON.stringify(result.error.blame_field_specs)}` : '';
+      console.error(`[TRACK CAPI ERROR] code=${code} subcode=${error_subcode} transient=${is_transient} event=${event_name} msg=${message}${blame}`);
+
+      // Retry 1x em erros transientes
+      if (is_transient) {
+        await new Promise(r => setTimeout(r, 1000));
+        const retryRes = await fetch(
+          `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${token}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+        );
+        const retryResult = await retryRes.json();
+        if (!retryResult.error) {
+          console.log(`[TRACK] Retry succeeded for ${event_name}`);
+        }
+      }
+    }
+
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit
     // HTTP Set-Cookie headers persist up to 180 days even in Safari
     const cookieOpts = 'Path=/; SameSite=Lax; Secure; Max-Age=15552000'; // 180 days

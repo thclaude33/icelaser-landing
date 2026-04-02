@@ -52,8 +52,21 @@ export default async function handler(req, res) {
     );
     const data = await response.json();
 
+    // Monitorar X-App-Usage
+    const appUsage = response.headers.get('x-app-usage');
+    if (appUsage) {
+      try {
+        const usage = JSON.parse(appUsage);
+        console.log(`[EMQ-MONITOR] API Usage: call_count=${usage.call_count}% cpu=${usage.total_cputime}% time=${usage.total_time}%`);
+        if (usage.call_count > 80 || usage.total_cputime > 80 || usage.total_time > 80) {
+          console.warn(`[EMQ-MONITOR] ⚠️ Rate limit approaching!`);
+        }
+      } catch {}
+    }
+
     if (data.error) {
-      console.error('[EMQ-MONITOR] API Error:', data.error.message);
+      const blame = data.error.blame_field_specs ? ` | blame: ${JSON.stringify(data.error.blame_field_specs)}` : '';
+      console.error(`[EMQ-MONITOR] API Error: code=${data.error.code} transient=${data.error.is_transient} msg=${data.error.message}${blame}`);
       return res.status(500).json({ error: data.error.message });
     }
 

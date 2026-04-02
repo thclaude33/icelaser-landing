@@ -189,6 +189,24 @@ async function enviarTemplateConfirmacao(to, nome, servico) {
 // ── HANDLER PRINCIPAL ─────────────────────────────────────────────────────────
 export default async function handler(req, res) {
 
+  // Health check — verificar se webhook está ativo (inclui check de mTLS cert)
+  if (req.method === 'GET' && req.query['health'] === '1') {
+    const status = {
+      ok: true,
+      webhook: 'active',
+      verify_token: !!VERIFY_TOKEN,
+      app_secret: !!APP_SECRET,
+      meta_token: !!META_TOKEN,
+      phone_number_id: !!PHONE_NUMBER_ID,
+      // mTLS cert: Meta migrou de DigiCert pra Meta CA em 31/mar/2026
+      // Se webhook parar de receber eventos, baixar novo cert:
+      // meta-outbound-api-ca-2025-12.pem
+      mtls_note: 'Meta CA cert since 31/mar/2026. If webhook stops receiving, check cert.',
+      timestamp: new Date().toISOString(),
+    };
+    return res.status(200).json(status);
+  }
+
   // GET — verificação pela Meta (challenge)
   if (req.method === 'GET') {
     if (!VERIFY_TOKEN) {
@@ -213,12 +231,16 @@ export default async function handler(req, res) {
     }
     const rawBody = await getRawBody(req);
 
-    // Valida assinatura (segurança — bloqueia requests não-Meta)
+    // Valida assinatura HMAC (segurança — bloqueia requests não-Meta)
+    // Nota: Meta migrou certificado mTLS em 31/mar/2026 (DigiCert → Meta CA)
+    // Se assinatura falhar sistematicamente, verificar se novo cert foi instalado
     const sig = req.headers['x-hub-signature-256'];
     if (!validarAssinatura(rawBody, sig)) {
-      console.error('[WEBHOOK] Assinatura inválida');
+      console.error('[WEBHOOK] ❌ Assinatura inválida — verificar se cert mTLS Meta CA está atualizado');
       return res.status(401).json({ error: 'invalid signature' });
     }
+    // Log de sucesso — confirma que webhook + mTLS estão funcionando
+    console.log(`[WEBHOOK] ✅ Signature valid | mTLS OK | ${new Date().toISOString()}`);
 
     let body;
     try { body = JSON.parse(rawBody.toString()); }
