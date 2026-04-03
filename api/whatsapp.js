@@ -558,14 +558,10 @@ export default async function handler(req, res) {
       }
     };
 
-    // FLUXO: Evolution API primeiro → fallback Chatwoot direto se falhar
-    const evoOk = await forwardToEvolution();
-    if (!evoOk) {
-      console.warn('[PROXY] Evolution API falhou — usando fallback Chatwoot direto');
-      const chatOk = await fallbackToChatwoot();
-      if (!chatOk) {
-        console.error('[PROXY] ❌ Fallback também falhou — msg salva no Blob backup');
-      }
+    // FLUXO: Chatwoot direto (com conversão de mídia) — Evolution API desabilitada temporariamente
+    const chatOk = await fallbackToChatwoot();
+    if (!chatOk) {
+      console.error('[PROXY] ❌ Chatwoot falhou — msg salva no Blob backup');
     }
 
     await backupPromise;
