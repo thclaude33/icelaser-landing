@@ -134,9 +134,8 @@
       value: 0,
       currency: 'BRL'
     }, {eventID: vcEventId});
-    // CAPI server-side ViewContent — redundancia contra iOS ITP bloqueando pixel browser
-    // Usa sendBeacon (mais confiável que fetch — sobrevive a page unload/redirect rápido)
-    // Fallback pra fetch+keepalive se sendBeacon não disponível
+    // CAPI server-side ViewContent — cobertura 75%+ exigida pela Meta
+    // Tripla tentativa: fetch → retry → sendBeacon (pra maximizar cobertura)
     (function(){
       var vcPayload = JSON.stringify({
         event_name: 'ViewContent',
@@ -148,18 +147,25 @@
         utm_source: new URLSearchParams(location.search).get('utm_source') || undefined,
         utm_campaign: new URLSearchParams(location.search).get('utm_campaign') || undefined,
       });
-      var sent = false;
-      if (navigator.sendBeacon) {
-        sent = navigator.sendBeacon('/api/track', new Blob([vcPayload], {type: 'application/json'}));
-      }
-      if (!sent) {
+      // 1. fetch normal (mais confiável, espera resposta)
+      fetch('/api/track', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: vcPayload,
+      }).then(function(r){
+        if(!r.ok) throw new Error(r.status);
+      }).catch(function(){
+        // 2. Retry com keepalive
         fetch('/api/track', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: vcPayload,
           keepalive: true,
-        }).catch(function(){});
-      }
+        }).catch(function(){
+          // 3. sendBeacon como último recurso
+          try { navigator.sendBeacon('/api/track', new Blob([vcPayload], {type: 'application/json'})); } catch(e){}
+        });
+      });
     })();
   </script>
   <noscript><img height="1" width="1" style="display:none"
