@@ -215,7 +215,10 @@ export default async function handler(req, res) {
       console.error('[VERIFY] WA_VERIFY_TOKEN não configurado');
       return res.status(500).send('Webhook not configured');
     }
-    const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query;
+    // Usar urlParams (já parseado acima) — req.query não funciona com bodyParser:false
+    const mode = urlParams.get('hub.mode');
+    const token = urlParams.get('hub.verify_token');
+    const challenge = urlParams.get('hub.challenge');
     console.log(`[VERIFY] mode=${mode} token=${token}`);
     if (mode === 'subscribe' && token === VERIFY_TOKEN) {
       console.log('[VERIFY] ✅ OK');
