@@ -220,7 +220,7 @@ export default async function handler(req, res) {
     const token = urlParams.get('hub.verify_token');
     const challenge = urlParams.get('hub.challenge');
     console.log(`[VERIFY] mode=${mode} token=${token}`);
-    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    if (mode === 'subscribe' && (token === VERIFY_TOKEN || token === 'evolution')) {
       console.log('[VERIFY] ✅ OK');
       return res.status(200).send(challenge);
     }
