@@ -418,13 +418,26 @@ export default async function handler(req, res) {
     const [metaResponse] = await Promise.all(promises);
     const result = await metaResponse.json();
 
-    // Monitorar X-App-Usage pra antecipar rate limits
+    // Monitorar X-App-Usage e X-Business-Use-Case-Usage pra antecipar rate limits
     const appUsage = metaResponse.headers.get('x-app-usage');
     if (appUsage) {
       try {
         const usage = JSON.parse(appUsage);
         if (usage.call_count > 80 || usage.total_cputime > 80 || usage.total_time > 80) {
           console.warn(`[TRACK] ⚠️ Rate limit approaching: call_count=${usage.call_count}% cpu=${usage.total_cputime}% time=${usage.total_time}%`);
+        }
+      } catch {}
+    }
+    const bucUsage = metaResponse.headers.get('x-business-use-case-usage');
+    if (bucUsage) {
+      try {
+        const buc = JSON.parse(bucUsage);
+        for (const [bizId, entries] of Object.entries(buc)) {
+          for (const e of entries) {
+            if (e.call_count > 80 || e.total_cputime > 80 || e.total_time > 80) {
+              console.warn(`[BUC] ⚠️ ${e.type} limit approaching: call=${e.call_count}% cpu=${e.total_cputime}% time=${e.total_time}% | recover=${e.estimated_time_to_regain_access}min`);
+            }
+          }
         }
       } catch {}
     }

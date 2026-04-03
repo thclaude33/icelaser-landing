@@ -274,8 +274,137 @@ export default async function handler(req, res) {
     // Dispara backup em paralelo (não bloqueia processamento)
     const backupPromise = backupBlob();
 
-    // Processa eventos
+    // ── DEDUPLICAÇÃO (evita processar mesmo evento 2x no retry da Meta) ────────
+    const processedIds = new Set();
+
+    // Processa eventos por object type
+    const objectType = body.object; // whatsapp_business_account, ad_account, page
+    console.log(`[WEBHOOK] Object: ${objectType} | Entries: ${body.entry?.length || 0}`);
+
     for (const entry of body.entry || []) {
+
+      // ── AD ACCOUNT EVENTS (creative_fatigue, with_issues, recommendations) ──
+      if (objectType === 'ad_account') {
+        for (const change of entry.changes || []) {
+          const { field, value } = change;
+          const dedup = `${field}_${value?.id || entry.id}_${entry.time}`;
+          if (processedIds.has(dedup)) continue;
+          processedIds.add(dedup);
+
+          if (field === 'creative_fatigue') {
+            const nivel = value?.fatigue_level || '?';
+            const adId = value?.ad_id || value?.id || '?';
+            const adName = value?.ad_name || '?';
+            console.warn(`[CREATIVE FATIGUE] 🔥 Ad ${adId} (${adName}) → Fadiga: ${nivel}`);
+            await enviarEmail(
+              `🔥 Creative Fatigue: ${adName} → ${nivel}`,
+              `<div style="font-family:Arial;max-width:540px;margin:auto">
+                <div style="background:${nivel === 'High' ? '#c0392b' : nivel === 'Medium' ? '#f39c12' : '#3498db'};padding:16px;border-radius:8px 8px 0 0">
+                  <h2 style="color:#fff;margin:0">🔥 Creative Fatigue — ${nivel}</h2>
+                </div>
+                <div style="background:#f9f9f9;padding:16px;border-radius:0 0 8px 8px;border:1px solid #eee">
+                  <p><strong>Ad:</strong> ${adName}</p>
+                  <p><strong>Ad ID:</strong> ${adId}</p>
+                  <p><strong>Nível:</strong> <span style="color:${nivel === 'High' ? '#c0392b' : '#f39c12'};font-weight:bold">${nivel}</span></p>
+                  <p><strong>Ação:</strong> ${nivel === 'High' ? '⛔ PAUSAR criativo imediatamente' : nivel === 'Medium' ? '⚠️ Preparar substituto' : 'ℹ️ Monitorar'}</p>
+                  <p style="font-size:12px;color:#999">Conta: act_790663154114264 | ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })}</p>
+                </div>
+              </div>`
+            );
+          }
+
+          if (field === 'with_issues_ad_objects') {
+            const level = value?.level || '?'; // AD, AD_SET, CAMPAIGN
+            const objId = value?.id || '?';
+            const errCode = value?.error_code || '';
+            const errSummary = value?.error_summary || '';
+            const errMsg = value?.error_message || '';
+            console.error(`[WITH_ISSUES] ⚠️ ${level} ${objId}: ${errSummary}`);
+            await enviarEmail(
+              `⚠️ ${level} com problema: ${errSummary}`,
+              `<div style="font-family:Arial;max-width:540px;margin:auto">
+                <div style="background:#e74c3c;padding:16px;border-radius:8px 8px 0 0">
+                  <h2 style="color:#fff;margin:0">⚠️ ${level} — WITH_ISSUES</h2>
+                </div>
+                <div style="background:#fff5f5;padding:16px;border-radius:0 0 8px 8px;border:1px solid #fcc">
+                  <p><strong>Tipo:</strong> ${level}</p>
+                  <p><strong>ID:</strong> ${objId}</p>
+                  <p><strong>Erro:</strong> ${errSummary}</p>
+                  <p><strong>Detalhe:</strong> ${errMsg}</p>
+                  <p><strong>Código:</strong> ${errCode}</p>
+                  <p style="font-size:12px"><a href="https://business.facebook.com/adsmanager/manage/campaigns?act=790663154114264">Abrir Ads Manager →</a></p>
+                </div>
+              </div>`
+            );
+          }
+
+          if (field === 'in_process_ad_objects') {
+            console.log(`[IN_PROCESS] ✅ ${value?.level || '?'} ${value?.id || '?'} saiu do processamento`);
+          }
+
+          if (field === 'ad_recommendations') {
+            console.log(`[AD_REC] 💡 Recomendação pra ad ${value?.id || '?'}`);
+          }
+        }
+        // Ad account events não vão pro Chatwoot
+        await backupPromise;
+        return res.status(200).json({ ok: true });
+      }
+
+      // ── PAGE EVENTS (leadgen, feed) ─────────────────────────────────────────
+      if (objectType === 'page') {
+        for (const change of entry.changes || []) {
+          const { field, value } = change;
+
+          if (field === 'leadgen') {
+            const leadId = value?.leadgen_id;
+            const formId = value?.form_id;
+            const adId = value?.ad_id;
+            const created = value?.created_time;
+            console.log(`[LEADGEN] 🎯 Novo lead! ID:${leadId} Form:${formId} Ad:${adId}`);
+
+            // Buscar dados do lead via API
+            if (leadId && META_TOKEN) {
+              try {
+                const lr = await fetch(`https://graph.facebook.com/v25.0/${leadId}?access_token=${META_TOKEN}`);
+                const ld = await lr.json();
+                const fields = ld.field_data || [];
+                const nome = fields.find(f => f.name === 'full_name')?.values?.[0] || '?';
+                const tel = fields.find(f => f.name === 'phone_number')?.values?.[0] || '?';
+                const email = fields.find(f => f.name === 'email')?.values?.[0] || '';
+                console.log(`[LEADGEN] ${nome} | ${tel} | ${email}`);
+                await enviarEmail(
+                  `🎯 Lead Nativo — ${nome} | IceLaser`,
+                  `<div style="font-family:Arial;max-width:540px;margin:auto">
+                    <div style="background:#27ae60;padding:16px;border-radius:8px 8px 0 0">
+                      <h2 style="color:#fff;margin:0">🎯 Novo Lead — Form Nativo</h2>
+                    </div>
+                    <div style="background:#f0fff4;padding:16px;border-radius:0 0 8px 8px;border:1px solid #c3e6cb">
+                      <p><strong>Nome:</strong> ${nome}</p>
+                      <p><strong>Telefone:</strong> <a href="https://wa.me/${tel.replace(/\D/g,'')}">${tel}</a></p>
+                      ${email ? `<p><strong>Email:</strong> ${email}</p>` : ''}
+                      <p><strong>Form ID:</strong> ${formId}</p>
+                      <p><strong>Ad ID:</strong> ${adId || 'orgânico'}</p>
+                      <p style="font-size:12px;color:#999">${new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })}</p>
+                    </div>
+                  </div>`
+                );
+              } catch (e) {
+                console.error(`[LEADGEN] Erro ao buscar lead ${leadId}: ${e.message}`);
+              }
+            }
+          }
+
+          if (field === 'feed') {
+            console.log(`[FEED] ${value?.verb || '?'} ${value?.item || '?'} by ${value?.from?.name || '?'}`);
+          }
+        }
+        // Page events não vão pro Chatwoot WA
+        await backupPromise;
+        return res.status(200).json({ ok: true });
+      }
+
+      // ── WHATSAPP BUSINESS ACCOUNT EVENTS ────────────────────────────────────
       for (const change of entry.changes || []) {
         const { field, value } = change;
 
@@ -289,6 +418,13 @@ export default async function handler(req, res) {
 
         // Mensagens
         for (const msg of value.messages || []) {
+          // Deduplicação por message ID
+          if (msg.id && processedIds.has(msg.id)) {
+            console.log(`[DEDUP] Ignorando msg duplicada: ${msg.id}`);
+            continue;
+          }
+          if (msg.id) processedIds.add(msg.id);
+
           const from = msg.from;
           let ctwaClid = null;
 
