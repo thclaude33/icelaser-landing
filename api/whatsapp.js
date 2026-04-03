@@ -454,34 +454,106 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── PROXY: Forward pro Chatwoot com retry ──────────────────────────────────
-    // Chatwoot precisa receber o webhook da Meta pra mostrar conversas no CRM
-    // Se falhar, tenta 1x mais. Se falhar de novo, msg tá salva no Blob backup.
+    // ── PROXY: Forward pro Chatwoot com retry + fallback de mídia ──────────────
+    // Se Chatwoot falhar (500) em mensagem com mídia (audio/video/image/document),
+    // reenvia com texto placeholder pra não corromper a conversa.
+    // Mídia original fica no Blob backup.
     const CHATWOOT_WA_WEBHOOK = process.env.CHATWOOT_WEBHOOK_URL
       || 'https://chatwoot-production-af5f.up.railway.app/webhooks/whatsapp/+558195749947';
 
-    const forwardToChatwoot = async (attempt = 1) => {
-      try {
-        const r = await fetch(CHATWOOT_WA_WEBHOOK, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Hub-Signature-256': sig || '',
-          },
-          body: rawBody.toString(),
-        });
-        console.log(`[PROXY] Chatwoot forward: ${r.status} (attempt ${attempt})`);
-        if (!r.ok && attempt === 1) {
-          console.warn(`[PROXY] Chatwoot retornou ${r.status} — retry em 2s`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          return forwardToChatwoot(2);
+    const MEDIA_TYPES = ['audio', 'video', 'image', 'document', 'sticker'];
+    const MEDIA_LABELS = { audio: '🎤 Áudio', video: '🎬 Vídeo', image: '📷 Imagem', document: '📄 Documento', sticker: '🏷️ Sticker' };
+
+    // Verifica se o payload contém mensagens de mídia
+    const hasMedia = () => {
+      for (const entry of body.entry || []) {
+        for (const change of entry.changes || []) {
+          for (const msg of change.value?.messages || []) {
+            if (MEDIA_TYPES.includes(msg.type)) return true;
+          }
         }
-        return r.ok;
-      } catch (e) {
-        console.error(`[PROXY] Chatwoot forward failed (attempt ${attempt}): ${e.message}`);
-        if (attempt === 1) {
+      }
+      return false;
+    };
+
+    // Cria payload alternativo com mídia convertida em texto
+    const createTextFallback = () => {
+      const fallback = JSON.parse(JSON.stringify(body));
+      for (const entry of fallback.entry || []) {
+        for (const change of entry.changes || []) {
+          const msgs = change.value?.messages || [];
+          for (let i = 0; i < msgs.length; i++) {
+            const msg = msgs[i];
+            if (MEDIA_TYPES.includes(msg.type)) {
+              const label = MEDIA_LABELS[msg.type] || msg.type;
+              const caption = msg[msg.type]?.caption || '';
+              const mediaId = msg[msg.type]?.id || '';
+              // Converte pra texto — preserva o from, id, timestamp
+              msgs[i] = {
+                from: msg.from,
+                id: msg.id + '_fallback',
+                timestamp: msg.timestamp,
+                type: 'text',
+                text: { body: `${label} recebido${caption ? ': ' + caption : ''} [media_id: ${mediaId}]` },
+              };
+              console.log(`[PROXY] Mídia ${msg.type} convertida pra texto (fallback)`);
+            }
+          }
+        }
+      }
+      return JSON.stringify(fallback);
+    };
+
+    const sendToChat = async (payload, label = 'original') => {
+      const chatSig = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(payload).digest('hex');
+      const r = await fetch(CHATWOOT_WA_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': chatSig },
+        body: payload,
+      });
+      console.log(`[PROXY] Chatwoot ${label}: ${r.status}`);
+      return r;
+    };
+
+    const forwardToChatwoot = async () => {
+      try {
+        // Tentativa 1: payload original
+        const r1 = await sendToChat(rawBody.toString(), 'original');
+        if (r1.ok) return true;
+
+        console.warn(`[PROXY] Chatwoot retornou ${r1.status} no original`);
+
+        // Se falhou e tem mídia, tenta fallback com texto
+        if (hasMedia()) {
+          console.log('[PROXY] Payload tem mídia — tentando fallback texto...');
           await new Promise(resolve => setTimeout(resolve, 2000));
-          return forwardToChatwoot(2);
+          const fallbackPayload = createTextFallback();
+          const r2 = await sendToChat(fallbackPayload, 'fallback-texto');
+          if (r2.ok) {
+            console.log('[PROXY] ✅ Fallback texto funcionou — mídia original no Blob');
+            return true;
+          }
+          console.error(`[PROXY] ❌ Fallback texto também falhou: ${r2.status}`);
+        } else {
+          // Sem mídia, retry normal
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const r2 = await sendToChat(rawBody.toString(), 'retry');
+          if (r2.ok) return true;
+          console.error(`[PROXY] ❌ Retry também falhou: ${r2.status}`);
+        }
+
+        return false;
+      } catch (e) {
+        console.error(`[PROXY] Chatwoot forward exception: ${e.message}`);
+        // Tenta fallback se tem mídia
+        if (hasMedia()) {
+          try {
+            const fallbackPayload = createTextFallback();
+            const r = await sendToChat(fallbackPayload, 'fallback-exception');
+            return r.ok;
+          } catch (e2) {
+            console.error(`[PROXY] Fallback também falhou: ${e2.message}`);
+          }
         }
         return false;
       }
@@ -490,7 +562,7 @@ export default async function handler(req, res) {
     // Aguarda backup e forward antes de responder
     const [, chatwootOk] = await Promise.all([backupPromise, forwardToChatwoot()]);
     if (!chatwootOk) {
-      console.error('[PROXY] ❌ Chatwoot falhou 2x — msg salva no Blob backup');
+      console.error('[PROXY] ❌ Chatwoot falhou — msg salva no Blob backup');
     }
 
     return res.status(200).json({ ok: true });
