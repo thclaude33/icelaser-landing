@@ -515,46 +515,92 @@ export default async function handler(req, res) {
       return r;
     };
 
+    // Baixar mídia da Meta e salvar no Blob (pra poder ouvir/ver depois)
+    const downloadMediaToBlob = async (msg) => {
+      if (!process.env.BLOB_READ_WRITE_TOKEN || !META_TOKEN) return null;
+      const mediaObj = msg[msg.type]; // audio, video, image, document, sticker
+      if (!mediaObj?.id) return null;
+      try {
+        // 1. Pegar URL de download da Meta
+        const metaResp = await fetch(`https://graph.facebook.com/v25.0/${mediaObj.id}?access_token=${META_TOKEN}`);
+        const metaData = await metaResp.json();
+        if (!metaData.url) return null;
+        // 2. Baixar o arquivo
+        const fileResp = await fetch(metaData.url, { headers: { 'Authorization': `Bearer ${META_TOKEN}` } });
+        if (!fileResp.ok) return null;
+        const buffer = Buffer.from(await fileResp.arrayBuffer());
+        // 3. Salvar no Blob
+        const { put } = await import('@vercel/blob');
+        const ext = (mediaObj.mime_type || '').split('/')[1]?.split(';')[0] || 'bin';
+        const filename = `media/${msg.from}/${Date.now()}_${msg.type}.${ext}`;
+        const blob = await put(filename, buffer, { access: 'public', contentType: mediaObj.mime_type || 'application/octet-stream' });
+        console.log(`[MEDIA] ✅ Salvo: ${filename} (${buffer.length} bytes) → ${blob.url}`);
+        return blob.url;
+      } catch (e) {
+        console.error(`[MEDIA] ❌ Download falhou: ${e.message}`);
+        return null;
+      }
+    };
+
+    // Baixar todas as mídias em paralelo e criar payload com URLs do Blob
+    const createMediaPayload = async () => {
+      const payload = JSON.parse(JSON.stringify(body));
+      for (const entry of payload.entry || []) {
+        for (const change of entry.changes || []) {
+          const msgs = change.value?.messages || [];
+          for (let i = 0; i < msgs.length; i++) {
+            const msg = msgs[i];
+            if (MEDIA_TYPES.includes(msg.type)) {
+              const blobUrl = await downloadMediaToBlob(msg);
+              const label = MEDIA_LABELS[msg.type] || msg.type;
+              const caption = msg[msg.type]?.caption || '';
+              const mediaId = msg[msg.type]?.id || '';
+              // Converte pra texto com link do Blob
+              const blobLink = blobUrl ? `\n🔗 ${blobUrl}` : '';
+              msgs[i] = {
+                from: msg.from,
+                id: msg.id,
+                timestamp: msg.timestamp,
+                type: 'text',
+                text: { body: `${label} recebido${caption ? ': ' + caption : ''}${blobLink}` },
+              };
+              console.log(`[PROXY] Mídia ${msg.type} → texto + Blob URL`);
+            }
+          }
+        }
+      }
+      return JSON.stringify(payload);
+    };
+
     const forwardToChatwoot = async () => {
       try {
-        // Tentativa 1: payload original
+        // Se tem mídia, SEMPRE converter pra texto antes de enviar
+        // (Chatwoot Railway crashava ao tentar baixar mídia da Meta)
+        if (hasMedia()) {
+          console.log('[PROXY] Payload tem mídia — convertendo pra texto + Blob...');
+          const mediaPayload = await createMediaPayload();
+          const r = await sendToChat(mediaPayload, 'media-as-text');
+          if (r.ok) {
+            console.log('[PROXY] ✅ Mídia convertida e enviada com link do Blob');
+            return true;
+          }
+          console.error(`[PROXY] ❌ Falhou mesmo com conversão: ${r.status}`);
+          return false;
+        }
+
+        // Sem mídia, enviar original
         const r1 = await sendToChat(rawBody.toString(), 'original');
         if (r1.ok) return true;
 
-        console.warn(`[PROXY] Chatwoot retornou ${r1.status} no original`);
-
-        // Se falhou e tem mídia, tenta fallback com texto
-        if (hasMedia()) {
-          console.log('[PROXY] Payload tem mídia — tentando fallback texto...');
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          const fallbackPayload = createTextFallback();
-          const r2 = await sendToChat(fallbackPayload, 'fallback-texto');
-          if (r2.ok) {
-            console.log('[PROXY] ✅ Fallback texto funcionou — mídia original no Blob');
-            return true;
-          }
-          console.error(`[PROXY] ❌ Fallback texto também falhou: ${r2.status}`);
-        } else {
-          // Sem mídia, retry normal
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          const r2 = await sendToChat(rawBody.toString(), 'retry');
-          if (r2.ok) return true;
-          console.error(`[PROXY] ❌ Retry também falhou: ${r2.status}`);
-        }
-
+        // Retry se falhou
+        console.warn(`[PROXY] Chatwoot retornou ${r1.status} — retry em 2s`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const r2 = await sendToChat(rawBody.toString(), 'retry');
+        if (r2.ok) return true;
+        console.error(`[PROXY] ❌ Retry também falhou: ${r2.status}`);
         return false;
       } catch (e) {
         console.error(`[PROXY] Chatwoot forward exception: ${e.message}`);
-        // Tenta fallback se tem mídia
-        if (hasMedia()) {
-          try {
-            const fallbackPayload = createTextFallback();
-            const r = await sendToChat(fallbackPayload, 'fallback-exception');
-            return r.ok;
-          } catch (e2) {
-            console.error(`[PROXY] Fallback também falhou: ${e2.message}`);
-          }
-        }
         return false;
       }
     };
