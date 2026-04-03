@@ -248,6 +248,29 @@ export default async function handler(req, res) {
     try { body = JSON.parse(rawBody.toString()); }
     catch { return res.status(400).json({ error: 'invalid json' }); }
 
+    // ── BACKUP NO BLOB (salva ANTES de qualquer processamento — nunca perde msg) ─
+    const backupBlob = async () => {
+      if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+      try {
+        const { put } = await import('@vercel/blob');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        // Extrair phone do primeiro message pra identificar o backup
+        const firstMsg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        const fromPhone = firstMsg?.from || 'status';
+        const filename = `webhooks/wa/${ts}_${fromPhone}.json`;
+        await put(filename, rawBody.toString(), {
+          access: 'public',
+          contentType: 'application/json',
+        });
+        console.log(`[BACKUP] ✅ Salvo: ${filename}`);
+      } catch (e) {
+        // Backup falhou mas não pode bloquear o fluxo principal
+        console.error(`[BACKUP] ❌ Falhou: ${e.message}`);
+      }
+    };
+    // Dispara backup em paralelo (não bloqueia processamento)
+    const backupPromise = backupBlob();
+
     // Processa eventos
     for (const entry of body.entry || []) {
       for (const change of entry.changes || []) {
@@ -292,25 +315,44 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── PROXY: Forward payload inteiro pro Chatwoot (assíncrono, não bloqueia resposta)
+    // ── PROXY: Forward pro Chatwoot com retry ──────────────────────────────────
     // Chatwoot precisa receber o webhook da Meta pra mostrar conversas no CRM
-    // Nosso endpoint processa primeiro (captura ctwa_clid, grava Blob, dispara CAPI)
-    // e depois repassa pro Chatwoot sem modificar nada
+    // Se falhar, tenta 1x mais. Se falhar de novo, msg tá salva no Blob backup.
     const CHATWOOT_WA_WEBHOOK = process.env.CHATWOOT_WEBHOOK_URL
       || 'https://chatwoot-production-af5f.up.railway.app/webhooks/whatsapp/+558195749947';
 
-    fetch(CHATWOOT_WA_WEBHOOK, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Hub-Signature-256': sig || '',
-      },
-      body: rawBody.toString(),
-    }).then(r => {
-      console.log(`[PROXY] Chatwoot forward: ${r.status}`);
-    }).catch(e => {
-      console.error(`[PROXY] Chatwoot forward failed: ${e.message}`);
-    });
+    const forwardToChatwoot = async (attempt = 1) => {
+      try {
+        const r = await fetch(CHATWOOT_WA_WEBHOOK, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Hub-Signature-256': sig || '',
+          },
+          body: rawBody.toString(),
+        });
+        console.log(`[PROXY] Chatwoot forward: ${r.status} (attempt ${attempt})`);
+        if (!r.ok && attempt === 1) {
+          console.warn(`[PROXY] Chatwoot retornou ${r.status} — retry em 2s`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          return forwardToChatwoot(2);
+        }
+        return r.ok;
+      } catch (e) {
+        console.error(`[PROXY] Chatwoot forward failed (attempt ${attempt}): ${e.message}`);
+        if (attempt === 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          return forwardToChatwoot(2);
+        }
+        return false;
+      }
+    };
+
+    // Aguarda backup e forward antes de responder
+    const [, chatwootOk] = await Promise.all([backupPromise, forwardToChatwoot()]);
+    if (!chatwootOk) {
+      console.error('[PROXY] ❌ Chatwoot falhou 2x — msg salva no Blob backup');
+    }
 
     return res.status(200).json({ ok: true });
   }
