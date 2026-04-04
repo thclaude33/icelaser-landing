@@ -2,8 +2,10 @@
  * Edge Middleware — Redirect 301 + CAPI ViewContent server-side
  * 1. Redirect domínios vercel.app → icelasers.com.br
  * 2. Dispara ViewContent CAPI server-side pra CADA visita (cobertura 100%)
+ *
+ * IMPORTANTE: Edge Runtime não suporta Node.js crypto.
+ * Usa Web Crypto API (crypto.subtle) disponível globalmente no Edge.
  */
-import crypto from 'crypto';
 
 const PIXEL_ID = '2774496306216737';
 
@@ -11,11 +13,13 @@ export const config = {
   matcher: ['/((?!api/).*)'],
 };
 
-function sha256(value) {
-  return crypto.createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex');
+async function sha256(value) {
+  const encoded = new TextEncoder().encode(String(value).trim().toLowerCase());
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export default function middleware(request) {
+export default async function middleware(request) {
   const host = request.headers.get('host') || '';
 
   // Redirect .vercel.app → icelasers.com.br
@@ -51,14 +55,14 @@ export default function middleware(request) {
   const userData = {
     client_user_agent: ua,
     client_ip_address: ip,
-    country: [sha256('br')],
-    st: [sha256('pe')],
-    ct: [sha256('recife')],
-    zp: [sha256('50000')],
+    country: [await sha256('br')],
+    st: [await sha256('pe')],
+    ct: [await sha256('recife')],
+    zp: [await sha256('50000')],
   };
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
-  if (fbp) userData.external_id = [sha256(fbp)];
+  if (fbp) userData.external_id = [await sha256(fbp)];
 
   const payload = {
     data: [{

@@ -241,8 +241,14 @@ export default async function handler(req, res) {
 
   const baseEvent = {
     event_source_url: eventSourceUrl,
-    action_source: 'chat',
+    action_source: 'system_generated',  // CRM events: system_generated (não chat)
     user_data: userData,
+  };
+
+  // custom_data base para todos os eventos CRM (conforme guia Meta Conversion Leads)
+  const crmBase = {
+    event_source: 'crm',         // obrigatório para Conversion Leads
+    lead_event_source: 'Chatwoot', // nome do CRM
   };
 
   const events = [];
@@ -290,13 +296,13 @@ export default async function handler(req, res) {
       event_time: now,
       event_id: `${eventId}_disqualified`,
       custom_data: {
+        ...crmBase,
         content_name: 'Lead Desqualificado - CRM',
         lead_type: 'disqualified',
         status: 'disqualified',
         quality: 'unqualified',
         disqualification_reason: 'fora_do_publico_alvo',
         customer_segmentation: 'new_customer_to_business',
-        lead_event_source: 'crm_chatwoot',
       },
     });
   }
@@ -309,11 +315,11 @@ export default async function handler(req, res) {
       event_time: now,
       event_id: `${eventId}_cold_lead`,
       custom_data: {
+        ...crmBase,
         content_name: 'Lead Frio - CRM',
         lead_type: 'cold_lead',
         status: 'unqualified',
         customer_segmentation: customerSeg,
-        lead_event_source: 'crm_chatwoot',
       },
     });
   }
@@ -326,14 +332,14 @@ export default async function handler(req, res) {
         event_name: 'Lead',
         event_time: now - 3600,
         event_id: `${eventId}_hot_lead`,
-        custom_data: { content_name: 'Lead Quente - CRM', lead_type: 'hot_lead', customer_segmentation: customerSeg, lead_event_source: 'crm_chatwoot' },
+        custom_data: { ...crmBase, content_name: 'Lead Quente - CRM', lead_type: 'hot_lead', customer_segmentation: customerSeg },
       },
       {
         ...baseEvent,
         event_name: 'CompleteRegistration',
         event_time: now,
         event_id: `${eventId}_hot_cr`,
-        custom_data: { content_name: 'Lead Quente - CRM', status: 'converted', currency: 'BRL', value: 150.00, customer_segmentation: customerSeg },
+        custom_data: { ...crmBase, content_name: 'Lead Quente - CRM', status: 'converted', currency: 'BRL', value: 150.00, customer_segmentation: customerSeg },
       }
     );
   }
@@ -346,7 +352,7 @@ export default async function handler(req, res) {
       event_name: 'InitiateCheckout',
       event_time: now,
       event_id: `${eventId}_ic`,
-      custom_data: { currency: 'BRL', value: valor, content_name: 'Link Pagamento - CRM', customer_segmentation: customerSeg },
+      custom_data: { ...crmBase, currency: 'BRL', value: valor, content_name: 'Link Pagamento - CRM', customer_segmentation: customerSeg },
     });
   }
 
@@ -359,7 +365,7 @@ export default async function handler(req, res) {
         event_name: 'InitiateCheckout',
         event_time: now - 1800,
         event_id: `${eventId}_purchase_ic`,
-        custom_data: { currency: 'BRL', value: valor, content_name: 'Compra CRM', customer_segmentation: customerSeg },
+        custom_data: { ...crmBase, currency: 'BRL', value: valor, content_name: 'Compra CRM', customer_segmentation: customerSeg },
       },
       {
         ...baseEvent,
@@ -368,6 +374,7 @@ export default async function handler(req, res) {
         event_id: `${eventId}_purchase`,
         ...(originalLeadData && { original_event_data: originalLeadData }),
         custom_data: {
+          ...crmBase,
           currency: 'BRL',
           value: valor,
           predicted_ltv: 980,
