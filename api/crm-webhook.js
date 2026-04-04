@@ -229,6 +229,19 @@ export default async function handler(req, res) {
     }
   }
 
+  // Se tem ctwa_clid mas não fbc, derivar fbc do ctwa_clid (formato oficial Meta)
+  if (ctwaClid && !fbc) {
+    fbc = `fb.1.${now}.${ctwaClid}`;
+    console.log(`[CRM-WEBHOOK] fbc derivado do ctwa_clid: ${fbc.slice(0, 30)}...`);
+  }
+
+  // external_id: prefere nome, fallback pra telefone (garante matching mesmo sem nome)
+  if (nome) {
+    userData.external_id = [sha256(nome.trim().toLowerCase())];
+  } else if (telefone) {
+    userData.external_id = [sha256(normalizePhone(telefone))];
+  }
+
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
   if (ctwaClid) userData.ctwa_clid = ctwaClid;

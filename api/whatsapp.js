@@ -8,8 +8,13 @@
 
 import crypto from 'crypto';
 
+const PIXEL_ID        = '2774496306216737';
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
+
+function sha256(v) {
+  return crypto.createHash('sha256').update(String(v).trim().toLowerCase()).digest('hex');
+}
 const EMAIL_FROM      = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS      = process.env.EMAIL_PASS;
 const EMAIL_TO        = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
@@ -131,6 +136,49 @@ async function processarCTWA(from, message, referral) {
       console.log(`[CTWA] Saved to Blob: ctwa/${from}.json`);
     } catch (e) {
       console.warn('[CTWA] Blob save failed:', e.message);
+    }
+  }
+
+  // Disparar CAPI Lead com telefone + fbc derivado do ctwa_clid
+  // Melhora cobertura de phone (28%→+) e fbc (64%→+) no Events Manager
+  if (clid && from && META_TOKEN) {
+    try {
+      const eventTime = Math.floor(Date.now() / 1000);
+      // fbc = fb.1.{timestamp}.{ctwa_clid} — formato oficial Meta
+      const fbc = `fb.1.${eventTime}.${clid}`;
+      await fetch(
+        `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${META_TOKEN}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: [{
+              event_name: 'Lead',
+              event_time: eventTime,
+              event_id: `ctwa_wa_${from}_${eventTime}`,
+              action_source: 'system_generated',
+              user_data: {
+                ph: [sha256(from)],
+                gen: [sha256('f')],
+                country: [sha256('br')],
+                st: [sha256('pe')],
+                ct: [sha256('recife')],
+                fbc,
+              },
+              custom_data: {
+                event_source: 'crm',
+                lead_event_source: 'WhatsApp',
+                ctwa_clid: clid,
+                source_url: sourceUrl,
+                content_name: 'CTWA Lead - WhatsApp',
+              },
+            }],
+          }),
+        }
+      );
+      console.log(`[CTWA] ✅ CAPI Lead fired: ph=${from.slice(-4)} fbc=${fbc.slice(0,20)}...`);
+    } catch (e) {
+      console.warn('[CTWA] CAPI Lead failed:', e.message);
     }
   }
 
