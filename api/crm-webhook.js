@@ -165,7 +165,7 @@ export default async function handler(req, res) {
 
   // Monta user_data pra CAPI
   const now = Math.floor(Date.now() / 1000);
-  const userData = { country: [sha256('br')], st: [sha256('pe')], ct: [sha256('recife')] };
+  const userData = { country: [sha256('br')], st: [sha256('pe')], ct: [sha256('recife')], gen: [sha256('f')] };
 
   if (telefone) userData.ph = [sha256(normalizePhone(telefone))];
   if (email) userData.em = [sha256(email.toLowerCase())];

@@ -250,21 +250,18 @@ export default async function handler(req, res) {
   } = req.body || {};
 
   // IP capturado server-side (Vercel injeta nos headers) — melhora EMQ
-  // Preferir IPv6 quando disponível (Meta recomenda pra melhor matching com pixel browser)
+  // Preferir IPv6 puro quando disponível; ignorar IPv4-mapeado (::ffff:x.x.x.x)
   const xff = (req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
-  const ipv6 = xff.find(ip => ip.includes(':'));
-  const ipv4 = xff.find(ip => !ip.includes(':'));
-  const client_ip_address =
-    ipv6 || ipv4 ||
-    req.headers['x-real-ip'] ||
-    req.socket?.remoteAddress ||
-    undefined;
+  const stripMappedIPv4 = (ip) => ip.replace(/^::ffff:/i, '');
+  const rawIp = xff[0] || req.headers['x-real-ip'] || req.socket?.remoteAddress || undefined;
+  const client_ip_address = rawIp ? stripMappedIPv4(rawIp) : undefined;
 
   const userData = {
     country: [sha256('br')],
     st: [sha256('pe')],
     ct: [sha256('recife')],
     zp: [sha256('50000')],
+    gen: [sha256('f')], // público alvo 100% feminino (mulheres 20-44)
   };
 
   if (telefone) {
