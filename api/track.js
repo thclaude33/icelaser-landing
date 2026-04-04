@@ -249,12 +249,14 @@ export default async function handler(req, res) {
     landing_url, time_on_page, scroll_depth,
   } = req.body || {};
 
-  // IP capturado server-side (Vercel injeta nos headers) — melhora EMQ
-  // Preferir IPv6 puro quando disponível; ignorar IPv4-mapeado (::ffff:x.x.x.x)
-  const xff = (req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
+  // IP: prioridade _cip cookie (IPv6 capturado pelo browser via api64.ipify.org)
+  // Fallback: headers do Vercel (geralmente IPv4)
   const stripMappedIPv4 = (ip) => ip.replace(/^::ffff:/i, '');
+  const cipCookie = (req.headers['cookie'] || '').match(/(?:^|;\s*)_cip=([^;]+)/);
+  const cipIp = cipCookie ? cipCookie[1].trim() : undefined;
+  const xff = (req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
   const rawIp = xff[0] || req.headers['x-real-ip'] || req.socket?.remoteAddress || undefined;
-  const client_ip_address = rawIp ? stripMappedIPv4(rawIp) : undefined;
+  const client_ip_address = cipIp || (rawIp ? stripMappedIPv4(rawIp) : undefined);
 
   const userData = {
     country: [sha256('br')],

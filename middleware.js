@@ -40,7 +40,8 @@ export default async function middleware(request) {
   if (/bot|crawl|spider|facebook|meta|google|bing/i.test(ua)) return;
 
   // Extrair dados do request
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.ip || '';
+  // Preferir request.ip (Vercel edge — inclui IPv6) sobre x-forwarded-for (pode ser IPv4)
+  const ip = request.ip || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '';
   const cookies = request.headers.get('cookie') || '';
   const fbpMatch = cookies.match(/(?:^|;\s*)_fbp=([^;]*)/);
   const fbcMatch = cookies.match(/(?:^|;\s*)_fbc=([^;]*)/);
