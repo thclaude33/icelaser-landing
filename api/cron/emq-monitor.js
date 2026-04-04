@@ -43,8 +43,10 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) return res.status(500).json({ error: 'META_ACCESS_TOKEN not configured' });
+  // Prefere DATASET_QUALITY_API_TOKEN (gerado via Events Manager para esta finalidade)
+  // Fallback para META_ACCESS_TOKEN se não configurado
+  const token = process.env.DATASET_QUALITY_API_TOKEN || process.env.META_ACCESS_TOKEN;
+  if (!token) return res.status(500).json({ error: 'No access token configured' });
 
   try {
     const response = await fetch(
