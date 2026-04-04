@@ -156,10 +156,10 @@ async function processarCTWA(from, message, referral) {
               event_name: 'Lead',
               event_time: eventTime,
               event_id: `ctwa_wa_${from}_${eventTime}`,
-              action_source: 'system_generated',
+              action_source: 'business_messaging',
               user_data: {
                 ph: [sha256(from)],
-                gen: [sha256('f')],
+                ge: [sha256('f')],
                 country: [sha256('br')],
                 st: [sha256('pe')],
                 ct: [sha256('recife')],

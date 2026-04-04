@@ -261,7 +261,7 @@ export default async function handler(req, res) {
     st: [sha256('pe')],
     ct: [sha256('recife')],
     zp: [sha256('50000')],
-    gen: [sha256('f')], // público alvo 100% feminino (mulheres 20-44)
+    ge: [sha256('f')], // público alvo 100% feminino (mulheres 20-44) — parâmetro correto: ge (não gen)
   };
 
   if (telefone) {
