@@ -49,8 +49,9 @@ export default async function handler(req, res) {
   if (!token) return res.status(500).json({ error: 'No access token configured' });
 
   try {
+    const fields = 'web{event_name,event_match_quality{composite_score,match_key_feedback{identifier,coverage{percentage}},diagnostics{description}},event_coverage{percentage,goal_percentage},acr{percentage},data_freshness{upload_frequency},dedup_key_feedback}';
     const response = await fetch(
-      `https://graph.facebook.com/v25.0/dataset_quality?dataset_id=${PIXEL_ID}&access_token=${token}`
+      `https://graph.facebook.com/v25.0/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}&access_token=${token}`
     );
     const data = await response.json();
 

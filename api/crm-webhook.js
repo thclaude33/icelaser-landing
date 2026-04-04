@@ -165,7 +165,7 @@ export default async function handler(req, res) {
 
   // Monta user_data pra CAPI
   const now = Math.floor(Date.now() / 1000);
-  const userData = { country: [sha256('br')], st: [sha256('pe')], ct: [sha256('recife')], ge: [sha256('f')] };
+  const userData = { country: [sha256('br')], st: [sha256('pe')], ct: [sha256('recife')], zp: [sha256('50000')], ge: [sha256('f')] };
 
   if (telefone) userData.ph = [sha256(normalizePhone(telefone))];
   if (email) userData.em = [sha256(email.toLowerCase())];
@@ -269,6 +269,7 @@ export default async function handler(req, res) {
 
   const events = [];
   const eventId = `crm_${contact.id || 'unknown'}_${now}`;
+  const orderId = `order_${contact.id || 'unknown'}_${now}`;
 
   // Buscar dados do Lead original no Blob (para original_event_data no Purchase)
   // Reutiliza o Blob list já importado acima (sem import duplicado)
@@ -397,6 +398,7 @@ export default async function handler(req, res) {
           content_name: 'Pacote Depilacao Laser',
           content_type: 'product',
           num_items: 1,
+          order_id: orderId,
           customer_segmentation: customerSeg,
         },
       }
