@@ -102,6 +102,9 @@
   }
   </script>
 
+  <!-- fbp early generation — garante _fbp em primeira visita (180 dias), antes do Pixel carregar -->
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.1.'+Date.now()+'.'+Math.floor(Math.random()*1e15);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax';}}catch(e){}}());</script>
+
   <!-- Meta Pixel — disparo imediato -->
   <script>
     !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
