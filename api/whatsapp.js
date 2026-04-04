@@ -164,11 +164,14 @@ async function processarCTWA(from, message, referral) {
                 st: [sha256('pe')],
                 ct: [sha256('recife')],
                 fbc,
+                // ctwa_clid em user_data — posição oficial Meta para CTWA
+                // (não é lead_id numérico, que só existe em Lead Gen Forms)
+                ctwa_clid: clid,
+                whatsapp_business_account_id: '920807647253970',
               },
               custom_data: {
                 event_source: 'crm',
                 lead_event_source: 'WhatsApp',
-                ctwa_clid: clid,
                 source_url: sourceUrl,
                 content_name: 'CTWA Lead - WhatsApp',
               },

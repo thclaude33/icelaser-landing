@@ -244,7 +244,10 @@ export default async function handler(req, res) {
 
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
-  if (ctwaClid) userData.ctwa_clid = ctwaClid;
+  if (ctwaClid) {
+    userData.ctwa_clid = ctwaClid; // user_data — posição oficial Meta para CTWA
+    userData.whatsapp_business_account_id = '920807647253970';
+  }
 
   // Tenta recuperar URL da LP original salva nos atributos; fallback para domínio canônico
   const eventSourceUrl = customAttrs.landing_url
