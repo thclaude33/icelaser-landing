@@ -305,8 +305,11 @@ export default async function handler(req, res) {
   const isExisting = labels.includes('compra_realizada') || labels.includes('💰 Compra Realizada') || labels.includes('💰_compra_realizada');
   const customerSeg = isExisting ? 'existing_customer_to_business' : 'new_customer_to_business';
 
+  // helper: verifica se algum label está presente (case-insensitive, suporta variações)
+  const hasLabel = (...variants) => labels.some(l => variants.includes(l) || variants.includes(l.toLowerCase()));
+
   // ❌ DESQUALIFICADO
-  if (labels.includes('desqualificado') || labels.includes('❌ Desqualificado') || labels.includes('❌_desqualificado')) {
+  if (hasLabel('desqualificado', '❌ Desqualificado', '❌_desqualificado', 'disqualified', 'unqualified')) {
     events.push({
       ...baseEvent,
       event_name: 'Lead',
@@ -325,7 +328,7 @@ export default async function handler(req, res) {
   }
 
   // 🧊 LEAD FRIO
-  if (labels.includes('lead_frio') || labels.includes('🧊 Lead Frio') || labels.includes('🧊_lead_frio')) {
+  if (hasLabel('lead_frio', '🧊 Lead Frio', '🧊_lead_frio', 'cold_lead', 'lead frio', 'frio')) {
     events.push({
       ...baseEvent,
       event_name: 'Lead',
@@ -342,7 +345,7 @@ export default async function handler(req, res) {
   }
 
   // 🔥 LEAD QUENTE
-  if (labels.includes('lead_quente') || labels.includes('🔥 Lead Quente') || labels.includes('🔥_lead_quente')) {
+  if (hasLabel('lead_quente', '🔥 Lead Quente', '🔥_lead_quente', 'hot_lead', 'lead quente', 'quente')) {
     events.push(
       {
         ...baseEvent,
@@ -362,7 +365,7 @@ export default async function handler(req, res) {
   }
 
   // 💳 LINK DE PAGAMENTO (atendente enviou link / cliente vai pagar)
-  if (labels.includes('link_pagamento') || labels.includes('💳 Link Pagamento') || labels.includes('💳_link_pagamento')) {
+  if (hasLabel('link_pagamento', '💳 Link Pagamento', '💳_link_pagamento', 'link pagamento', 'pagamento', 'checkout')) {
     const valor = parseFloat(customAttrs.purchase_value) || 497;
     events.push({
       ...baseEvent,
@@ -374,7 +377,7 @@ export default async function handler(req, res) {
   }
 
   // 💰 COMPRA REALIZADA
-  if (labels.includes('compra_realizada') || labels.includes('💰 Compra Realizada') || labels.includes('💰_compra_realizada')) {
+  if (hasLabel('compra_realizada', '💰 Compra Realizada', '💰_compra_realizada', 'purchase', 'compra realizada', 'comprou', 'vendido', 'sold')) {
     const valor = parseFloat(customAttrs.purchase_value) || 497;
     events.push(
       {
