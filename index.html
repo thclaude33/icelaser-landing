@@ -212,6 +212,7 @@
       font-size: 13px; font-weight: 700;
       padding: 10px 16px; border-radius: 999px; text-decoration: none; white-space: nowrap;
       min-height: 44px; display: inline-flex; align-items: center;
+      touch-action: manipulation;
     }
 
     /* URGENCY BAR */
@@ -263,6 +264,7 @@
       box-shadow: 0 4px 20px rgba(37,211,102,.45);
       animation: pulse-wa 2s infinite;
       min-height: 54px;
+      touch-action: manipulation;
     }
     @keyframes pulse-wa {
       0%, 100% { box-shadow: 0 4px 20px rgba(37,211,102,.45); }
@@ -344,6 +346,7 @@
       box-shadow: 0 6px 24px rgba(22,163,74,.45);
       transition: transform .15s, background .15s;
       animation: pulse 2.2s infinite; font-family: inherit;
+      touch-action: manipulation;
     }
     .btn-submit:active { transform: scale(.97); }
     @keyframes pulse {
@@ -474,6 +477,7 @@
       font-size: 17px; font-weight: 800; padding: 16px 28px;
       border-radius: 14px; text-decoration: none;
       box-shadow: 0 6px 24px rgba(22,163,74,.4);
+      touch-action: manipulation;
     }
 
     /* FOOTER */
@@ -494,11 +498,25 @@
       cursor: pointer; text-decoration: none; font-family: inherit;
       box-shadow: 0 6px 24px rgba(22,163,74,.55);
       animation: fabPulse 3s infinite;
+      touch-action: manipulation;
     }
     .fab.hidden { display: none; }
     @keyframes fabPulse {
       0%,100% { box-shadow: 0 6px 24px rgba(22,163,74,.55); }
       50%      { box-shadow: 0 6px 42px rgba(22,163,74,.88); }
+    }
+
+    /* Acessibilidade — respeitar preferência de movimento reduzido */
+    @media (prefers-reduced-motion: reduce) {
+      .btn-wa-hero, .btn-submit, .fab {
+        animation: none;
+      }
+      .faq-q .chevron {
+        transition: none;
+      }
+      .faq-a {
+        transition: none;
+      }
     }
 
     /* ═══════════════════════════════════════════════
@@ -697,7 +715,7 @@
       </div>
     </div>
 
-    <div id="success-msg">
+    <div id="success-msg" aria-live="polite">
       <div class="ok-icon">🎉</div>
       <strong>Ótimo, <span id="nome-success"></span>!</strong>
       <p>O WhatsApp foi aberto com sua mensagem.<br>
