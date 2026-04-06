@@ -9,6 +9,7 @@
  */
 
 import crypto from 'crypto';
+import { put, list } from '@vercel/blob';
 
 const PIXEL_ID = '2774496306216737';
 
@@ -113,7 +114,6 @@ export default async function handler(req, res) {
           // Salvar ctwa_clid no Blob vinculado ao telefone
           if (process.env.BLOB_READ_WRITE_TOKEN) {
             try {
-              const { put } = await import('@vercel/blob');
               const telDigits = phone.replace(/\D/g, '');
               await put(`ctwa/${telDigits}.json`, JSON.stringify({
                 ctwa_clid: ctwaClid,
@@ -183,7 +183,6 @@ export default async function handler(req, res) {
   // Recuperar fbp/fbc/ctwa_clid do Blob se não estão nos atributos do contato
   if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      const { list } = await import('@vercel/blob');
       const telDigits = telefone.replace(/\D/g, '');
 
       // 1. Recuperar ctwa_clid do Blob (salvo pelo whatsapp.js quando cliente veio de anúncio CTWA)
@@ -276,9 +275,8 @@ export default async function handler(req, res) {
   let originalLeadData = null;
   if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      const { list: listBlobs } = await import('@vercel/blob');
       const telDigits = telefone.replace(/\D/g, '');
-      const blobs = await listBlobs({ prefix: 'leads/', limit: 100 });
+      const blobs = await list({ prefix: 'leads/', limit: 100 });
       for (const blob of blobs.blobs) {
         if (blob.size > 200) {
           const blobResp = await fetch(blob.url);

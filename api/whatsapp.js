@@ -7,6 +7,8 @@
  */
 
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
+import { put } from '@vercel/blob';
 
 const PIXEL_ID        = '2774496306216737';
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
@@ -49,7 +51,6 @@ function validarAssinatura(rawBody, sig) {
 async function enviarEmail(assunto, html) {
   if (!EMAIL_PASS) { console.warn('[EMAIL] EMAIL_PASS não configurado — email ignorado'); return false; }
   try {
-    const nodemailer = (await import('nodemailer')).default;
     const t = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: EMAIL_FROM, pass: EMAIL_PASS },
@@ -122,7 +123,6 @@ async function processarCTWA(from, message, referral) {
   // Salvar ctwa_clid no Blob vinculado ao telefone — será recuperado pelo crm-webhook
   if (clid && from && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      const { put } = await import('@vercel/blob');
       const ts = new Date().toISOString();
       await put(`ctwa/${from}.json`, JSON.stringify({
         ctwa_clid: clid,
@@ -306,7 +306,6 @@ export default async function handler(req, res) {
     const backupBlob = async () => {
       if (!process.env.BLOB_READ_WRITE_TOKEN) return;
       try {
-        const { put } = await import('@vercel/blob');
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         // Extrair phone do primeiro message pra identificar o backup
         const firstMsg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
@@ -565,7 +564,6 @@ export default async function handler(req, res) {
         const fileResp = await fetch(metaData.url, { headers: { 'Authorization': `Bearer ${META_TOKEN}` } });
         if (!fileResp.ok) return null;
         const buffer = Buffer.from(await fileResp.arrayBuffer());
-        const { put } = await import('@vercel/blob');
         const ext = (mediaObj.mime_type || '').split('/')[1]?.split(';')[0] || 'bin';
         const filename = `media/${msg.from}/${Date.now()}_${msg.type}.${ext}`;
         const blob = await put(filename, buffer, { access: 'public', contentType: mediaObj.mime_type || 'application/octet-stream' });

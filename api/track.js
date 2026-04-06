@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { put } from '@vercel/blob';
+import nodemailer from 'nodemailer';
+import { put, list } from '@vercel/blob';
 
 const PIXEL_ID    = '2774496306216737';
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
@@ -50,7 +51,6 @@ function parseDevice(ua) {
 async function enviarEmailLead(nome, telefone, origem = {}) {
   if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS não configurado — email ignorado'); return; }
   try {
-    const nodemailer = (await import('nodemailer')).default;
     const t = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: EMAIL_FROM, pass: EMAIL_PASS },
@@ -288,7 +288,6 @@ export default async function handler(req, res) {
   let finalFbc = fbc;
   if ((!fbp || !fbc) && telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      const { list } = await import('@vercel/blob');
       const telDigits = telefone.replace(/\D/g, '');
       const blobs = await list({ prefix: 'leads/', limit: 100 });
       for (const blob of blobs.blobs) {
@@ -376,14 +375,15 @@ export default async function handler(req, res) {
 
     // Email + Blob no evento Lead (com ou sem telefone — WA direto não tem tel)
     if (event_name === 'Lead' && nome) {
-      promises.push(enviarEmailLead(nome, telefone, {
+      // Fire-and-forget: email não bloqueia a resposta ao usuário
+      enviarEmailLead(nome, telefone, {
         event_source_url, utm_source, utm_medium, utm_campaign,
         utm_content, utm_term, ad_id, ad_name, adset_id, adset_name,
         campaign_id, campaign_name, placement, site_source_name, platform,
         client_user_agent, client_ip_address, fbp, fbc,
         screen_width, screen_height, language, timezone, referrer,
         landing_url, time_on_page, scroll_depth,
-      }));
+      }).catch(e => console.error('[EMAIL LEAD]', e.message));
 
       // Salva lead no Blob (só se token configurado)
       if (process.env.BLOB_READ_WRITE_TOKEN) {
