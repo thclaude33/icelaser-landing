@@ -177,7 +177,13 @@ export default async function handler(req, res) {
 
   // UTMs do contato (se vieram da LP)
   let fbp = customAttrs.fbp || undefined;
-  let fbc = customAttrs.fbclid || customAttrs.fbc || undefined;
+  // Bug fix: customAttrs.fbclid pode ser o fbclid RAW (sem o prefixo fb.1.ts.)
+  // Nesse caso precisa ser convertido pro formato oficial fbc antes de enviar ao CAPI
+  const rawFbclid = customAttrs.fbclid;
+  let fbc = customAttrs.fbc ||
+    (rawFbclid
+      ? (rawFbclid.startsWith('fb.') ? rawFbclid : `fb.1.${Date.now()}.${rawFbclid}`)
+      : undefined);
   let ctwaClid = customAttrs.ctwa_clid || undefined;
 
   // Recuperar fbp/fbc/ctwa_clid do Blob se não estão nos atributos do contato
@@ -230,7 +236,7 @@ export default async function handler(req, res) {
 
   // Se tem ctwa_clid mas não fbc, derivar fbc do ctwa_clid (formato oficial Meta)
   if (ctwaClid && !fbc) {
-    fbc = `fb.1.${now}.${ctwaClid}`;
+    fbc = `fb.1.${Date.now()}.${ctwaClid}`; // Bug fix: Date.now() em ms (não segundos)
     console.log(`[CRM-WEBHOOK] fbc derivado do ctwa_clid: ${fbc.slice(0, 30)}...`);
   }
 

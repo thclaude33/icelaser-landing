@@ -102,7 +102,15 @@
   }
   </script>
 
-  <!-- fbp early generation — garante _fbp em primeira visita (180 dias), antes do Pixel carregar -->
+  <!-- Meta CAPI Parameter Builder (oficial Meta) — captura fbc/fbp com formato correto
+       Docs: https://developers.facebook.com/docs/marketing-api/conversions-api/parameter-builder-library
+       Fallback manual garante funcionamento mesmo se CDN falhar -->
+  <script>window._paramBuilderReady=false;</script>
+  <script async src="https://unpkg.com/meta-capi-param-builder-clientjs/dist/clientParamBuilder.bundle.js"
+    onload="window._paramBuilderReady=true;try{clientParamBuilder.processAndCollectAllParams();}catch(e){}"
+    onerror="window._paramBuilderReady=false;"></script>
+
+  <!-- fbp early generation (fallback manual) — garante _fbp se ParamBuilder ainda não carregou -->
   <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.1.'+Date.now()+'.'+Math.floor(Math.random()*1e15);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax';}}catch(e){}}());</script>
   <!-- IPv6 capture — Meta Parameter Configurator pattern: captura IP real do browser (IPv6 se disponível) -->
   <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=3600;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
@@ -115,19 +123,23 @@
     t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
     document,'script','/api/pixel');
     fbq('init', '2774496306216737', {country: 'br', st: 'pe', ct: 'recife'});
-    // fbc: captura fbclid da URL e armazena em cookie _fbc imediatamente (Parameter Setup Tool)
+    // fbc: captura fbclid da URL — ParamBuilder se disponível, fallback manual
     (function(){try{
-      var p=new URLSearchParams(window.location.search);
-      var cl=p.get('fbclid');
-      if(cl){
-        // Só cria _fbc se não existir OU se fbclid mudou (novo clique)
-        var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
-        var existingFbclid=existingFbc.split('.').slice(3).join('.');
-        if(!existingFbc || existingFbclid!==cl){
-          // Formato oficial Meta: fb.{subdomainIndex}.{creationTime_ms}.{fbclid_inalterado}
-          var fbc='fb.1.'+Date.now()+'.'+cl;
-          var ex=new Date(Date.now()+7776000000).toUTCString();
-          document.cookie='_fbc='+fbc+';path=/;expires='+ex+';SameSite=Lax';
+      // Se ParamBuilder já carregou (script síncrono rápido), usa ele — senão fallback manual
+      if(window._paramBuilderReady && window.clientParamBuilder){
+        // Já executado no onload acima — só garante que rodou
+        try{ clientParamBuilder.processAndCollectAllParams(); }catch(e){}
+      } else {
+        // Fallback manual: formato oficial Meta fb.1.{ms}.{fbclid}
+        var p=new URLSearchParams(window.location.search);
+        var cl=p.get('fbclid');
+        if(cl){
+          var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
+          var existingFbclid=existingFbc.split('.').slice(3).join('.');
+          if(!existingFbc || existingFbclid!==cl){
+            var fbc='fb.1.'+Date.now()+'.'+cl;
+            document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax';
+          }
         }
       }
     }catch(e){}}());
