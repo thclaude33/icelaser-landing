@@ -131,7 +131,8 @@
         }
       }
     }catch(e){}}());
-    fbq('track', 'PageView');
+    var pvEventId = 'pv_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+    fbq('track', 'PageView', {}, {eventID: pvEventId});
     var vcEventId = 'vc_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
     fbq('track', 'ViewContent', {
       content_name: 'LP Avaliacao Gratuita',
@@ -139,35 +140,37 @@
       value: 0,
       currency: 'BRL'
     }, {eventID: vcEventId});
-    // CAPI server-side ViewContent — cobertura 75%+ exigida pela Meta
-    // Tripla tentativa: fetch → retry → sendBeacon (pra maximizar cobertura)
+    // CAPI server-side PageView + ViewContent — mesmo event_id do browser = deduplicação 100%
     (function(){
-      var vcPayload = JSON.stringify({
-        event_name: 'ViewContent',
-        event_id: vcEventId,
-        event_source_url: location.href,
-        client_user_agent: navigator.userAgent,
-        fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
-        fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
-        utm_source: new URLSearchParams(location.search).get('utm_source') || undefined,
-        utm_campaign: new URLSearchParams(location.search).get('utm_campaign') || undefined,
-      });
-      // 1. fetch normal (mais confiável, espera resposta)
+      var fbp = (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined;
+      var fbc = (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined;
+      var ua = navigator.userAgent;
+      var src = location.href;
+      var utmSrc = new URLSearchParams(location.search).get('utm_source') || undefined;
+      var utmCamp = new URLSearchParams(location.search).get('utm_campaign') || undefined;
+
+      // PageView CAPI — mesmo pvEventId do fbq acima
       fetch('/api/track', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        method: 'POST', headers: {'Content-Type': 'application/json'}, keepalive: true,
+        body: JSON.stringify({ event_name: 'PageView', event_id: pvEventId,
+          event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
+          utm_source: utmSrc, utm_campaign: utmCamp }),
+      }).catch(function(){});
+
+      // ViewContent CAPI — mesmo vcEventId do fbq acima
+      var vcPayload = JSON.stringify({ event_name: 'ViewContent', event_id: vcEventId,
+        event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
+        utm_source: utmSrc, utm_campaign: utmCamp });
+      fetch('/api/track', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
         body: vcPayload,
       }).then(function(r){
         if(!r.ok) throw new Error(r.status);
       }).catch(function(){
-        // 2. Retry com keepalive
         fetch('/api/track', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: vcPayload,
-          keepalive: true,
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: vcPayload, keepalive: true,
         }).catch(function(){
-          // 3. sendBeacon como último recurso
           try { navigator.sendBeacon('/api/track', new Blob([vcPayload], {type: 'application/json'})); } catch(e){}
         });
       });

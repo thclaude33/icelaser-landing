@@ -335,6 +335,8 @@ export default async function handler(req, res) {
     custom_data.currency = 'BRL';
     custom_data.content_name = 'LP Avaliacao Gratuita';
     custom_data.content_category = 'depilacao_laser';
+  } else if (event_name === 'PageView') {
+    // PageView não precisa de custom_data — só user_data para matching
   }
 
   // Validação: garantir campos mínimos para matching funcionar
