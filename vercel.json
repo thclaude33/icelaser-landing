@@ -3,6 +3,8 @@
 
   "regions": ["gru1"],
 
+  "bunVersion": "1.x",
+
   "fluid": true,
 
   "crons": [

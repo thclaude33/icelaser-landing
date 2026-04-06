@@ -30,14 +30,16 @@ export default async function handler(req, res) {
 
   const rawBody = await getRawBody(req);
 
-  // Verifica assinatura HMAC-SHA1 do Vercel Log Drain
+  // Verifica assinatura HMAC-SHA1 do Vercel Log Drain (fail-closed)
   const secret = process.env.LOG_DRAIN_SECRET;
-  if (secret) {
-    const sig = req.headers['x-vercel-signature'] || '';
-    const expected = crypto.createHmac('sha1', secret).update(rawBody).digest('hex');
-    if (!sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
-      return res.status(403).json({ error: 'Invalid signature' });
-    }
+  if (!secret) {
+    console.error('[LOG-DRAIN] LOG_DRAIN_SECRET não configurado — rejeitando request');
+    return res.status(500).json({ error: 'Log drain not configured' });
+  }
+  const sig      = req.headers['x-vercel-signature'] || '';
+  const expected = crypto.createHmac('sha1', secret).update(rawBody).digest('hex');
+  if (!sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    return res.status(403).json({ error: 'Invalid signature' });
   }
 
   // Se BLOB_READ_WRITE_TOKEN não está configurado, apenas loga e retorna 200
