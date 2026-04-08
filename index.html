@@ -161,13 +161,23 @@
       var utmSrc = new URLSearchParams(location.search).get('utm_source') || undefined;
       var utmCamp = new URLSearchParams(location.search).get('utm_campaign') || undefined;
 
-      // PageView CAPI — mesmo pvEventId do fbq acima
+      // PageView CAPI — mesmo pvEventId do fbq acima (retry + sendBeacon = cobertura máxima)
+      var pvPayload = JSON.stringify({ event_name: 'PageView', event_id: pvEventId,
+        event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
+        utm_source: utmSrc, utm_campaign: utmCamp });
       fetch('/api/track', {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, keepalive: true,
-        body: JSON.stringify({ event_name: 'PageView', event_id: pvEventId,
-          event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
-          utm_source: utmSrc, utm_campaign: utmCamp }),
-      }).catch(function(){});
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: pvPayload,
+      }).then(function(r){
+        if(!r.ok) throw new Error(r.status);
+      }).catch(function(){
+        fetch('/api/track', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: pvPayload, keepalive: true,
+        }).catch(function(){
+          try { navigator.sendBeacon('/api/track', new Blob([pvPayload], {type: 'application/json'})); } catch(e){}
+        });
+      });
 
       // ViewContent CAPI — mesmo vcEventId do fbq acima
       var vcPayload = JSON.stringify({ event_name: 'ViewContent', event_id: vcEventId,
