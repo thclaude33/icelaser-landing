@@ -145,6 +145,21 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, skipped: true, event });
   }
 
+  // BUG FIX #1: Só processar conversation_updated se houve mudança de labels
+  // Chatwoot envia conversation_updated em qualquer atualização (msg enviada, lida, status, etc.)
+  // Sem esse filtro, cada mensagem dispararia CAPI com todos os labels existentes → eventos duplicados
+  const changedAttributes = body.changed_attributes || [];
+  const hasLabelChange = changedAttributes.some(attr => attr.labels !== undefined);
+  if (event === 'conversation_updated' && !hasLabelChange) {
+    return res.status(200).json({ ok: true, skipped: true, reason: 'no_label_change' });
+  }
+
+  // BUG FIX #2: Extrair labels ANTERIORES para determinar corretamente customerSeg
+  // Necessário para saber se compra_realizada é nova (new_customer) ou já existia (existing_customer)
+  const previousLabels = changedAttributes
+    .filter(attr => attr.labels !== undefined)
+    .flatMap(attr => attr.labels?.previous_value || []);
+
   // Extrai dados — Chatwoot pode enviar em body.conversation, body.data ou flat (body é a conversa)
   const conversation = body.conversation || body.data || body;
   const contact = conversation.meta?.sender || conversation.contact || body.sender || {};
@@ -186,35 +201,37 @@ export default async function handler(req, res) {
       : undefined);
   let ctwaClid = customAttrs.ctwa_clid || undefined;
 
-  // Recuperar fbp/fbc/ctwa_clid do Blob se não estão nos atributos do contato
+  // Recuperar fbp/fbc/ctwa_clid/originalLeadData do Blob — CONSOLIDADO em 1 leitura por bucket
+  // BUG FIX #3: antes eram 2 leituras de leads/ separadas (fbp/fbc + originalLeadData)
+  let originalLeadData = null;
   if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const telDigits = telefone.replace(/\D/g, '');
+    const telDigits = telefone.replace(/\D/g, '');
 
-      // 1. Recuperar ctwa_clid do Blob (salvo pelo whatsapp.js quando cliente veio de anúncio CTWA)
-      if (!ctwaClid) {
-        try {
-          const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
-          for (const blob of ctwaBlobs.blobs) {
-            if (blob.pathname.includes(telDigits.slice(-8))) {
-              const blobResp = await fetch(blob.url);
-              const data = await blobResp.json();
-              if (data.ctwa_clid) {
-                ctwaClid = data.ctwa_clid;
-                console.log(`[CRM-WEBHOOK] Recovered ctwa_clid from Blob: ${ctwaClid.substring(0, 20)}...`);
-                break;
-              }
+    // 1. Recuperar ctwa_clid do Blob (salvo pelo whatsapp.js quando cliente veio de anúncio CTWA)
+    if (!ctwaClid) {
+      try {
+        const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
+        for (const blob of ctwaBlobs.blobs) {
+          if (blob.pathname.includes(telDigits.slice(-8))) {
+            const blobResp = await fetch(blob.url);
+            const data = await blobResp.json();
+            if (data.ctwa_clid) {
+              ctwaClid = data.ctwa_clid;
+              console.log(`[CRM-WEBHOOK] Recovered ctwa_clid from Blob: ${ctwaClid.substring(0, 20)}...`);
+              break;
             }
           }
-        } catch (e) {
-          console.warn('[CRM-WEBHOOK] CTWA Blob recovery failed:', e.message);
         }
+      } catch (e) {
+        console.warn('[CRM-WEBHOOK] CTWA Blob recovery failed:', e.message);
       }
+    }
 
-      // 2. Recuperar fbp/fbc do Blob de leads
-      if (!fbp || !fbc) {
-        const blobs = await list({ prefix: 'leads/', limit: 100 });
-        for (const blob of blobs.blobs) {
+    // 2. Leitura ÚNICA de leads/ para fbp/fbc E originalLeadData
+    if (!fbp || !fbc || !originalLeadData) {
+      try {
+        const leadBlobs = await list({ prefix: 'leads/', limit: 100 });
+        for (const blob of leadBlobs.blobs) {
           if (blob.size > 200) {
             const blobResp = await fetch(blob.url);
             const data = await blobResp.json();
@@ -222,16 +239,24 @@ export default async function handler(req, res) {
             if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
               if (!fbp && data.fbp) fbp = data.fbp;
               if (!fbc && data.fbc) fbc = data.fbc;
-              if (fbp && fbc) break;
+              if (!originalLeadData && data.event_id) {
+                originalLeadData = {
+                  event_name: 'Lead',
+                  event_time: Math.floor(new Date(data.timestamp).getTime() / 1000),
+                  event_id: data.event_id,
+                };
+                console.log(`[CRM-WEBHOOK] Found original Lead: event_id=${data.event_id}`);
+              }
+              if (fbp && fbc && originalLeadData) break;
             }
           }
         }
+      } catch (e) {
+        console.warn('[CRM-WEBHOOK] Blob leads recovery failed:', e.message);
       }
-
-      if (fbp || fbc || ctwaClid) console.log(`[CRM-WEBHOOK] Recovered from Blob: fbp=${!!fbp} fbc=${!!fbc} ctwa=${!!ctwaClid}`);
-    } catch (e) {
-      console.warn('[CRM-WEBHOOK] Blob recovery failed:', e.message);
     }
+
+    if (fbp || fbc || ctwaClid) console.log(`[CRM-WEBHOOK] Recovered from Blob: fbp=${!!fbp} fbc=${!!fbc} ctwa=${!!ctwaClid} origLead=${!!originalLeadData}`);
   }
 
   // Se tem ctwa_clid mas não fbc, derivar fbc do ctwa_clid (formato oficial Meta)
@@ -276,38 +301,11 @@ export default async function handler(req, res) {
   const eventId = `crm_${contact.id || 'unknown'}_${now}`;
   const orderId = `order_${contact.id || 'unknown'}_${now}`;
 
-  // Buscar dados do Lead original no Blob (para original_event_data no Purchase)
-  // Reutiliza o Blob list já importado acima (sem import duplicado)
-  let originalLeadData = null;
-  if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const telDigits = telefone.replace(/\D/g, '');
-      const blobs = await list({ prefix: 'leads/', limit: 100 });
-      for (const blob of blobs.blobs) {
-        if (blob.size > 200) {
-          const blobResp = await fetch(blob.url);
-          const data = await blobResp.json();
-          const blobTel = (data.telefone || '').replace(/\D/g, '');
-          if (blobTel && telDigits.endsWith(blobTel.slice(-8)) && data.event_id) {
-            originalLeadData = {
-              event_name: 'Lead',
-              event_time: Math.floor(new Date(data.timestamp).getTime() / 1000),
-              event_id: data.event_id,
-            };
-            console.log(`[CRM-WEBHOOK] Found original Lead: event_id=${data.event_id}`);
-            break;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[CRM-WEBHOOK] Original lead lookup failed:', e.message);
-    }
-  }
-
-  // Determinar customer_segmentation baseado nas labels
-  // Se já tem compra_realizada anterior → existing_customer
-  const isExisting = labels.includes('compra_realizada') || labels.includes('💰 Compra Realizada') || labels.includes('💰_compra_realizada');
-  const customerSeg = isExisting ? 'existing_customer_to_business' : 'new_customer_to_business';
+  // BUG FIX #2: customerSeg baseado em labels ANTERIORES, não nas atuais
+  // Se compra_realizada já estava antes desta atualização → existing_customer
+  // Se está sendo adicionada agora (não estava em previousLabels) → new_customer
+  const wasAlreadyPurchased = previousLabels.includes('compra_realizada') || previousLabels.includes('💰 Compra Realizada');
+  const customerSeg = wasAlreadyPurchased ? 'existing_customer_to_business' : 'new_customer_to_business';
 
   // helper: verifica se algum label está presente (case-insensitive, suporta variações)
   const hasLabel = (...variants) => labels.some(l => variants.includes(l) || variants.includes(l.toLowerCase()));
