@@ -154,8 +154,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, skipped: true, reason: 'no_label_change' });
   }
 
-  // BUG FIX #2: Extrair labels ANTERIORES para determinar corretamente customerSeg
-  // Necessário para saber se compra_realizada é nova (new_customer) ou já existia (existing_customer)
+  // BUG FIX #2 + #4: Extrair labels ANTERIORES e calcular labels NOVOS (adicionados agora)
+  // Bug #2: customerSeg baseado em previousLabels (não labels atuais)
+  // Bug #4: processar APENAS labels recém-adicionados (evita re-disparar Purchase quando
+  //         outra label é adicionada em conversa que já tinha compra_realizada)
   const previousLabels = changedAttributes
     .filter(attr => attr.labels !== undefined)
     .flatMap(attr => attr.labels?.previous_value || []);
@@ -163,7 +165,13 @@ export default async function handler(req, res) {
   // Extrai dados — Chatwoot pode enviar em body.conversation, body.data ou flat (body é a conversa)
   const conversation = body.conversation || body.data || body;
   const contact = conversation.meta?.sender || conversation.contact || body.sender || {};
-  const labels = conversation.labels || body.labels || [];
+  const allLabels = conversation.labels || body.labels || [];
+
+  // Labels a processar: APENAS os novos (adicionados neste evento)
+  // Se não temos previousLabels (ex: conversation_created), processar todos
+  const labels = previousLabels.length > 0
+    ? allLabels.filter(l => !previousLabels.includes(l))
+    : allLabels;
   // Mescla atributos de CONTATO e de CONVERSA — purchase_value pode estar em qualquer um
   const customAttrs = {
     ...(contact.custom_attributes || {}),
