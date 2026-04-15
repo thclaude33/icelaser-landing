@@ -104,16 +104,19 @@
 
   <!-- Meta CAPI Parameter Builder (oficial Meta) — captura fbc/fbp com formato correto
        Docs: https://developers.facebook.com/docs/marketing-api/conversions-api/parameter-builder-library
-       Fallback manual garante funcionamento mesmo se CDN falhar -->
+       Versão fixada + SRI SHA-384 pra segurança supply-chain -->
   <script>window._paramBuilderReady=false;</script>
-  <script async src="https://unpkg.com/meta-capi-param-builder-clientjs/dist/clientParamBuilder.bundle.js"
+  <script async
+    src="https://unpkg.com/meta-capi-param-builder-clientjs@1.3.0/dist/clientParamBuilder.bundle.js"
+    integrity="sha384-5lFSvv7HyXbqb7dkI1yumfhInd1aLexUs0hiZ8aWaL8N+IFRRDeU2TTlv3ggf9IO"
+    crossorigin="anonymous"
     onload="window._paramBuilderReady=true;try{clientParamBuilder.processAndCollectAllParams();}catch(e){}"
     onerror="window._paramBuilderReady=false;"></script>
 
   <!-- fbp early generation (fallback manual) — garante _fbp se ParamBuilder ainda não carregou -->
   <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.1.'+Date.now()+'.'+Math.floor(Math.random()*1e15);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax';}}catch(e){}}());</script>
-  <!-- IPv6 capture — Meta Parameter Configurator pattern: captura IP real do browser (IPv6 se disponível) -->
-  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=3600;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
+  <!-- IPv6 capture — IP residencial raramente muda em 24h -->
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=86400;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
 
   <!-- Meta Pixel — disparo imediato -->
   <script>
@@ -123,24 +126,19 @@
     t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
     document,'script','/api/pixel');
     fbq('init', '2774496306216737', {country: 'br', st: 'pe', ct: 'recife'});
-    // fbc: captura fbclid da URL — ParamBuilder se disponível, fallback manual
+    // fbc: captura fbclid da URL — fallback manual enquanto ParamBuilder async ainda carrega
+    // ParamBuilder (onload) sobrescreve com formato fb.1.{time}.{fbclid}.{appendix}
     (function(){try{
-      // Se ParamBuilder já carregou (script síncrono rápido), usa ele — senão fallback manual
-      if(window._paramBuilderReady && window.clientParamBuilder){
-        // Já executado no onload acima — só garante que rodou
-        try{ clientParamBuilder.processAndCollectAllParams(); }catch(e){}
-      } else {
-        // Fallback manual: formato oficial Meta fb.1.{ms}.{fbclid}
-        var p=new URLSearchParams(window.location.search);
-        var cl=p.get('fbclid');
-        if(cl){
-          var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
-          var existingFbclid=existingFbc.split('.').slice(3).join('.');
-          if(!existingFbc || existingFbclid!==cl){
-            var fbc='fb.1.'+Date.now()+'.'+cl;
-            document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax';
-          }
-        }
+      // Só cria fbc se ParamBuilder ainda não preencheu (ele tem prioridade quando async terminar)
+      if(window._paramBuilderReady) return;
+      var cl=new URLSearchParams(window.location.search).get('fbclid');
+      if(!cl) return;
+      var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
+      // Compara apenas o 4º segment (fbclid), ignorando appendix do ParamBuilder
+      var existingFbclid=(existingFbc.split('.')[3])||'';
+      if(!existingFbc || existingFbclid!==cl){
+        var fbc='fb.1.'+Date.now()+'.'+cl;
+        document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax';
       }
     }catch(e){}}());
     var pvEventId = 'pv_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
@@ -153,56 +151,40 @@
       currency: 'BRL'
     }, {eventID: vcEventId});
     // CAPI server-side PageView + ViewContent — mesmo event_id do browser = deduplicação 100%
+    // Helper sendCapi com keepalive desde a 1ª tentativa + sendBeacon fallback
+    window.sendCapi = function(payload) {
+      var body = JSON.stringify(payload);
+      return fetch('/api/track', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+        keepalive: true,
+      }).catch(function(){
+        try { navigator.sendBeacon('/api/track', new Blob([body], {type: 'application/json'})); } catch(e){}
+      });
+    };
     (function(){
       var fbp = (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined;
       var fbc = (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined;
       var ua = navigator.userAgent;
       var src = location.href;
-      var utmSrc = new URLSearchParams(location.search).get('utm_source') || undefined;
-      var utmCamp = new URLSearchParams(location.search).get('utm_campaign') || undefined;
-
-      // PageView CAPI — mesmo pvEventId do fbq acima (retry + sendBeacon = cobertura máxima)
-      var pvPayload = JSON.stringify({ event_name: 'PageView', event_id: pvEventId,
+      var urlParams = new URLSearchParams(location.search);
+      var utmSrc = urlParams.get('utm_source') || undefined;
+      var utmCamp = urlParams.get('utm_campaign') || undefined;
+      var baseData = {
         event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
-        utm_source: utmSrc, utm_campaign: utmCamp });
-      fetch('/api/track', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: pvPayload,
-      }).then(function(r){
-        if(!r.ok) throw new Error(r.status);
-      }).catch(function(){
-        fetch('/api/track', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: pvPayload, keepalive: true,
-        }).catch(function(){
-          try { navigator.sendBeacon('/api/track', new Blob([pvPayload], {type: 'application/json'})); } catch(e){}
-        });
-      });
-
-      // ViewContent CAPI — mesmo vcEventId do fbq acima
-      var vcPayload = JSON.stringify({ event_name: 'ViewContent', event_id: vcEventId,
-        event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
-        utm_source: utmSrc, utm_campaign: utmCamp });
-      fetch('/api/track', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: vcPayload,
-      }).then(function(r){
-        if(!r.ok) throw new Error(r.status);
-      }).catch(function(){
-        fetch('/api/track', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: vcPayload, keepalive: true,
-        }).catch(function(){
-          try { navigator.sendBeacon('/api/track', new Blob([vcPayload], {type: 'application/json'})); } catch(e){}
-        });
-      });
+        utm_source: utmSrc, utm_campaign: utmCamp,
+      };
+      window.sendCapi(Object.assign({ event_name: 'PageView', event_id: pvEventId }, baseData));
+      window.sendCapi(Object.assign({ event_name: 'ViewContent', event_id: vcEventId }, baseData));
     })();
   </script>
 
-  <!-- Fonts: Fraunces (display serif variable) + DM Sans (body) -->
+  <!-- Fonts: Fraunces (display serif variable) + DM Sans (body)
+       Fraunces: range 400-600 cobre uso real (display 400, section titles 500, strong 600) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&display=swap" rel="stylesheet">
 
   <style>
     /* ═══════════════════════════════════════════════════
@@ -257,19 +239,16 @@
       --space-8:  64px;
       --space-9:  96px;
 
-      /* RAIOS */
-      --r-xs: 6px;
+      /* RAIOS — escala usada */
       --r-sm: 10px;
       --r-md: 14px;
       --r-lg: 20px;
-      --r-xl: 28px;
 
       /* MOTION */
       --ease: cubic-bezier(.22, 1, .36, 1);
       --ease-out: cubic-bezier(.16, 1, .3, 1);
       --dur-fast: 180ms;
       --dur-base: 320ms;
-      --dur-slow: 560ms;
     }
 
     html {
@@ -694,7 +673,6 @@
       transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
       min-height: 56px;
       touch-action: manipulation;
-      font-family: inherit;
     }
     .btn-submit:hover { transform: translateY(-1px); background: var(--brand); }
     .btn-submit:active { transform: scale(.98); }
@@ -1572,47 +1550,47 @@
 
   <div class="faq-list">
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false">
+      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-1">
         Dói fazer depilação a laser?
-        <i class="chevron">▾</i>
+        <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a">
+      <div class="faq-a" id="faq-a-1" role="region">
         Nossa tecnologia Crystal 3D Plus é uma das mais modernas do mercado e causa desconforto mínimo — a maioria das clientes descreve como um leve beliscão. Nada comparado à cera.
       </div>
     </div>
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false">
+      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-2">
         Funciona para minha cor de pele e tipo de pelo?
-        <i class="chevron">▾</i>
+        <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a">
+      <div class="faq-a" id="faq-a-2" role="region">
         O Crystal 3D Plus tem 3 comprimentos de onda que atendem todos os fototipos de pele (inclusive peles negras) e diferentes espessuras de pelo. Na avaliação gratuita, fazemos um teste de pele personalizado.
       </div>
     </div>
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false">
+      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-3">
         Quantas sessões vou precisar?
-        <i class="chevron">▾</i>
+        <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a">
+      <div class="faq-a" id="faq-a-3" role="region">
         Em média 6 a 8 sessões para redução permanente de 90%+ dos pelos. O resultado começa a aparecer já na 1ª sessão, com queda progressiva a cada mês de tratamento.
       </div>
     </div>
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false">
+      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-4">
         Quanto custa o pacote? Tem parcelamento?
-        <i class="chevron">▾</i>
+        <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a">
+      <div class="faq-a" id="faq-a-4" role="region">
         O valor varia conforme as áreas escolhidas. Na avaliação gratuita você recebe um orçamento personalizado. Parcelamos em até 12x sem juros no cartão — sem susto no bolso.
       </div>
     </div>
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false">
+      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-5">
         A avaliação é realmente gratuita? Tem alguma obrigação?
-        <i class="chevron">▾</i>
+        <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a">
+      <div class="faq-a" id="faq-a-5" role="region">
         100% gratuita e sem nenhum compromisso. Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento. A decisão de iniciar o tratamento é inteiramente sua.
       </div>
     </div>
@@ -1669,6 +1647,18 @@
 <script>
   const WA_NUMBER = '5581995749947';
   const WA_MSG = encodeURIComponent('[LP3] Olá, vi o anúncio e gostaria de retirar meu brinde.');
+
+  /* HELPERS ──────────────────────────────────────────── */
+  // Lê cookie preservando '=' em base64 (split('=').slice(1).join('='))
+  function getCookie(name) {
+    const cookie = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(name + '='));
+    return cookie ? cookie.split('=').slice(1).join('=') : undefined;
+  }
+
+  // Rastreia eventos Vercel Analytics de forma segura (fail-silent)
+  function trackEvent(name, data) {
+    try { window.va('event', data ? { name, data } : { name }); } catch {}
+  }
 
   /* WHATSAPP DEEP LINK — funciona no Instagram in-app browser, iOS Safari, Android Chrome */
   function openWhatsApp(msg) {
@@ -1739,28 +1729,26 @@
         var waLeadId = 'wa_' + tag + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
         try { fbq('track', 'Lead', {content_name:'WA ' + tag, content_category:'depilacao_laser', value:0, currency:'BRL'}, {eventID: waLeadId}); } catch(ex){}
         var origemFallback = getOrigemFallback();
-        fetch('/api/track', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            event_name: 'Lead', event_id: waLeadId,
-            nome: 'WA Direto ' + tag,
-            event_source_url: location.href, client_user_agent: navigator.userAgent,
-            fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
-            fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
-            utm_source: getAdData('utm_source') || origemFallback,
-            utm_medium: getAdData('utm_medium') || (origemFallback !== 'direto' ? 'cpc' : undefined),
-            utm_campaign: getAdData('utm_campaign') || (origemFallback === 'facebook' || origemFallback === 'instagram' ? 'sem-utm (Meta Ads)' : undefined),
-            utm_content: getAdData('utm_content') || undefined,
-            utm_term: getAdData('utm_term') || undefined,
-            campaign_id: getAdData('campaign_id') || undefined,
-            campaign_name: getAdData('campaign_name') || (origemFallback === 'facebook' || origemFallback === 'instagram' ? 'Meta Ads (sem url_tags)' : undefined),
-            adset_id: getAdData('adset_id') || undefined,
-            adset_name: getAdData('adset_name') || undefined,
-            ad_id: getAdData('ad_id') || undefined,
-            ad_name: getAdData('ad_name') || undefined,
-            referrer: document.referrer || undefined,
-          }), keepalive: true,
-        }).catch(function(){});
+        var isMetaOrigin = origemFallback === 'facebook' || origemFallback === 'instagram';
+        window.sendCapi({
+          event_name: 'Lead', event_id: waLeadId,
+          nome: 'WA Direto ' + tag,
+          event_source_url: location.href, client_user_agent: navigator.userAgent,
+          fbp: getCookie('_fbp'),
+          fbc: getCookie('_fbc'),
+          utm_source: getAdData('utm_source') || origemFallback,
+          utm_medium: getAdData('utm_medium') || (origemFallback !== 'direto' ? 'cpc' : undefined),
+          utm_campaign: getAdData('utm_campaign') || (isMetaOrigin ? 'sem-utm (Meta Ads)' : undefined),
+          utm_content: getAdData('utm_content') || undefined,
+          utm_term: getAdData('utm_term') || undefined,
+          campaign_id: getAdData('campaign_id') || undefined,
+          campaign_name: getAdData('campaign_name') || (isMetaOrigin ? 'Meta Ads (sem url_tags)' : undefined),
+          adset_id: getAdData('adset_id') || undefined,
+          adset_name: getAdData('adset_name') || undefined,
+          ad_id: getAdData('ad_id') || undefined,
+          ad_name: getAdData('ad_name') || undefined,
+          referrer: document.referrer || undefined,
+        });
       }
       // Extrai o texto da URL do href pra manter a tag [LP1]-[LP5] de cada botão
       try {
@@ -1798,8 +1786,10 @@
      IC = atendente enviou link de pagamento / cliente foi pagar. Não é ação na LP. */
 
   /* SUBMIT ────────────────────────────────────────── */
+  let submitting = false; // guard anti-double-submit
   document.getElementById('lead-form').addEventListener('submit', function(e) {
     e.preventDefault();
+    if (submitting) return;
 
     const nomeEl = document.getElementById('nome');
     const telEl  = document.getElementById('tel');
@@ -1811,16 +1801,17 @@
     if (tel.replace(/\D/g,'').length < 10)   { telEl.classList.add('invalid');  valid=false; } else telEl.classList.remove('invalid');
     if (!valid) return;
 
+    // Lock submit + disable button visualmente
+    submitting = true;
+    const submitBtn = document.getElementById('btn-submit');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.style.opacity = '0.6'; submitBtn.style.cursor = 'wait'; }
+
     // 1. DISPARA PIXEL + CAPI — event_id garante deduplicação
     const eventId = 'ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
 
-    // Captura _fbp (cookie Meta) e fbclid (URL param) para aumentar EMQ no CAPI
-    const fbpCookie = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbp='));
-    const fbp = fbpCookie ? fbpCookie.split('=').slice(1).join('=') : undefined;
-    const params = new URLSearchParams(window.location.search);
-    // Lê _fbc do cookie — NUNCA reconstruir, usar valor original inalterado
-    const fbcCookieVal = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbc='));
-    const fbc = fbcCookieVal ? fbcCookieVal.split('=').slice(1).join('=') : undefined;
+    // Captura _fbp e _fbc via helper (preserva '=' em base64 com slice(1).join)
+    const fbp = getCookie('_fbp');
+    const fbc = getCookie('_fbc');
 
     // Captura origem completa: URL params + sessionStorage fallback
     var origemFB = getOrigemFallback();
@@ -1843,6 +1834,7 @@
     };
 
     // Dados de qualificação do lead (navegador, tela, idioma, timezone)
+    const bodyHeight = Math.max(1, document.body.scrollHeight);
     const qualData = {
       screen_width:  screen.width,
       screen_height: screen.height,
@@ -1850,8 +1842,8 @@
       timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone,
       referrer:      document.referrer || undefined,
       landing_url:   location.href,
-      time_on_page:  Math.round((Date.now() - performance.timing.navigationStart) / 1000),
-      scroll_depth:  Math.round((window.scrollY + window.innerHeight) / document.body.scrollHeight * 100),
+      time_on_page:  Math.round(performance.now() / 1000),
+      scroll_depth:  Math.min(100, Math.round(((window.scrollY + window.innerHeight) / bodyHeight) * 100)),
     };
 
     const capiData = {
@@ -1890,24 +1882,12 @@
     } catch(ex) {}
 
     // Vercel Analytics — evento de lead submit (inclui variante A/B ativa)
-    try {
-      const ctaVariant = document.getElementById('btn-submit')?.dataset.ctaVariant || 'avaliar';
-      window.va('event', { name: 'Lead Submit', data: { cta_variant: ctaVariant, source: 'landing_page' } });
-    } catch {}
+    const ctaVariant = document.getElementById('btn-submit')?.dataset.ctaVariant || 'avaliar';
+    trackEvent('Lead Submit', { cta_variant: ctaVariant, source: 'landing_page' });
 
-    // CAPI server-side — fire-and-forget, não bloqueia o fluxo
-    fetch('/api/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_name: 'Lead', event_id: eventId, ...capiData }),
-      keepalive: true,
-    }).catch(() => {});
-    fetch('/api/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_name: 'CompleteRegistration', event_id: eventId + '_cr', ...capiData }),
-      keepalive: true,
-    }).catch(() => {});
+    // CAPI server-side — sendCapi com sendBeacon fallback (não bloqueia o fluxo)
+    window.sendCapi({ event_name: 'Lead', event_id: eventId, ...capiData });
+    window.sendCapi({ event_name: 'CompleteRegistration', event_id: eventId + '_cr', ...capiData });
 
     // 2. Monta mensagem WA
     const msg = encodeURIComponent(
@@ -1943,52 +1923,43 @@
     });
   });
 
-  /* VERCEL FEATURE FLAG — A/B test do botão CTA ───── */
-  const CTA_VARIANTS = {
-    avaliar:     'Preencha aqui e garanta seu brinde surpresa',
-    axila_gratis:'Preencha aqui e garanta seu brinde surpresa',
-    whatsapp:    'Preencha aqui e garanta seu brinde surpresa',
-  };
-  (async function loadFlag() {
-    try {
-      const r = await fetch('/api/flags?flag=cta-variant&fallback=avaliar');
-      const { value } = await r.json();
-      const label = CTA_VARIANTS[value] || CTA_VARIANTS.avaliar;
-      const btn = document.getElementById('btn-submit');
-      if (btn) {
-        btn.textContent = label;
-        btn.dataset.ctaVariant = value;
-      }
-      // Reporta flag ao Vercel Analytics para aparecer no Dashboard de Flags
-      const flagScript = document.createElement('script');
-      flagScript.type = 'application/json';
-      flagScript.setAttribute('data-flag-values', '');
-      flagScript.textContent = JSON.stringify({ 'cta-variant': value });
-      document.head.appendChild(flagScript);
-    } catch {}
+  /* VERCEL FEATURE FLAG — A/B test desativado (variantes idênticas)
+     Quando reativar: definir 3 labels diferentes em CTA_VARIANTS e descomentar o loadFlag.
+     Mantemos o dataset.ctaVariant default pra não quebrar o Vercel Analytics event. */
+  (function() {
+    const btn = document.getElementById('btn-submit');
+    if (btn) btn.dataset.ctaVariant = 'avaliar';
   })();
 
-  /* VERCEL EDGE CONFIG — urgência dinâmica ─────────── */
+  /* VERCEL EDGE CONFIG — urgência dinâmica (XSS-safe via text nodes) */
   (async function loadConfig() {
     try {
       const r = await fetch('/api/config');
       const { urgencia_vagas, urgencia_data } = await r.json();
+      // Sanitiza: permite só letras/números/barras/espaços pra evitar injection
+      const safeData = String(urgencia_data || '').replace(/[^\wÀ-ÿ \/\-]/g, '');
       ['vagas','vagas2'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.textContent = urgencia_vagas;
+        if (el) el.textContent = String(urgencia_vagas || '').replace(/[^\d]/g, '');
       });
-      // Atualiza data em todos os elementos da página
-      document.querySelectorAll('.urgency-bar, .cta-final p').forEach(el => {
-        el.innerHTML = el.innerHTML.replace(
-          /válido até \S+ \S+/g,
-          'válido até ' + urgencia_data
-        );
+      // Walk text nodes (XSS-safe) — substitui só nodes de texto, preserva elementos
+      const VALIDO_RE = /válido até \S+ \S+/g;
+      const targets = document.querySelectorAll('.urgency-bar, .cta-final p');
+      targets.forEach(el => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (VALIDO_RE.test(node.nodeValue)) {
+            node.nodeValue = node.nodeValue.replace(VALIDO_RE, 'válido até ' + safeData);
+          }
+          VALIDO_RE.lastIndex = 0; // reset global regex state
+        }
       });
     } catch {}
   })();
 
   /* VERCEL ANALYTICS — eventos customizados ────────── */
-  // Rastreia scroll até o formulário
+  // Rastreia scroll até o formulário (dispara 1x)
   (function() {
     const form = document.getElementById('form');
     if (!form) return;
@@ -1996,21 +1967,21 @@
     const obs = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting && !tracked) {
         tracked = true;
-        try { window.va('event', { name: 'Scroll ao Formulario' }); } catch {}
+        trackEvent('Scroll ao Formulario');
+        obs.disconnect(); // libera observer
       }
     }, { threshold: 0.5 });
     obs.observe(form);
   })();
 
-  // Rastreia clique no header CTA → WA direto com deep link
-  document.getElementById('btn-header-cta')?.addEventListener('click', function(e) {
-    e.preventDefault();
-    try { window.va('event', { name: 'Click CTA Header Brinde' }); } catch {}
-    var waMsg = encodeURIComponent('[LP1] Olá, vi o anúncio e gostaria de retirar meu brinde.');
-    openWhatsApp(waMsg);
-  });
+  // Header CTA: só rastreia o evento Vercel Analytics — openWhatsApp + Lead CAPI
+  // são tratados pelo interceptor global (linha 1725) via delegation click.
+  // capture:true garante que esse tracker roda antes do interceptor.
+  document.getElementById('btn-header-cta')?.addEventListener('click', function() {
+    trackEvent('Click CTA Header Brinde');
+  }, true);
 
-  // btn-wa-hero Lead tracking agora coberto pelo interceptor global acima (com tag LP3)
+  // btn-wa-hero Lead tracking coberto pelo interceptor global (tag LP3)
 
   // COUNTDOWN TIMER — expira à meia-noite do dia
   (function() {
@@ -2031,10 +2002,10 @@
     setInterval(update, 1000);
   })();
 
-  // Rastreia clique no FAB
+  // Rastreia clique no FAB (Vercel Analytics event — Lead CAPI já é coberto pelo interceptor global LP5)
   document.getElementById('fab')?.addEventListener('click', function() {
-    try { window.va('event', { name: 'Click FAB WhatsApp' }); } catch {}
-  });
+    trackEvent('Click FAB WhatsApp');
+  }, true);
 </script>
 </body>
 </html>
