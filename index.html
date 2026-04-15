@@ -198,487 +198,1189 @@
       });
     })();
   </script>
-  <noscript><img height="1" width="1" style="display:none"
-    src="https://www.facebook.com/tr?id=2774496306216737&ev=PageView&noscript=1"/></noscript>
+
+  <!-- Fonts: Fraunces (display serif variable) + DM Sans (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&display=swap" rel="stylesheet">
 
   <style>
+    /* ═══════════════════════════════════════════════════
+       ICELASER — LUXURY CLINIC (editorial feminino premium)
+       design-direction: Luxury Clinic
+       fonts: Fraunces (display) · DM Sans (body)
+    ═══════════════════════════════════════════════════ */
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     :root {
-      --roxo:  #6B0F6B;
-      --rosa:  #C2185B;
-      --rosa2: #E91E8C;
-      --verde: #16A34A;
-      --cinza: #F5F5F7;
-      --texto: #1A1A2E;
-    }
-    html { scroll-behavior: smooth; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      background: #fff;
-      color: var(--texto);
-      overflow-x: hidden;
+      /* BRAND — rosa profundo + champagne + gold */
+      --ink:         #1A0A12;       /* near-black quente (texto principal) */
+      --ink-muted:   #5C4752;       /* texto secundário */
+      --brand:       #640039;       /* rosa brand profundo */
+      --brand-deep:  #3D0023;       /* rosa mais profundo (acento) */
+      --accent:      #D4A574;       /* gold */
+      --accent-deep: #A37840;       /* gold profundo */
+      --champagne:   #F5E6D3;       /* champagne */
+      --cream:       #FAF7F2;       /* cream off-white */
+      --surface:     #FFFFFF;       /* branco puro */
+      --surface-alt: #F7F1EA;       /* off-white quente */
+      --line:        rgba(26,10,18,.12);  /* divisor sutil */
+      --success:     #16A34A;       /* verde WhatsApp (funcional) */
+
+      /* ELEVAÇÃO — 3 níveis sistemáticos */
+      --shadow-1: 0 1px 3px rgba(26,10,18,.06), 0 1px 2px rgba(26,10,18,.04);
+      --shadow-2: 0 12px 32px -12px rgba(26,10,18,.16), 0 4px 16px -8px rgba(26,10,18,.08);
+      --shadow-3: 0 32px 64px -24px rgba(100,0,57,.28), 0 12px 32px -16px rgba(26,10,18,.12);
+
+      /* ESCALA tipográfica — razão 1.25 (minor third) */
+      --fs-xs:   12px;
+      --fs-sm:   14px;
+      --fs-base: 16px;
+      --fs-md:   19px;
+      --fs-lg:   24px;
+      --fs-xl:   30px;
+      --fs-2xl:  38px;
+      --fs-3xl:  48px;
+      --fs-4xl:  60px;
+      --fs-5xl:  76px;
+      --fs-6xl:  96px;
+
+      /* SPACING — escala 4px */
+      --space-1:   4px;
+      --space-2:   8px;
+      --space-3:  12px;
+      --space-4:  16px;
+      --space-5:  24px;
+      --space-6:  32px;
+      --space-7:  48px;
+      --space-8:  64px;
+      --space-9:  96px;
+
+      /* RAIOS */
+      --r-xs: 6px;
+      --r-sm: 10px;
+      --r-md: 14px;
+      --r-lg: 20px;
+      --r-xl: 28px;
+
+      /* MOTION */
+      --ease: cubic-bezier(.22, 1, .36, 1);
+      --ease-out: cubic-bezier(.16, 1, .3, 1);
+      --dur-fast: 180ms;
+      --dur-base: 320ms;
+      --dur-slow: 560ms;
     }
 
-    /* STICKY HEADER */
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+      text-rendering: optimizeLegibility;
+    }
+
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: var(--fs-base);
+      font-weight: 400;
+      line-height: 1.55;
+      color: var(--ink);
+      background: var(--cream);
+      overflow-x: hidden;
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* GRAIN overlay global — textura sutil que dá atmosfera */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 1;
+      opacity: .35;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .1 0 0 0 0 .04 0 0 0 0 .07 0 0 0 .18 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+      mix-blend-mode: multiply;
+    }
+
+    /* Display face — Fraunces para headlines */
+    .display {
+      font-family: 'Fraunces', Georgia, serif;
+      font-weight: 400;
+      font-variation-settings: "opsz" 144, "SOFT" 30;
+      letter-spacing: -0.02em;
+      line-height: 0.98;
+    }
+    .display em {
+      font-style: italic;
+      font-variation-settings: "opsz" 144, "SOFT" 60;
+      color: var(--brand);
+    }
+
+    .eyebrow {
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    /* ═══ STICKY HEADER ═══ */
     .header {
       position: sticky; top: 0; z-index: 100;
-      background: var(--roxo);
+      background: rgba(250, 247, 242, 0.88);
+      backdrop-filter: saturate(140%) blur(12px);
+      -webkit-backdrop-filter: saturate(140%) blur(12px);
+      border-bottom: 1px solid var(--line);
       display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 16px;
-      box-shadow: 0 2px 12px rgba(0,0,0,.3);
+      padding: 14px 20px;
     }
-    .header-logo { font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 1px; }
-    .header-logo span { color: #FFD700; }
+    .header-logo {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: 20px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+    }
+    .header-logo span {
+      font-style: italic;
+      color: var(--brand);
+    }
     .header-cta {
-      background: var(--verde); color: #fff;
-      font-size: 13px; font-weight: 700;
-      padding: 10px 16px; border-radius: 999px; text-decoration: none; white-space: nowrap;
-      min-height: 44px; display: inline-flex; align-items: center;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px; min-height: 44px;
+      background: var(--ink); color: var(--cream);
+      font-size: var(--fs-sm); font-weight: 500;
+      text-decoration: none;
+      border-radius: 999px;
+      border: 1px solid var(--ink);
+      transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
       touch-action: manipulation;
     }
+    .header-cta:hover { transform: translateY(-1px); background: var(--brand); border-color: var(--brand); }
+    .header-cta::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent);
+    }
 
-    /* URGENCY BAR */
+    /* ═══ URGENCY BAR ═══ */
     .urgency-bar {
-      background: #FFF3CD; border-bottom: 2px solid #FFB300;
-      text-align: center; padding: 9px 16px;
-      font-size: 13px; font-weight: 700; color: #7D5A00;
+      position: relative;
+      background: var(--ink);
+      color: var(--cream);
+      text-align: center;
+      padding: 10px 20px;
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--brand-deep);
     }
-    .urgency-bar .red { color: #C62828; }
+    .urgency-bar .red {
+      color: var(--accent);
+      font-weight: 700;
+      font-family: 'Fraunces', serif;
+      font-size: 14px;
+      font-variation-settings: "opsz" 144;
+    }
 
-    /* HERO */
+    /* ═══ HERO ═══ */
     .hero {
-      background: linear-gradient(150deg, var(--roxo) 0%, var(--rosa) 100%);
-      color: #fff; padding: 28px 20px 0;
+      position: relative;
+      padding: 32px 20px 0;
+      background:
+        radial-gradient(ellipse at 20% 0%, rgba(245, 230, 211, 0.65) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 30%, rgba(100, 0, 57, 0.12) 0%, transparent 50%),
+        linear-gradient(180deg, var(--cream) 0%, var(--surface-alt) 100%);
+      overflow: hidden;
     }
+    /* SVG decorativo — ponteira Crystal 3D Plus abstrata com beam dourado */
+    .hero-art {
+      position: absolute;
+      pointer-events: none;
+      right: -40px; top: 80px;
+      width: 280px; height: 280px;
+      opacity: 0.9;
+      z-index: 0;
+    }
+    .hero > * { position: relative; z-index: 2; }
+
     .badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.35);
-      border-radius: 999px; padding: 6px 16px;
-      font-size: 13px; font-weight: 700; letter-spacing: .4px; margin-bottom: 14px;
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 8px 16px 8px 8px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      color: var(--ink-muted);
+      box-shadow: var(--shadow-1);
+      margin-bottom: 24px;
+      letter-spacing: 0.02em;
     }
-    .hero h1 {
-      font-size: clamp(25px, 7vw, 40px); font-weight: 900;
-      line-height: 1.12; margin-bottom: 10px; text-align: center;
+    .badge-dot {
+      width: 20px; height: 20px;
+      background: var(--brand);
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--accent);
+      font-size: 10px;
+      font-family: 'Fraunces', serif;
+      font-style: italic;
+      font-weight: 600;
     }
-    .hero h1 span { color: #FFD700; }
+
+    .hero h1.display {
+      font-size: clamp(42px, 10vw, 62px);
+      margin-bottom: 20px;
+      max-width: 14ch;
+    }
+
     .hero-sub {
-      font-size: clamp(14px, 3.8vw, 17px); opacity: .93;
-      line-height: 1.55; margin-bottom: 18px; max-width: 440px;
-      text-align: center; margin-left: auto; margin-right: auto;
+      font-size: var(--fs-md);
+      line-height: 1.5;
+      color: var(--ink-muted);
+      max-width: 52ch;
+      margin-bottom: 28px;
+    }
+    .hero-sub strong {
+      color: var(--ink);
+      font-weight: 600;
     }
 
-    /* Hero bullets rápidos */
-    .hero-checks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; align-items: center; }
+    /* Hero bullets — elegant list */
+    .hero-checks {
+      display: flex; flex-direction: column;
+      gap: 12px;
+      margin-bottom: 28px;
+      padding: 20px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
     .hero-check {
-      display: flex; align-items: center; gap: 8px;
-      font-size: 14px; font-weight: 600;
+      display: flex; align-items: baseline; gap: 14px;
+      font-size: var(--fs-sm);
+      color: var(--ink);
     }
-    .hero-check::before { content: '✅'; flex-shrink: 0; }
-
-    /* BOTÃO WA DIRETO — above the fold */
-    .btn-wa-hero {
-      display: flex; align-items: center; justify-content: center; gap: 10px;
-      width: 100%; max-width: 380px; margin: 0 auto 8px;
-      background: var(--verde); color: #fff;
-      font-size: 17px; font-weight: 800;
-      padding: 16px 24px; border-radius: 14px;
-      text-decoration: none; border: none; cursor: pointer;
-      box-shadow: 0 4px 20px rgba(37,211,102,.45);
-      animation: pulse-wa 2s infinite;
-      min-height: 54px;
-      touch-action: manipulation;
-    }
-    @keyframes pulse-wa {
-      0%, 100% { box-shadow: 0 4px 20px rgba(37,211,102,.45); }
-      50% { box-shadow: 0 4px 30px rgba(37,211,102,.7); }
-    }
-    .hero-wa-sub {
-      text-align: center; font-size: 12px; opacity: .75;
-      margin-bottom: 16px; font-weight: 600;
+    .hero-check::before {
+      content: '';
+      width: 18px; height: 1px;
+      background: var(--accent);
+      flex-shrink: 0;
+      transform: translateY(-5px);
     }
 
-    /* MINI PROVA SOCIAL above the fold */
-    .hero-social-proof {
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25);
-      border-radius: 12px; padding: 10px 16px; margin-bottom: 10px;
-      max-width: 380px; margin-left: auto; margin-right: auto;
+    /* Hero stats — editorial numbers */
+    .hero-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 28px;
+      margin-bottom: 32px;
     }
-    .hero-sp-avatars { font-size: 18px; letter-spacing: -4px; }
-    .hero-sp-text { font-size: 13px; font-weight: 600; line-height: 1.3; }
-
-    /* COUNTDOWN BAR */
-    .countdown-bar {
-      text-align: center; font-size: 13px; font-weight: 700;
-      background: rgba(198,40,40,.25); border: 1px solid rgba(198,40,40,.5);
-      border-radius: 10px; padding: 8px 16px; margin-bottom: 20px;
-      max-width: 380px; margin-left: auto; margin-right: auto;
-    }
-    .countdown-num { color: #FFD700; font-size: 16px; font-variant-numeric: tabular-nums; }
-
-    /* Mini stats */
-    .hero-stats { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; justify-content: center; }
     .hero-stat {
-      display: flex; align-items: center; gap: 6px;
-      background: rgba(255,255,255,.14); border-radius: 10px;
-      padding: 7px 12px; font-size: 13px; font-weight: 700;
+      display: flex; flex-direction: column;
+      gap: 2px;
     }
-    .hero-stat-num { color: #FFD700; font-size: 16px; font-weight: 900; }
+    .hero-stat-num {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-2xl);
+      font-weight: 400;
+      line-height: 1;
+      color: var(--brand);
+    }
+    .hero-stat-label {
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      color: var(--ink-muted);
+      letter-spacing: 0.04em;
+    }
 
-    /* FORM CARD */
+    /* CTA WA Hero — botão primário editorial */
+    .btn-wa-hero {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; max-width: 420px;
+      padding: 18px 26px;
+      background: var(--success);
+      color: var(--surface);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-md);
+      font-weight: 600;
+      border: none;
+      border-radius: 999px;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 10px 30px -10px rgba(22,163,74,.45);
+      transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+      min-height: 56px;
+      touch-action: manipulation;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-wa-hero:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -12px rgba(22,163,74,.55); }
+    .btn-wa-hero::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.25) 50%, transparent 70%);
+      transform: translateX(-100%);
+      animation: shimmer 4s var(--ease) infinite;
+    }
+    @keyframes shimmer { 0%, 60% { transform: translateX(-100%); } 70%, 100% { transform: translateX(100%); } }
+
+    .hero-wa-sub {
+      margin-top: 10px;
+      font-size: var(--fs-xs);
+      color: var(--ink-muted);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+    }
+
+    /* Mini prova social inline */
+    .hero-social-proof {
+      display: inline-flex; align-items: center; gap: 12px;
+      margin-top: 24px;
+      padding: 10px 16px 10px 10px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      box-shadow: var(--shadow-1);
+      font-size: var(--fs-sm);
+    }
+    .sp-dots {
+      display: flex;
+    }
+    .sp-dots span {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      border: 2px solid var(--surface);
+      margin-right: -8px;
+      background-size: cover;
+      background-position: center;
+    }
+    .sp-dots span:nth-child(1) { background: linear-gradient(135deg, #E8C4B0, #C89882); }
+    .sp-dots span:nth-child(2) { background: linear-gradient(135deg, #F5D5C0, #D4A08C); }
+    .sp-dots span:nth-child(3) { background: linear-gradient(135deg, #E4A98C, #B07858); }
+    .sp-dots span:nth-child(4) { background: linear-gradient(135deg, #F0D0B8, #C89070); }
+    .sp-dots span:last-child { margin-right: 0; }
+    .hero-sp-text { color: var(--ink); font-weight: 500; }
+    .hero-sp-text strong { color: var(--brand); font-weight: 600; }
+
+    /* Countdown bar */
+    .countdown-bar {
+      display: inline-flex; align-items: center; gap: 10px;
+      margin-top: 16px;
+      padding: 10px 16px;
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      color: var(--ink);
+      letter-spacing: 0.04em;
+    }
+    .countdown-num {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-base);
+      color: var(--brand);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ═══ FORM CARD ═══ */
     .card {
-      background: #fff; border-radius: 20px 20px 0 0;
-      margin: 0 -20px; padding: 26px 22px 30px;
-      box-shadow: 0 -6px 30px rgba(0,0,0,.2);
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-lg);
+      margin: 40px -20px 0;
+      padding: 32px 24px;
+      box-shadow: var(--shadow-3);
     }
-    .card-title { font-size: 19px; font-weight: 900; color: var(--roxo); text-align: center; margin-bottom: 4px; }
-    .card-sub { text-align: center; font-size: 14px; color: #666; margin-bottom: 20px; }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: 24px; right: 24px; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
 
-    .field { margin-bottom: 14px; }
-    label { display: block; font-size: 13px; font-weight: 700; color: #444; margin-bottom: 5px; }
-    input {
-      width: 100%; padding: 15px 16px;
-      border: 2px solid #E5E5E5; border-radius: 12px;
-      font-size: 16px; font-family: inherit; color: var(--texto);
-      background: #FAFAFA; transition: border .2s, box-shadow .2s;
+    .card-eyebrow {
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-deep);
+      margin-bottom: 8px;
+    }
+    .card-title {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-xl);
+      font-weight: 500;
+      line-height: 1.05;
+      color: var(--ink);
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
+    }
+    .card-title em { font-style: italic; color: var(--brand); }
+    .card-sub {
+      font-size: var(--fs-sm);
+      color: var(--ink-muted);
+      margin-bottom: 22px;
+    }
+
+    /* Price anchor — editorial framed */
+    .price-anchor {
+      padding: 14px 16px;
+      background: var(--cream);
+      border-left: 2px solid var(--accent);
+      border-radius: 4px;
+      font-size: var(--fs-sm);
+      color: var(--ink);
+      line-height: 1.55;
+      margin-bottom: 22px;
+    }
+    .price-anchor strong { color: var(--brand); font-weight: 600; }
+
+    .field { margin-bottom: 16px; }
+    .field label {
+      display: block;
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 6px;
+    }
+    .field input {
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--cream);
+      border: 1px solid var(--line);
+      border-radius: var(--r-sm);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-base);
+      color: var(--ink);
+      transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
       -webkit-appearance: none;
     }
-    input:focus {
-      outline: none; border-color: var(--rosa); background: #fff;
-      box-shadow: 0 0 0 4px rgba(194,24,91,.08);
+    .field input::placeholder { color: rgba(26,10,18,.35); }
+    .field input:focus {
+      outline: none;
+      border-color: var(--brand);
+      background: var(--surface);
+      box-shadow: 0 0 0 4px rgba(100,0,57,.08);
     }
-    .field-error { display: none; font-size: 12px; color: #C62828; margin-top: 4px; font-weight: 600; }
-    input.invalid { border-color: #C62828; }
-    input.invalid + .field-error { display: block; }
-
-    /* Âncora de preço */
-    .price-anchor {
-      background: #FFF8E1; border: 1.5px solid #FFB300;
-      border-radius: 12px; padding: 12px 14px; margin-bottom: 16px;
-      font-size: 13px; color: #5D4037; text-align: center; line-height: 1.5;
+    .field-error {
+      display: none;
+      font-size: var(--fs-xs);
+      color: #B01B3F;
+      margin-top: 6px;
+      font-weight: 500;
     }
-    .price-anchor strong { color: #BF360C; }
+    .field input.invalid { border-color: #B01B3F; background: #FDF2F5; }
+    .field input.invalid + .field-error { display: block; }
 
     .btn-submit {
       display: flex; align-items: center; justify-content: center; gap: 10px;
-      width: 100%; padding: 18px;
-      background: var(--verde); color: #fff;
-      font-size: 17px; font-weight: 900;
-      border: none; border-radius: 14px; cursor: pointer;
-      box-shadow: 0 6px 24px rgba(22,163,74,.45);
-      transition: transform .15s, background .15s;
-      animation: pulse 2.2s infinite; font-family: inherit;
+      width: 100%;
+      padding: 18px 24px;
+      background: var(--ink);
+      color: var(--cream);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-md);
+      font-weight: 600;
+      border: none;
+      border-radius: var(--r-md);
+      cursor: pointer;
+      transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+      min-height: 56px;
       touch-action: manipulation;
+      font-family: inherit;
     }
-    .btn-submit:active { transform: scale(.97); }
-    @keyframes pulse {
-      0%,100% { box-shadow: 0 6px 24px rgba(22,163,74,.45); }
-      50%      { box-shadow: 0 6px 38px rgba(22,163,74,.78); }
-    }
+    .btn-submit:hover { transform: translateY(-1px); background: var(--brand); }
+    .btn-submit:active { transform: scale(.98); }
 
-    /* Trust badges */
     .trust-badges {
-      display: flex; justify-content: center; gap: 12px;
-      margin-top: 14px; flex-wrap: wrap;
+      display: flex; justify-content: center; gap: 16px;
+      margin-top: 16px; flex-wrap: wrap;
     }
     .trust-badge {
-      display: flex; align-items: center; gap: 5px;
-      font-size: 11px; color: #666; font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+      font-size: var(--fs-xs);
+      color: var(--ink-muted);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .trust-badge::before {
+      content: '';
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: var(--accent);
     }
 
-    /* SUCCESS */
+    /* Success message */
     #success-msg {
-      display: none; background: #ECFDF5;
-      border: 2px solid var(--verde); border-radius: 14px;
-      padding: 24px; text-align: center; color: #166534;
+      display: none;
+      padding: 32px 20px; text-align: center;
     }
-    #success-msg .ok-icon { font-size: 44px; margin-bottom: 10px; }
-    #success-msg strong { font-size: 19px; font-weight: 900; display: block; margin-bottom: 6px; }
-    #success-msg p { font-size: 14px; line-height: 1.5; }
-
-    /* COMPARATIVO */
-    .compare-section { padding: 40px 20px; background: var(--cinza); }
-    .compare-table { max-width: 480px; margin: 0 auto; border-collapse: collapse; width: 100%; }
-    .compare-table th {
-      padding: 12px; font-size: 14px; font-weight: 900;
-      border-radius: 0; background: transparent;
+    #success-msg .ok-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: var(--cream);
+      border: 2px solid var(--accent);
+      margin-bottom: 18px;
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: 28px;
+      color: var(--brand);
+      font-style: italic;
     }
-    .compare-table th:first-child { text-align: left; color: #666; font-weight: 700; }
-    .compare-table th.col-cera { background: #FFEBEE; color: #C62828; border-radius: 12px 12px 0 0; }
-    .compare-table th.col-laser { background: var(--roxo); color: #FFD700; border-radius: 12px 12px 0 0; }
-    .compare-table td { padding: 10px 12px; font-size: 13px; border-top: 1px solid #E0E0E0; }
-    .compare-table td:first-child { font-weight: 600; color: #555; }
-    .compare-table td.cera { background: #FFF8F8; text-align: center; color: #C62828; }
-    .compare-table td.laser { background: #F3E5F5; text-align: center; color: var(--roxo); font-weight: 700; }
-    .compare-table tr:last-child td.cera { border-radius: 0 0 0 0; }
-    .compare-table tr:last-child td.laser { border-radius: 0 0 12px 12px; }
+    #success-msg strong {
+      display: block;
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-xl);
+      font-weight: 500;
+      color: var(--ink);
+      margin-bottom: 10px;
+      font-style: normal;
+    }
+    #success-msg p { font-size: var(--fs-sm); color: var(--ink-muted); line-height: 1.6; }
 
-    /* COMO FUNCIONA */
-    .como-funciona { padding: 40px 20px; }
-    .section-title { text-align: center; font-size: 20px; font-weight: 900; margin-bottom: 24px; color: var(--roxo); }
-    .steps { display: flex; flex-direction: column; gap: 16px; max-width: 440px; margin: 0 auto; }
-    .step { display: flex; gap: 14px; align-items: flex-start; }
+    /* ═══ SEÇÃO BASE ═══ */
+    section {
+      padding: 80px 20px;
+      position: relative;
+    }
+    .section-eyebrow {
+      display: block;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent-deep);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .section-title {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(32px, 6vw, 48px);
+      font-weight: 400;
+      line-height: 1.05;
+      color: var(--ink);
+      text-align: center;
+      max-width: 20ch;
+      margin: 0 auto 48px;
+      letter-spacing: -0.01em;
+    }
+    .section-title em { font-style: italic; color: var(--brand); }
+
+    /* ═══ COMPARATIVO LASER vs CERA ═══ */
+    .compare-section {
+      background: var(--cream);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .compare-grid {
+      max-width: 880px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    .compare-col {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-lg);
+      padding: 28px;
+      box-shadow: var(--shadow-1);
+    }
+    .compare-col.cera { opacity: 0.88; }
+    .compare-col.laser {
+      background: linear-gradient(180deg, var(--surface) 0%, var(--champagne) 100%);
+      border-color: var(--accent);
+      box-shadow: var(--shadow-2);
+    }
+    .compare-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: 20px; padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .compare-label {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-xl);
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .compare-col.laser .compare-label { color: var(--brand); font-style: italic; }
+    .compare-tag {
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--cream);
+      color: var(--ink-muted);
+    }
+    .compare-col.laser .compare-tag { background: var(--brand); color: var(--accent); }
+    .compare-list {
+      list-style: none;
+      display: flex; flex-direction: column;
+      gap: 14px;
+    }
+    .compare-list li {
+      display: flex; justify-content: space-between; gap: 12px;
+      padding-bottom: 14px;
+      border-bottom: 1px dashed var(--line);
+      font-size: var(--fs-sm);
+    }
+    .compare-list li:last-child { border-bottom: none; }
+    .compare-key { color: var(--ink-muted); }
+    .compare-val { color: var(--ink); font-weight: 600; text-align: right; }
+    .compare-col.laser .compare-val { color: var(--brand); }
+
+    /* ═══ COMO FUNCIONA ═══ */
+    .como-funciona {
+      background: var(--surface-alt);
+    }
+    .steps {
+      max-width: 880px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    .step {
+      display: flex; gap: 20px; align-items: flex-start;
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
+    }
+    .step:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
     .step-num {
-      width: 36px; height: 36px; border-radius: 50%;
-      background: var(--rosa); color: #fff;
-      font-size: 16px; font-weight: 900;
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      flex-shrink: 0;
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: var(--cream);
+      border: 1px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-lg);
+      font-weight: 500;
+      font-style: italic;
+      color: var(--brand);
     }
-    .step-content h3 { font-size: 15px; font-weight: 800; margin-bottom: 3px; }
-    .step-content p { font-size: 13px; color: #666; line-height: 1.45; }
+    .step-content h3 {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-md);
+      font-weight: 500;
+      color: var(--ink);
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
+    }
+    .step-content p {
+      font-size: var(--fs-sm);
+      color: var(--ink-muted);
+      line-height: 1.55;
+    }
 
-    /* PROOF */
-    .proof { background: #fff; padding: 40px 20px; }
+    /* ═══ PROVA SOCIAL ═══ */
+    .proof {
+      background: var(--cream);
+    }
     .stats {
-      display: grid; grid-template-columns: repeat(3,1fr);
-      gap: 12px; max-width: 480px; margin: 0 auto 36px;
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      max-width: 720px; margin: 0 auto 56px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      overflow: hidden;
     }
     .stat {
-      background: var(--cinza); border-radius: 14px;
-      padding: 16px 8px; text-align: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,.05);
+      background: var(--surface);
+      padding: 28px 16px;
+      text-align: center;
     }
-    .stat-num { font-size: 26px; font-weight: 900; color: var(--rosa); line-height: 1; }
-    .stat-label { font-size: 11px; color: #666; margin-top: 4px; font-weight: 700; }
+    .stat-num {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(32px, 6vw, 48px);
+      font-weight: 400;
+      line-height: 1;
+      color: var(--brand);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-label {
+      font-size: var(--fs-xs);
+      color: var(--ink-muted);
+      margin-top: 10px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
 
-    /* Depoimentos */
-    .depoimentos { display: flex; flex-direction: column; gap: 14px; max-width: 480px; margin: 0 auto; }
+    .depoimentos {
+      max-width: 880px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr;
+      gap: 20px;
+    }
     .dep {
-      background: var(--cinza); border-radius: 14px;
-      padding: 16px; position: relative;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      padding: 28px;
+      position: relative;
+      box-shadow: var(--shadow-1);
     }
-    .dep::before {
-      content: '"'; position: absolute; top: 8px; right: 14px;
-      font-size: 52px; color: var(--rosa2); opacity: .12; line-height: 1;
+    .dep-quote {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: 44px;
+      line-height: 0.6;
+      color: var(--accent);
+      position: absolute;
+      top: 24px; left: 28px;
+      opacity: 0.5;
     }
-    .dep-stars { color: #FFB300; font-size: 15px; margin-bottom: 8px; }
-    .dep-text { font-size: 14px; color: #444; line-height: 1.55; margin-bottom: 10px; }
-    .dep-autor { font-size: 13px; font-weight: 800; color: var(--roxo); }
-    .dep-bairro { font-size: 12px; color: #999; font-weight: 400; }
+    .dep-stars {
+      display: inline-block;
+      font-size: 12px;
+      color: var(--accent-deep);
+      letter-spacing: 0.1em;
+      margin-bottom: 14px;
+    }
+    .dep-text {
+      font-size: var(--fs-md);
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-weight: 400;
+      font-style: italic;
+      line-height: 1.4;
+      color: var(--ink);
+      margin-bottom: 18px;
+      letter-spacing: -0.01em;
+    }
+    .dep-autor {
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .dep-bairro {
+      font-size: var(--fs-xs);
+      color: var(--ink-muted);
+      font-weight: 400;
+      margin-left: 4px;
+    }
 
-    /* FAQ */
-    .faq-section { padding: 40px 20px; background: var(--cinza); }
-    .faq-list { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+    /* ═══ FAQ ═══ */
+    .faq-section {
+      background: var(--surface-alt);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .faq-list {
+      max-width: 720px; margin: 0 auto;
+      display: flex; flex-direction: column;
+      gap: 0;
+    }
     .faq-item {
-      background: #fff; border-radius: 14px; overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0,0,0,.05);
+      border-bottom: 1px solid var(--line);
     }
+    .faq-item:first-child { border-top: 1px solid var(--line); }
     .faq-q {
-      width: 100%; background: none; border: none; cursor: pointer;
+      width: 100%;
+      background: none; border: none; cursor: pointer;
       display: flex; justify-content: space-between; align-items: center;
-      padding: 16px; font-size: 14px; font-weight: 700; color: var(--roxo);
-      font-family: inherit; text-align: left; gap: 10px;
+      padding: 24px 0;
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-md);
+      font-weight: 500;
+      color: var(--ink);
+      text-align: left;
+      gap: 16px;
+      letter-spacing: -0.01em;
+      transition: color var(--dur-fast) var(--ease);
     }
-    .faq-q .chevron { flex-shrink: 0; transition: transform .25s; font-style: normal; font-size: 18px; }
-    .faq-item.open .faq-q .chevron { transform: rotate(180deg); }
+    .faq-q:hover { color: var(--brand); }
+    .faq-q .chevron {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--cream);
+      border: 1px solid var(--line);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-style: normal;
+      font-size: 12px;
+      color: var(--brand);
+      transition: transform var(--dur-base) var(--ease), background var(--dur-base) var(--ease);
+    }
+    .faq-item.open .faq-q .chevron {
+      transform: rotate(180deg);
+      background: var(--brand);
+      color: var(--accent);
+    }
     .faq-a {
-      max-height: 0; overflow: hidden; transition: max-height .3s ease;
-      font-size: 14px; color: #555; line-height: 1.6; padding: 0 16px;
+      max-height: 0; overflow: hidden;
+      transition: max-height var(--dur-base) var(--ease), padding var(--dur-base) var(--ease);
+      font-size: var(--fs-sm);
+      color: var(--ink-muted);
+      line-height: 1.65;
     }
-    .faq-item.open .faq-a { max-height: 200px; padding: 0 16px 16px; }
+    .faq-item.open .faq-a {
+      max-height: 400px;
+      padding-bottom: 24px;
+      padding-right: 44px;
+    }
 
-    /* GARANTIA */
+    /* ═══ GARANTIA ═══ */
     .garantia-section {
-      padding: 32px 20px; text-align: center;
-      background: linear-gradient(135deg, #F3E5F5 0%, #FCE4EC 100%);
+      background: var(--ink);
+      color: var(--cream);
+      text-align: center;
     }
-    .garantia-icon { font-size: 48px; margin-bottom: 10px; }
-    .garantia-section h3 { font-size: 18px; font-weight: 900; color: var(--roxo); margin-bottom: 8px; }
-    .garantia-section p { font-size: 14px; color: #555; line-height: 1.55; max-width: 400px; margin: 0 auto; }
+    .garantia-eyebrow {
+      color: var(--accent);
+      display: block;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    .garantia-section h3 {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(28px, 5vw, 40px);
+      font-weight: 400;
+      max-width: 20ch;
+      margin: 0 auto 18px;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+    .garantia-section h3 em { font-style: italic; color: var(--accent); }
+    .garantia-section p {
+      font-size: var(--fs-md);
+      color: rgba(250, 247, 242, 0.75);
+      max-width: 50ch;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
 
-    /* CTA FINAL */
+    /* ═══ CTA FINAL ═══ */
     .cta-final {
-      background: linear-gradient(135deg, var(--roxo) 0%, var(--rosa) 100%);
-      color: #fff; text-align: center; padding: 40px 20px;
+      background: var(--champagne);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
     }
-    .cta-final h2 { font-size: clamp(20px, 6vw, 28px); font-weight: 900; margin-bottom: 10px; }
-    .cta-final p { font-size: 15px; opacity: .9; margin-bottom: 24px; }
+    .cta-final::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 0%, rgba(100, 0, 57, 0.08) 0%, transparent 55%);
+      pointer-events: none;
+    }
+    .cta-final > * { position: relative; }
+    .cta-final h2 {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(38px, 7vw, 64px);
+      font-weight: 400;
+      line-height: 1.02;
+      color: var(--ink);
+      max-width: 16ch;
+      margin: 0 auto 20px;
+      letter-spacing: -0.02em;
+    }
+    .cta-final h2 em { font-style: italic; color: var(--brand); }
+    .cta-final p {
+      font-size: var(--fs-md);
+      color: var(--ink-muted);
+      max-width: 44ch;
+      margin: 0 auto 36px;
+      line-height: 1.55;
+    }
+    .cta-final p strong { color: var(--brand); font-weight: 600; }
     .btn-cta2 {
       display: inline-flex; align-items: center; gap: 10px;
-      background: var(--verde); color: #fff;
-      font-size: 17px; font-weight: 800; padding: 16px 28px;
-      border-radius: 14px; text-decoration: none;
-      box-shadow: 0 6px 24px rgba(22,163,74,.4);
+      padding: 20px 36px;
+      background: var(--brand);
+      color: var(--cream);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-md);
+      font-weight: 600;
+      border-radius: 999px;
+      text-decoration: none;
+      border: 1px solid var(--brand);
+      box-shadow: 0 16px 40px -12px rgba(100, 0, 57, 0.35);
+      transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+      min-height: 56px;
       touch-action: manipulation;
     }
+    .btn-cta2:hover { transform: translateY(-2px); background: var(--brand-deep); }
 
-    /* FOOTER */
+    /* ═══ FOOTER ═══ */
     footer {
-      background: #1A1A2E; color: #aaa;
-      text-align: center; padding: 20px;
-      font-size: 12px; line-height: 1.7;
+      background: var(--ink);
+      color: rgba(250, 247, 242, 0.6);
+      padding: 56px 20px 40px;
+      border-top: 1px solid var(--brand-deep);
     }
-    footer strong { color: #fff; }
+    .footer-grid {
+      max-width: 880px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr;
+      gap: 32px;
+    }
+    .footer-brand {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-xl);
+      font-weight: 500;
+      color: var(--cream);
+      letter-spacing: 0.02em;
+      margin-bottom: 8px;
+    }
+    .footer-brand em { font-style: italic; color: var(--accent); }
+    .footer-tagline {
+      font-size: var(--fs-sm);
+      color: rgba(250, 247, 242, 0.5);
+      max-width: 40ch;
+      line-height: 1.55;
+    }
+    .footer-col h4 {
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+    .footer-col p { font-size: var(--fs-sm); line-height: 1.8; color: rgba(250, 247, 242, 0.7); }
+    .footer-col a { color: inherit; text-decoration: none; transition: color var(--dur-fast) var(--ease); }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-copy {
+      max-width: 880px; margin: 40px auto 0;
+      padding-top: 24px;
+      border-top: 1px solid rgba(250, 247, 242, 0.08);
+      font-size: var(--fs-xs);
+      color: rgba(250, 247, 242, 0.4);
+      text-align: center;
+      letter-spacing: 0.02em;
+    }
 
-    /* FLOATING BUTTON */
+    /* ═══ FAB ═══ */
     .fab {
-      position: fixed; bottom: 20px; right: 16px; z-index: 200;
-      background: var(--verde); color: #fff;
-      border: none; border-radius: 999px;
-      padding: 14px 20px; font-size: 14px; font-weight: 800;
-      min-height: 44px; display: flex; align-items: center; gap: 8px;
-      cursor: pointer; text-decoration: none; font-family: inherit;
-      box-shadow: 0 6px 24px rgba(22,163,74,.55);
-      animation: fabPulse 3s infinite;
+      position: fixed;
+      bottom: 20px; right: 16px;
+      z-index: 200;
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 22px;
+      background: var(--success);
+      color: var(--surface);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      border: none;
+      border-radius: 999px;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 12px 32px -8px rgba(22,163,74,0.45);
+      transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+      min-height: 48px;
       touch-action: manipulation;
     }
+    .fab:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -8px rgba(22,163,74,0.55); }
     .fab.hidden { display: none; }
-    @keyframes fabPulse {
-      0%,100% { box-shadow: 0 6px 24px rgba(22,163,74,.55); }
-      50%      { box-shadow: 0 6px 42px rgba(22,163,74,.88); }
-    }
 
-    /* Acessibilidade — respeitar preferência de movimento reduzido */
+    /* ═══ ACESSIBILIDADE — motion reduced ═══ */
     @media (prefers-reduced-motion: reduce) {
-      .btn-wa-hero, .btn-submit, .fab {
-        animation: none;
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
       }
-      .faq-q .chevron {
-        transition: none;
+      .btn-wa-hero::after { animation: none; }
+    }
+
+    /* ═══ STAGGERED REVEAL on load ═══ */
+    @media (prefers-reduced-motion: no-preference) {
+      .hero > *:not(.hero-art) {
+        opacity: 0;
+        transform: translateY(16px);
+        animation: rise 800ms var(--ease-out) forwards;
       }
-      .faq-a {
-        transition: none;
+      .hero .badge           { animation-delay: 100ms; }
+      .hero h1.display       { animation-delay: 180ms; }
+      .hero-sub              { animation-delay: 260ms; }
+      .hero-checks           { animation-delay: 340ms; }
+      .hero-stats            { animation-delay: 420ms; }
+      .hero .btn-wa-hero     { animation-delay: 500ms; }
+      .hero-wa-sub           { animation-delay: 560ms; }
+      .hero-social-proof     { animation-delay: 620ms; }
+      .countdown-bar         { animation-delay: 680ms; }
+      .hero .card            { animation-delay: 360ms; animation-duration: 900ms; }
+      @keyframes rise {
+        to { opacity: 1; transform: translateY(0); }
       }
     }
 
-    /* ═══════════════════════════════════════════════
-       DESKTOP — layout de 2 colunas a partir de 768px
-    ═══════════════════════════════════════════════ */
-    @media (min-width: 768px) {
+    /* ═══════════════════════════════════════════════════
+       DESKTOP — layout asymmetric a partir de 880px
+    ═══════════════════════════════════════════════════ */
+    @media (min-width: 880px) {
+      .header { padding: 18px 48px; }
+      .header-logo { font-size: 24px; }
+      .header-cta { font-size: var(--fs-sm); padding: 12px 22px; }
+      .urgency-bar { font-size: var(--fs-sm); padding: 12px 24px; }
 
-      /* Header mais largo */
-      .header { padding: 12px 48px; }
-      .header-logo { font-size: 22px; }
-      .header-cta { font-size: 15px; padding: 10px 22px; }
-
-      /* Urgency bar */
-      .urgency-bar { font-size: 15px; padding: 10px 24px; }
-
-      /* HERO — 2 colunas: texto | form */
+      /* HERO — asymmetric 7fr 5fr */
       .hero {
-        padding: 60px 48px 0;
+        padding: 72px 56px 120px;
         display: grid;
-        grid-template-columns: 1fr 420px;
-        grid-template-rows: auto;
-        column-gap: 56px;
+        grid-template-columns: 1.2fr 440px;
+        column-gap: 72px;
         align-items: start;
+        min-height: 640px;
       }
+      .hero-art { width: 360px; height: 360px; right: 420px; top: 140px; }
 
-      /* Coluna esquerda — tudo alinhado à esquerda no desktop */
-      .badge { margin-bottom: 18px; }
-      .hero h1 { text-align: left; font-size: clamp(32px, 3.5vw, 48px); margin-bottom: 14px; }
-      .hero-sub { text-align: left; margin-left: 0; margin-right: 0; font-size: 18px; margin-bottom: 22px; }
-      .hero-checks { align-items: flex-start; margin-bottom: 28px; }
-      .hero-check { font-size: 15px; }
-      .hero-stats { justify-content: flex-start; margin-bottom: 0; }
+      .hero h1.display {
+        font-size: clamp(64px, 7vw, 92px);
+        margin-bottom: 24px;
+        max-width: 12ch;
+      }
+      .hero-sub { font-size: var(--fs-lg); max-width: 48ch; }
+      .hero-checks { padding: 24px 0; }
+      .hero-check { font-size: var(--fs-base); }
 
-      /* Card do form — coluna direita, flutua ao lado */
+      .hero-stats { gap: 40px; }
+      .hero-stat-num { font-size: var(--fs-3xl); }
+
+      /* Form card — sticky na coluna direita */
       .card {
         grid-column: 2;
-        grid-row: 1 / span 6;
-        border-radius: 20px;
+        grid-row: 1 / span 11;
+        border-radius: var(--r-lg);
         margin: 0;
-        margin-bottom: 40px;
-        box-shadow: 0 8px 40px rgba(0,0,0,.18);
+        padding: 36px 32px;
         align-self: start;
         position: sticky;
-        top: 80px;
+        top: 96px;
       }
 
-      /* Seções internas — container centralizado */
-      .compare-section,
-      .como-funciona,
-      .proof,
-      .faq-section,
-      .garantia-section,
-      .cta-final {
-        padding-left: 48px;
-        padding-right: 48px;
-      }
+      /* Badge + checks + stats não afetam form */
+      section { padding: 112px 56px; }
+      .section-title { margin-bottom: 64px; }
 
-      .compare-table,
-      .steps,
-      .depoimentos,
-      .faq-list {
-        max-width: 720px;
-      }
+      /* Compare 2 cols no desktop */
+      .compare-grid { grid-template-columns: 1fr 1fr; gap: 24px; }
 
-      .stats { max-width: 640px; }
+      /* Steps 2 cols no desktop */
+      .steps { grid-template-columns: 1fr 1fr; gap: 24px; }
 
-      /* Depoimentos em grid 2x2 */
-      .depoimentos {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-      }
+      /* Depoimentos 2 cols */
+      .depoimentos { grid-template-columns: 1fr 1fr; gap: 24px; }
 
-      /* FAQ em 2 colunas */
-      .faq-list {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-      }
+      /* Footer grid 3 cols */
+      .footer-grid { grid-template-columns: 2fr 1fr 1fr; gap: 56px; padding: 0 24px; }
 
-      /* Steps em 2 colunas */
-      .steps {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-      }
-
-      /* Footer */
-      footer { padding: 28px 48px; font-size: 14px; }
-
-      /* FAB no desktop — posição diferente */
-      .fab { bottom: 32px; right: 32px; font-size: 15px; padding: 16px 22px; }
+      /* FAB no desktop */
+      .fab { bottom: 32px; right: 32px; font-size: var(--fs-base); padding: 16px 26px; }
     }
 
     @media (min-width: 1200px) {
-      .hero { padding: 72px 80px 0; column-gap: 72px; grid-template-columns: 1fr 460px; }
-      .compare-section, .como-funciona, .proof, .faq-section, .garantia-section, .cta-final {
-        padding-left: 80px; padding-right: 80px;
-      }
+      .hero { padding: 96px 80px 140px; column-gap: 96px; grid-template-columns: 1.3fr 460px; }
+      section { padding: 128px 80px; }
+      .footer-grid, .footer-copy { padding: 0; max-width: 1040px; }
     }
   </style>
 </head>
+
 <body>
 
 <!-- STICKY HEADER -->
 <header class="header">
-  <div class="header-logo">ICE<span>LASER</span> Recife</div>
-  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP1%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="header-cta" id="btn-header-cta">🎁 Clica e descubra seu brinde</a>
+  <div class="header-logo">Ice<span>Laser</span> · Recife</div>
+  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP1%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="header-cta" id="btn-header-cta">Agendar avaliação</a>
 </header>
 
 <!-- URGENCY BAR -->
 <div class="urgency-bar">
-  ⚡ Apenas <span class="red" id="vagas">3</span> vagas gratuitas restantes esta semana — válido até domingo 29/03
+  Apenas <span class="red" id="vagas">3</span> vagas gratuitas restantes esta semana — válido até domingo 19/04
 </div>
 
 <!-- HERO -->
 <section class="hero">
-  <div class="badge">✨ Avaliação 100% Gratuita — Sem Compromisso</div>
+  <!-- SVG decorativo: ponteira laser Crystal 3D Plus com beam dourado -->
+  <svg class="hero-art" viewBox="0 0 360 360" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <linearGradient id="beam" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#D4A574" stop-opacity="0.9"/>
+        <stop offset="50%" stop-color="#D4A574" stop-opacity="0.4"/>
+        <stop offset="100%" stop-color="#D4A574" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#640039"/>
+        <stop offset="100%" stop-color="#3D0023"/>
+      </linearGradient>
+    </defs>
+    <!-- beam / feixe -->
+    <path d="M250 80 L330 200 L250 280 Z" fill="url(#beam)" opacity="0.6"/>
+    <!-- ponteira body -->
+    <rect x="70" y="140" width="180" height="52" rx="26" fill="url(#body)"/>
+    <rect x="88" y="152" width="28" height="28" rx="14" fill="#D4A574" opacity="0.85"/>
+    <!-- lente -->
+    <circle cx="250" cy="166" r="18" fill="#1A0A12" stroke="#D4A574" stroke-width="1.5"/>
+    <circle cx="250" cy="166" r="10" fill="#D4A574" opacity="0.5"/>
+    <!-- cabo -->
+    <path d="M70 166 Q40 180 30 220 Q20 260 50 280" stroke="#640039" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.6"/>
+    <!-- linhas de energia -->
+    <path d="M250 166 L340 130" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
+    <path d="M250 166 L340 166" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
+    <path d="M250 166 L340 200" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
+    <!-- label -->
+    <text x="140" y="168" font-family="Fraunces, serif" font-size="9" font-weight="500" fill="#D4A574" letter-spacing="1">CRYSTAL 3D PLUS</text>
+  </svg>
 
-  <h1>Chega de Cera.<br><span>Pele Lisa para Sempre — 1ª Sessão Grátis</span></h1>
+  <div class="badge">
+    <span class="badge-dot">a</span>
+    Avaliação 100% gratuita — sem compromisso
+  </div>
+
+  <h1 class="display">Chega de cera.<br><em>Pele lisa</em> para sempre.</h1>
 
   <p class="hero-sub">
-    3.000+ clientes atendidas em Recife, nas Graças. Laser Crystal 3D Plus — <strong style="color:#FFD700">sem dor, sem pelos encravados</strong>,
-    resultado visível desde a 1ª sessão.
+    3.000+ clientes atendidas em Recife, nas Graças. Laser <strong>Crystal 3D Plus</strong> — resultado visível desde a 1ª sessão, sem dor e sem pelo encravado.
   </p>
 
   <div class="hero-checks">
-    <div class="hero-check">Pele lisa por semanas — não por dias</div>
+    <div class="hero-check">Pele lisa por semanas, não por dias</div>
     <div class="hero-check">Resultado visível desde a 1ª sessão</div>
     <div class="hero-check">Parcelamos em 12x sem juros no cartão</div>
-    <div class="hero-check">Avaliação 100% gratuita + brinde surpresa</div>
+    <div class="hero-check">Avaliação gratuita + brinde surpresa</div>
   </div>
 
   <div class="hero-stats">
-    <div class="hero-stat"><span class="hero-stat-num">3k+</span> clientes</div>
-    <div class="hero-stat"><span class="hero-stat-num">5★</span> Google</div>
-    <div class="hero-stat"><span class="hero-stat-num">12x</span> sem juros</div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">3k+</div>
+      <div class="hero-stat-label">Clientes atendidas</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">5★</div>
+      <div class="hero-stat-label">Google Reviews</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">12x</div>
+      <div class="hero-stat-label">Sem juros</div>
+    </div>
   </div>
 
-  <!-- BOTÃO WA DIRETO — above the fold, vai pro WhatsApp -->
+  <!-- BOTÃO WA DIRETO — above the fold -->
   <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
@@ -687,25 +1389,25 @@
   </a>
   <div class="hero-wa-sub">Resposta em menos de 2 minutos</div>
 
-  <!-- MINI PROVA SOCIAL + COUNTDOWN -->
+  <!-- Mini prova social -->
   <div class="hero-social-proof">
-    <div class="hero-sp-avatars">👩👩‍🦱👩‍🦰👩‍🦳👧</div>
-    <div class="hero-sp-text"><strong>14 mulheres</strong> agendaram avaliação hoje em Recife</div>
+    <div class="sp-dots"><span></span><span></span><span></span><span></span></div>
+    <div class="hero-sp-text"><strong>14 mulheres</strong> agendaram hoje em Recife</div>
   </div>
   <div class="countdown-bar" id="countdown-bar">
-    Oferta expira em: <span id="countdown-timer" class="countdown-num">--:--:--</span>
+    Oferta expira em <span id="countdown-timer" class="countdown-num">--:--:--</span>
   </div>
 
   <!-- FORM CARD -->
   <div class="card" id="form">
     <div id="form-content">
-      <div class="card-title">Garantir minha vaga grátis</div>
-      <div class="card-sub">Preencha em 10s — resposta em minutos 👇</div>
+      <div class="card-eyebrow">Formulário</div>
+      <div class="card-title">Garanta sua <em>vaga grátis</em></div>
+      <div class="card-sub">Preencha em 10 segundos — resposta em minutos.</div>
 
-      <!-- Âncora de preço — cria valor antes do CTA -->
+      <!-- Âncora de preço -->
       <div class="price-anchor">
-        💸 Você gasta em média <strong>R$80–R$150/mês</strong> com cera e lâmina.<br>
-        Nossa avaliação é <strong>100% gratuita</strong> e mostramos como eliminar isso de vez.
+        Você gasta em média <strong>R$ 80–150 por mês</strong> com cera e lâmina. Nossa avaliação é <strong>100% gratuita</strong> e mostramos como eliminar esse custo de vez.
       </div>
 
       <form id="lead-form" novalidate>
@@ -723,100 +1425,93 @@
         </div>
 
         <button type="submit" class="btn-submit" id="btn-submit">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
-          </svg>
-          Preencha aqui e garanta seu BRINDE surpresa
+          Preencha aqui e garanta seu brinde surpresa
         </button>
       </form>
 
       <div class="trust-badges">
-        <div class="trust-badge">🔒 Dados protegidos</div>
-        <div class="trust-badge">✅ Sem compromisso</div>
-        <div class="trust-badge">💳 12x sem juros</div>
+        <div class="trust-badge">Dados protegidos</div>
+        <div class="trust-badge">Sem compromisso</div>
+        <div class="trust-badge">12x sem juros</div>
       </div>
     </div>
 
     <div id="success-msg" aria-live="polite">
-      <div class="ok-icon">🎉</div>
+      <div class="ok-icon">✓</div>
       <strong>Ótimo, <span id="nome-success"></span>!</strong>
-      <p>O WhatsApp foi aberto com sua mensagem.<br>
-      Nossa equipe responde em <strong>poucos minutos</strong> — fique de olho!</p>
+      <p>O WhatsApp foi aberto com sua mensagem.<br>Nossa equipe responde em <strong>poucos minutos</strong>.</p>
     </div>
   </div>
 </section>
 
 <!-- COMPARATIVO LASER VS CERA -->
 <section class="compare-section">
-  <div class="section-title">Por que Laser é Mais Econômico que Cera?</div>
-  <table class="compare-table" aria-label="Comparativo entre depilação a laser e cera">
-    <thead>
-      <tr>
-        <th></th>
-        <th class="col-cera">Cera / Lâmina</th>
-        <th class="col-laser">Laser IceLaser</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Duração do resultado</td>
-        <td class="cera">2–4 semanas</td>
-        <td class="laser">Permanente ✓</td>
-      </tr>
-      <tr>
-        <td>Dor / desconforto</td>
-        <td class="cera">Alta 😣</td>
-        <td class="laser">Mínima 😊</td>
-      </tr>
-      <tr>
-        <td>Ingrown / foliculite</td>
-        <td class="cera">Frequente ❌</td>
-        <td class="laser">Eliminado ✓</td>
-      </tr>
-      <tr>
-        <td>Gasto em 2 anos</td>
-        <td class="cera">R$2.400+</td>
-        <td class="laser">1 pacote só ✓</td>
-      </tr>
-      <tr>
-        <td>Resultado visível</td>
-        <td class="cera">Nunca definitivo</td>
-        <td class="laser">Desde a 1ª sessão ✓</td>
-      </tr>
-    </tbody>
-  </table>
+  <span class="section-eyebrow">Comparativo</span>
+  <h2 class="section-title">Por que laser é <em>mais econômico</em> que cera?</h2>
+
+  <div class="compare-grid">
+    <div class="compare-col cera">
+      <div class="compare-head">
+        <div class="compare-label">Cera / Lâmina</div>
+        <div class="compare-tag">O velho jeito</div>
+      </div>
+      <ul class="compare-list">
+        <li><span class="compare-key">Duração do resultado</span><span class="compare-val">2 a 4 semanas</span></li>
+        <li><span class="compare-key">Dor / desconforto</span><span class="compare-val">Alta</span></li>
+        <li><span class="compare-key">Pelo encravado / foliculite</span><span class="compare-val">Frequente</span></li>
+        <li><span class="compare-key">Gasto em 2 anos</span><span class="compare-val">R$ 2.400+</span></li>
+        <li><span class="compare-key">Resultado visível</span><span class="compare-val">Nunca definitivo</span></li>
+      </ul>
+    </div>
+
+    <div class="compare-col laser">
+      <div class="compare-head">
+        <div class="compare-label">Laser IceLaser</div>
+        <div class="compare-tag">Crystal 3D Plus</div>
+      </div>
+      <ul class="compare-list">
+        <li><span class="compare-key">Duração do resultado</span><span class="compare-val">Permanente</span></li>
+        <li><span class="compare-key">Dor / desconforto</span><span class="compare-val">Mínima</span></li>
+        <li><span class="compare-key">Pelo encravado / foliculite</span><span class="compare-val">Eliminado</span></li>
+        <li><span class="compare-key">Gasto em 2 anos</span><span class="compare-val">1 pacote só</span></li>
+        <li><span class="compare-key">Resultado visível</span><span class="compare-val">Desde a 1ª sessão</span></li>
+      </ul>
+    </div>
+  </div>
 </section>
 
 <!-- COMO FUNCIONA -->
 <section class="como-funciona">
-  <div class="section-title">Como funciona?</div>
+  <span class="section-eyebrow">O processo</span>
+  <h2 class="section-title">Como <em>funciona</em></h2>
+
   <div class="steps">
     <div class="step">
-      <div class="step-num">1</div>
+      <div class="step-num">i</div>
       <div class="step-content">
-        <h3>Agende sua avaliação gratuita agora</h3>
+        <h3>Agende sua avaliação gratuita</h3>
         <p>Preencha o formulário e fale com nossa equipe pelo WhatsApp. Rápido, sem burocracia.</p>
       </div>
     </div>
     <div class="step">
-      <div class="step-num">2</div>
+      <div class="step-num">ii</div>
       <div class="step-content">
         <h3>Venha à clínica sem compromisso</h3>
         <p>Conheça o espaço, faça o teste de pele gratuito e receba um orçamento personalizado.</p>
       </div>
     </div>
     <div class="step">
-      <div class="step-num">3</div>
+      <div class="step-num">iii</div>
       <div class="step-content">
         <h3>Inicie o tratamento no seu ritmo</h3>
-        <p>Escolha o pacote ideal, parcele em 12x sem juros e comece a ver resultado desde a 1ª sessão.</p>
+        <p>Escolha o pacote ideal, parcele em 12x sem juros e comece a ver o resultado desde a 1ª sessão.</p>
       </div>
     </div>
     <div class="step">
-      <div class="step-num">4</div>
+      <div class="step-num">iv</div>
       <div class="step-content">
-        <h3>Pele lisinha para sempre 🎉</h3>
-        <p>Em média 6₄–8 sessões para redução permanente de 90%+ dos pelos. Chega de gastar todo mês!</p>
+        <h3>Pele lisa para sempre</h3>
+        <p>Em média 6 a 8 sessões para redução permanente de 90%+ dos pelos. Chega de gastar todo mês.</p>
       </div>
     </div>
   </div>
@@ -824,11 +1519,13 @@
 
 <!-- PROVA SOCIAL -->
 <section class="proof">
-  <div class="section-title">3.000+ Clientes em Recife — Veja o que Dizem</div>
+  <span class="section-eyebrow">Prova social</span>
+  <h2 class="section-title">3.000 <em>clientes</em> em Recife</h2>
+
   <div class="stats">
     <div class="stat">
-      <div class="stat-num">3k;</div>
-      <div class="stat-label">Clientes atendidas</div>
+      <div class="stat-num">3k+</div>
+      <div class="stat-label">Atendidas</div>
     </div>
     <div class="stat">
       <div class="stat-num">5★</div>
@@ -839,33 +1536,40 @@
       <div class="stat-label">Recomendam</div>
     </div>
   </div>
+
   <div class="depoimentos">
     <div class="dep">
+      <div class="dep-quote">“</div>
       <div class="dep-stars">★★★★★</div>
-      <div class="dep-text">"Fiz a avaliação gratuita e fechei na mesma hora. Já na primeira sessão deu pra ver diferença! Atendimento impecável."</div>
-      <div class="dep-autor">Juliana M. <span class="dep-bairro">• Boa Viagem</span></div>
+      <div class="dep-text">Fiz a avaliação gratuita e fechei na mesma hora. Já na primeira sessão deu pra ver diferença. Atendimento impecável.</div>
+      <div class="dep-autor">Juliana M. <span class="dep-bairro">· Boa Viagem</span></div>
     </div>
     <div class="dep">
+      <div class="dep-quote">“</div>
       <div class="dep-stars">★★★★★</div>
-      <div class="dep-text">"Tinha medo de doer mas foi super tranquilo. Tecnologia de ponta e equipe muito atenciosa. Resultado incrível desde a 1ª sessão!"</div>
-      <div class="dep-autor">Fernanda C. <span class="dep-bairro">• Graças</span></div>
+      <div class="dep-text">Tinha medo de doer mas foi super tranquilo. Tecnologia de ponta e equipe muito atenciosa. Resultado incrível desde a 1ª sessão.</div>
+      <div class="dep-autor">Fernanda C. <span class="dep-bairro">· Graças</span></div>
     </div>
     <div class="dep">
+      <div class="dep-quote">“</div>
       <div class="dep-stars">★★★★★</div>
-      <div class="dep-text">"Gastava R$120/mês com cera. Fiz o pacote, parcelei tranquilo e em 4 sessões já reduzi 80% dos pelos. Melhor investimento!"</div>
-      <div class="dep-autor">Camila S. <span class="dep-bairro">• Derby</span></div>
+      <div class="dep-text">Gastava R$120/mês com cera. Fiz o pacote, parcelei tranquilo e em 4 sessões já reduzi 80% dos pelos. Melhor investimento.</div>
+      <div class="dep-autor">Camila S. <span class="dep-bairro">· Derby</span></div>
     </div>
     <div class="dep">
+      <div class="dep-quote">“</div>
       <div class="dep-stars">★★★★★</div>
-      <div class="dep-text">"Fiz virilha completa e o resultado foi além do esperado. Zero ingrown, zero dor durante a sessão. Clínica super limpa e organizada."</div>
-      <div class="dep-autor">Mariana T. <span class="dep-bairro">• Espinheiro</span></div>
+      <div class="dep-text">Fiz virilha completa e o resultado foi além do esperado. Zero ingrown, zero dor durante a sessão. Clínica super limpa e organizada.</div>
+      <div class="dep-autor">Mariana T. <span class="dep-bairro">· Espinheiro</span></div>
     </div>
   </div>
 </section>
 
 <!-- FAQ -->
 <section class="faq-section">
-  <div class="section-title">Perguntas frequentes</div>
+  <span class="section-eyebrow">Dúvidas frequentes</span>
+  <h2 class="section-title">Perguntas <em>que toda cliente faz</em></h2>
+
   <div class="faq-list">
     <div class="faq-item">
       <button class="faq-q" aria-expanded="false">
@@ -873,8 +1577,7 @@
         <i class="chevron">▾</i>
       </button>
       <div class="faq-a">
-        Nossa tecnologia Crystal 3D Plus é uma das mais modernas do mercado e causa desconforto mínimo —
-        a maioria das clientes descreve como um leve beliscão. Nada comparado à cera!
+        Nossa tecnologia Crystal 3D Plus é uma das mais modernas do mercado e causa desconforto mínimo — a maioria das clientes descreve como um leve beliscão. Nada comparado à cera.
       </div>
     </div>
     <div class="faq-item">
@@ -883,9 +1586,7 @@
         <i class="chevron">▾</i>
       </button>
       <div class="faq-a">
-        O Crystal 3D Plus tem 3 comprimentos de onda que atendem todos os fototipos de pele
-        (inclusive peles negras) e diferentes espessuras de pelo. Na avaliação gratuita,
-        fazemos o teste de pele personalizado para garantir o melhor resultado para você.
+        O Crystal 3D Plus tem 3 comprimentos de onda que atendem todos os fototipos de pele (inclusive peles negras) e diferentes espessuras de pelo. Na avaliação gratuita, fazemos um teste de pele personalizado.
       </div>
     </div>
     <div class="faq-item">
@@ -894,9 +1595,7 @@
         <i class="chevron">▾</i>
       </button>
       <div class="faq-a">
-        Em média 6 a 8 sessões para uma redução permanente de 90%+ dos pelos.
-        O resultado começa a aparecer já na 1ª sessão, com queda progressiva
-        a cada mês de tratamento.
+        Em média 6 a 8 sessões para redução permanente de 90%+ dos pelos. O resultado começa a aparecer já na 1ª sessão, com queda progressiva a cada mês de tratamento.
       </div>
     </div>
     <div class="faq-item">
@@ -905,8 +1604,7 @@
         <i class="chevron">▾</i>
       </button>
       <div class="faq-a">
-        O valor daria conforme as áreas escolhidas. Na avaliação gratuita você recebe
-        um orçamento personalizado. Parcelamos em até 12x sem juros no cartão — sem susto no bolso!
+        O valor varia conforme as áreas escolhidas. Na avaliação gratuita você recebe um orçamento personalizado. Parcelamos em até 12x sem juros no cartão — sem susto no bolso.
       </div>
     </div>
     <div class="faq-item">
@@ -915,8 +1613,7 @@
         <i class="chevron">▾</i>
       </button>
       <div class="faq-a">
-        100% gratuita e sem nenhum compromisso. Você vem, conhece a clínica,
-        faz o teste de pele e recebe o orçamento. A decisão de iniciar o tratamento é inteiramente sua!
+        100% gratuita e sem nenhum compromisso. Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento. A decisão de iniciar o tratamento é inteiramente sua.
       </div>
     </div>
   </div>
@@ -924,34 +1621,41 @@
 
 <!-- GARANTIA -->
 <section class="garantia-section">
-  <div class="garantia-icon">🛡️</div>
-  <h3>Avalie de Graça. Sem Pressão. Sem Compromisso.</h3>
-  <p>
-    Mais de 3.000 clientes atendidas com nota 5 estrelas no Google.
-    Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento.
-    Se não quiser continuar — sem problema, sem pressão, sem pagar nada.
-  </p>
+  <span class="garantia-eyebrow">Nossa promessa</span>
+  <h3>Avalie de graça.<br><em>Sem pressão.</em> Sem compromisso.</h3>
+  <p>Mais de 3.000 clientes atendidas com nota 5 estrelas no Google. Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento. Se não quiser continuar — sem problema.</p>
 </section>
 
 <!-- CTA FINAL -->
 <section class="cta-final">
-  <h2>Chega de Cera — Garanta sua Vaga Grátis</h2>
-  <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>
-  Apenas <strong id="vagas2">3</strong> vagas disponíveis — válido até domingo 29/03</p>
+  <span class="section-eyebrow">Última chamada</span>
+  <h2>Chega de cera.<br><em>Sua vaga</em> te espera.</h2>
+  <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>Apenas <strong id="vagas2">3</strong> vagas disponíveis — válido até domingo 19/04</p>
   <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP4%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-cta2" id="cta-final-btn">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
     </svg>
-    Garantir Minha 1ª Sessão Grátis
+    Garantir minha 1ª sessão grátis
   </a>
 </section>
 
 <!-- FOOTER -->
 <footer>
-  <strong>Espaço IceLaser Recife</strong><br>
-  Rua Amélia, 896 — Graças, Recife — PE<br>
-  WhatsApp: (81) 9 9381-4558<br><br>
-  © 2026 IceLaser Recife. Todos os direitos reservados.
+  <div class="footer-grid">
+    <div class="footer-col">
+      <div class="footer-brand">Ice<em>Laser</em> · Recife</div>
+      <div class="footer-tagline">Clínica de depilação a laser em Recife, nas Graças. Tecnologia Crystal 3D Plus para resultado permanente, sem dor.</div>
+    </div>
+    <div class="footer-col">
+      <h4>Endereço</h4>
+      <p>Rua Amélia, 896<br>Graças — Recife/PE</p>
+    </div>
+    <div class="footer-col">
+      <h4>Contato</h4>
+      <p>WhatsApp: (81) 99574-9947<br>Seg a Sáb · 09h–19h</p>
+    </div>
+  </div>
+  <div class="footer-copy">© 2026 IceLaser Recife · Todos os direitos reservados</div>
 </footer>
 
 <!-- FLOATING ACTION BUTTON -->
@@ -1241,9 +1945,9 @@
 
   /* VERCEL FEATURE FLAG — A/B test do botão CTA ───── */
   const CTA_VARIANTS = {
-    avaliar:     'Preencha aqui e garanta seu BRINDE surpresa',
-    axila_gratis:'Preencha aqui e garanta seu BRINDE surpresa',
-    whatsapp:    'Preencha aqui e garanta seu BRINDE surpresa',
+    avaliar:     'Preencha aqui e garanta seu brinde surpresa',
+    axila_gratis:'Preencha aqui e garanta seu brinde surpresa',
+    whatsapp:    'Preencha aqui e garanta seu brinde surpresa',
   };
   (async function loadFlag() {
     try {
@@ -1252,9 +1956,7 @@
       const label = CTA_VARIANTS[value] || CTA_VARIANTS.avaliar;
       const btn = document.getElementById('btn-submit');
       if (btn) {
-        // Preserva o SVG do ícone WA — só troca o texto (último nó de texto)
-        const textNode = [...btn.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
-        if (textNode) textNode.textContent = '\n          ' + label + '\n        ';
+        btn.textContent = label;
         btn.dataset.ctaVariant = value;
       }
       // Reporta flag ao Vercel Analytics para aparecer no Dashboard de Flags
