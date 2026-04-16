@@ -120,6 +120,8 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
                 <td style="padding:6px 0;font-size:15px"><strong>${nome}</strong></td></tr>
             <tr><td style="padding:6px 0;color:#666;font-size:13px">Telefone</td>
                 <td style="padding:6px 0">${telLimpo ? `<a href="${waLink}" style="color:#25D366;font-weight:bold;font-size:15px">${telefone}</a>` : '<span style="color:#999">WA Direto (sem formulário)</span>'}</td></tr>
+            ${origem.email ? `<tr><td style="padding:6px 0;color:#666;font-size:13px">E-mail</td>
+                <td style="padding:6px 0;font-size:13px"><a href="mailto:${origem.email}" style="color:#1877f2">${origem.email}</a></td></tr>` : ''}
             <tr><td style="padding:6px 0;color:#666;font-size:13px">Origem</td>
                 <td style="padding:6px 0">${origemBadge}</td></tr>
           </table>
@@ -236,6 +238,7 @@ export default async function handler(req, res) {
     event_id,
     nome,
     telefone,
+    email,
     event_source_url,
     client_user_agent,
     fbp,
@@ -268,6 +271,10 @@ export default async function handler(req, res) {
 
   if (telefone) {
     userData.ph = [sha256(normalizePhone(telefone))];
+  }
+
+  if (email) {
+    userData.em = [sha256(email.toLowerCase().trim())];
   }
 
   if (nome) {
@@ -377,6 +384,7 @@ export default async function handler(req, res) {
     if (event_name === 'Lead' && nome) {
       // Fire-and-forget: email não bloqueia a resposta ao usuário
       enviarEmailLead(nome, telefone, {
+        email,
         event_source_url, utm_source, utm_medium, utm_campaign,
         utm_content, utm_term, ad_id, ad_name, adset_id, adset_name,
         campaign_id, campaign_name, placement, site_source_name, platform,
@@ -393,6 +401,7 @@ export default async function handler(req, res) {
         put(fileName, JSON.stringify({
           nome,
           telefone,
+          email: email || undefined,
           timestamp: ts,
           event_id,
           event_source_url: event_source_url || 'https://icelasers.com.br/',

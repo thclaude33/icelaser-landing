@@ -657,6 +657,7 @@
     }
     .field input.invalid { border-color: #B01B3F; background: #FDF2F5; }
     .field input.invalid + .field-error { display: block; }
+    .field-optional-tag { font-weight: 400; color: rgba(26,10,18,.4); text-transform: none; letter-spacing: 0; }
 
     .btn-submit {
       display: flex; align-items: center; justify-content: center; gap: 10px;
@@ -1401,6 +1402,11 @@
                  autocomplete="tel" required inputmode="tel" />
           <div class="field-error">Por favor, informe um WhatsApp válido.</div>
         </div>
+        <div class="field">
+          <label for="email">Seu e-mail <span class="field-optional-tag">(opcional — para confirmar agendamento)</span></label>
+          <input type="email" id="email" name="email" placeholder="Ex: maria@gmail.com"
+                 autocomplete="email" inputmode="email" />
+        </div>
 
         <button type="submit" class="btn-submit" id="btn-submit">
           Preencha aqui e garanta seu brinde surpresa
@@ -1791,10 +1797,12 @@
     e.preventDefault();
     if (submitting) return;
 
-    const nomeEl = document.getElementById('nome');
-    const telEl  = document.getElementById('tel');
-    const nome   = nomeEl.value.trim();
-    const tel    = telEl.value.trim();
+    const nomeEl  = document.getElementById('nome');
+    const telEl   = document.getElementById('tel');
+    const emailEl = document.getElementById('email');
+    const nome    = nomeEl.value.trim();
+    const tel     = telEl.value.trim();
+    const email   = emailEl ? emailEl.value.trim().toLowerCase() : '';
     let valid    = true;
 
     if (!nome)                                { nomeEl.classList.add('invalid'); valid=false; } else nomeEl.classList.remove('invalid');
@@ -1848,6 +1856,7 @@
 
     const capiData = {
       nome, telefone: tel,
+      ...(email && { email }),
       event_source_url: location.href,
       client_user_agent: navigator.userAgent,
       fbp,
