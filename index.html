@@ -1866,16 +1866,23 @@
     };
 
     // Advanced Matching — reinit pixel com dados do usuário para aumentar EMQ
+    // external_id deve bater com track.js (email > phone > fbp) pra deduplicação
     try {
       const telDigits = tel.replace(/\D/g, '');
+      const phNormalized = telDigits.startsWith('55') ? telDigits : '55' + telDigits;
       const nomeParts = nome.trim().toLowerCase().split(/\s+/);
+      const externalId = email || phNormalized || fbp;
       fbq('init', '2774496306216737', {
-        ph: telDigits.startsWith('55') ? telDigits : '55' + telDigits,
+        em: email || undefined,
+        ph: phNormalized,
         fn: nomeParts[0],
         ln: nomeParts.length > 1 ? nomeParts[nomeParts.length - 1] : undefined,
+        external_id: externalId,
         country: 'br',
         st: 'pe',
         ct: 'recife',
+        zp: '50000',
+        ge: 'f',
       });
     } catch(ex) {}
 

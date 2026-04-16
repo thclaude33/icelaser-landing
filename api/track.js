@@ -269,22 +269,28 @@ export default async function handler(req, res) {
     ge: [sha256('f')], // público alvo 100% feminino (mulheres 20-44) — parâmetro correto: ge (não gen)
   };
 
-  if (telefone) {
-    userData.ph = [sha256(normalizePhone(telefone))];
+  const normalizedPhone = telefone ? normalizePhone(telefone) : null;
+  const normalizedEmail = email ? email.toLowerCase().trim() : null;
+
+  if (normalizedPhone) {
+    userData.ph = [sha256(normalizedPhone)];
   }
 
-  if (email) {
-    userData.em = [sha256(email.toLowerCase().trim())];
+  if (normalizedEmail) {
+    userData.em = [sha256(normalizedEmail)];
   }
 
   if (nome) {
     const parts = nome.trim().toLowerCase().split(/\s+/);
     userData.fn = [sha256(parts[0])];
     if (parts.length > 1) userData.ln = [sha256(parts[parts.length - 1])];
-    userData.external_id = [sha256(nome.trim().toLowerCase())];
-  } else if (fbp) {
-    // ViewContent/Lead sem nome: usar fbp como external_id pra deduplicação
-    userData.external_id = [sha256(fbp)];
+  }
+
+  // external_id: priorizar identificador estável (email > phone > fbp)
+  // Pixel browser DEVE usar a mesma chave pra deduplicação funcionar
+  const externalIdRaw = normalizedEmail || normalizedPhone || fbp;
+  if (externalIdRaw) {
+    userData.external_id = [sha256(externalIdRaw)];
   }
 
   if (client_user_agent) userData.client_user_agent = client_user_agent;
