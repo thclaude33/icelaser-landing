@@ -1,8 +1,9 @@
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
+import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
+import { maskPhone, maskEmail, maskName } from './_lib/security.js';
 
-const PIXEL_ID    = '2774496306216737';
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
 const EMAIL_TO    = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
@@ -215,17 +216,8 @@ function normalizePhone(phone) {
 }
 
 export default async function handler(req, res) {
-  const allowedOrigins = [
-    'https://icelaser-landing.vercel.app',
-    'https://icelaser-landing-c9in.vercel.app',
-    'https://landing-page-six-xi-77.vercel.app',
-    'https://icelaser.com.br',
-    'https://www.icelaser.com.br',
-    'https://icelasers.com.br',
-    'https://www.icelasers.com.br',
-  ];
   const origin = req.headers['origin'] || '';
-  const corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  const corsOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   res.setHeader('Access-Control-Allow-Origin', corsOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -375,12 +367,16 @@ export default async function handler(req, res) {
 
   try {
     // Roda email + CAPI em paralelo — ambos aguardados antes de responder
+    // Authorization: Bearer (mais seguro que access_token na URL — evita leak em logs)
     const promises = [
       fetch(
-        `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${token}`,
+        `${GRAPH_BASE}/${PIXEL_ID}/events`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
           body: JSON.stringify(payload),
         }
       ),
@@ -468,8 +464,15 @@ export default async function handler(req, res) {
       if (is_transient) {
         await new Promise(r => setTimeout(r, 1000));
         const retryRes = await fetch(
-          `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${token}`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+          `${GRAPH_BASE}/${PIXEL_ID}/events`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          }
         );
         const retryResult = await retryRes.json();
         if (!retryResult.error) {

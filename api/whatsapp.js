@@ -9,8 +9,9 @@
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put } from '@vercel/blob';
+import { PIXEL_ID, WABA_ID, GRAPH_BASE } from './_lib/config.js';
+import { timingSafeStringEqual, maskPhone } from './_lib/security.js';
 
-const PIXEL_ID        = '2774496306216737';
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
 
@@ -118,7 +119,7 @@ async function processarCTWA(from, message, referral) {
   const sourceType = referral?.source_type || '';
   const headlineText = referral?.headline || '';
   const bodyText = referral?.body || '';
-  console.log(`[CTWA] from=${from} clid=${clid} source=${sourceType} url=${sourceUrl}`);
+  console.log(`[CTWA] from=${maskPhone(from)} clid=${(clid||'').slice(0,12)}... source=${sourceType} url=${sourceUrl}`);
 
   // Salvar ctwa_clid no Blob vinculado ao telefone — será recuperado pelo crm-webhook
   if (clid && from && process.env.BLOB_READ_WRITE_TOKEN) {
@@ -147,10 +148,13 @@ async function processarCTWA(from, message, referral) {
       // fbc = fb.1.{timestamp}.{ctwa_clid} — formato oficial Meta
       const fbc = `fb.1.${eventTime}.${clid}`;
       await fetch(
-        `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${META_TOKEN}`,
+        `${GRAPH_BASE}/${PIXEL_ID}/events`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${META_TOKEN}`,
+          },
           body: JSON.stringify({
             data: [{
               event_name: 'Lead',
@@ -167,7 +171,7 @@ async function processarCTWA(from, message, referral) {
                 // ctwa_clid em user_data — posição oficial Meta para CTWA
                 // (não é lead_id numérico, que só existe em Lead Gen Forms)
                 ctwa_clid: clid,
-                whatsapp_business_account_id: '920807647253970',
+                whatsapp_business_account_id: WABA_ID,
               },
               custom_data: {
                 event_source: 'crm',
@@ -271,7 +275,9 @@ export default async function handler(req, res) {
     const token = urlParams.get('hub.verify_token');
     const challenge = urlParams.get('hub.challenge');
     console.log(`[VERIFY] mode=${mode} token=${token}`);
-    if (mode === 'subscribe' && (token === VERIFY_TOKEN || token === 'evolution')) {
+    // timing-safe comparison evita timing attacks (boa prática, impacto real baixo)
+    const tokenValid = timingSafeStringEqual(token, VERIFY_TOKEN) || token === 'evolution';
+    if (mode === 'subscribe' && tokenValid) {
       console.log('[VERIFY] ✅ OK');
       return res.status(200).send(challenge);
     }
@@ -416,7 +422,10 @@ export default async function handler(req, res) {
             // Buscar dados do lead via API
             if (leadId && META_TOKEN) {
               try {
-                const lr = await fetch(`https://graph.facebook.com/v25.0/${leadId}?access_token=${META_TOKEN}`);
+                const lr = await fetch(
+                  `${GRAPH_BASE}/${leadId}`,
+                  { headers: { 'Authorization': `Bearer ${META_TOKEN}` } }
+                );
                 const ld = await lr.json();
                 const fields = ld.field_data || [];
                 const nome = fields.find(f => f.name === 'full_name')?.values?.[0] || '?';
@@ -558,7 +567,10 @@ export default async function handler(req, res) {
       const mediaObj = msg[msg.type];
       if (!mediaObj?.id) return null;
       try {
-        const metaResp = await fetch(`https://graph.facebook.com/v25.0/${mediaObj.id}?access_token=${META_TOKEN}`);
+        const metaResp = await fetch(
+          `${GRAPH_BASE}/${mediaObj.id}`,
+          { headers: { 'Authorization': `Bearer ${META_TOKEN}` } }
+        );
         const metaData = await metaResp.json();
         if (!metaData.url) return null;
         const fileResp = await fetch(metaData.url, { headers: { 'Authorization': `Bearer ${META_TOKEN}` } });

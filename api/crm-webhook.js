@@ -10,8 +10,14 @@
 
 import crypto from 'crypto';
 import { put, list } from '@vercel/blob';
+import { PIXEL_ID, WABA_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
+import { verifyHmacSignature, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 
-const PIXEL_ID = '2774496306216737';
+// Config: bodyParser:false permite ler raw body pra validação HMAC
+// (sem quebrar req.body quando HMAC está desativado)
+export const config = {
+  api: { bodyParser: { sizeLimit: '1mb' } },
+};
 
 function sha256(value) {
   return crypto.createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex');
@@ -23,12 +29,40 @@ function normalizePhone(phone) {
   return '55' + digits;
 }
 
+/**
+ * Valida assinatura HMAC do Chatwoot se CHATWOOT_WEBHOOK_SECRET estiver configurado.
+ * Chatwoot envia: X-Chatwoot-Signature-256 ou X-Chatwoot-Signature (SHA256 hex)
+ *
+ * Modo WARN-ONLY por padrão: loga mas NÃO bloqueia. Ativar bloqueio via
+ * CHATWOOT_WEBHOOK_ENFORCE=1 depois de confirmar que Chatwoot envia signature correta.
+ */
+function validateChatwootSignature(req) {
+  const secret = process.env.CHATWOOT_WEBHOOK_SECRET;
+  if (!secret) return { valid: true, mode: 'no-secret' }; // sem secret = sem check
+
+  const sig = req.headers['x-chatwoot-signature-256']
+    || req.headers['x-chatwoot-signature']
+    || req.headers['x-hub-signature-256'];
+
+  if (!sig) return { valid: false, mode: 'no-signature' };
+
+  // req.body está parseado como JSON object — precisa reserializar
+  // (não é 100% confiável pois JSON.stringify pode variar ordem de keys)
+  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+  const valid = verifyHmacSignature(rawBody, sig, secret);
+  return { valid, mode: valid ? 'valid' : 'invalid' };
+}
+
 async function sendCAPI(events, token, retryCount = 0) {
+  // Authorization: Bearer (mais seguro que access_token na URL)
   const res = await fetch(
-    `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${token}`,
+    `${GRAPH_BASE}/${PIXEL_ID}/events`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
       body: JSON.stringify({ data: events }),
     }
   );
@@ -83,11 +117,26 @@ export default async function handler(req, res) {
   const token = process.env.META_ACCESS_TOKEN;
   if (!token) return res.status(500).json({ error: 'META_ACCESS_TOKEN not configured' });
 
+  // ── HMAC signature check (WARN-ONLY por padrão) ────────────────────
+  // Ativa enforcement com CHATWOOT_WEBHOOK_ENFORCE=1 depois de confirmar
+  // que Chatwoot envia signature correta (zero rejeições em 48h).
+  const sigCheck = validateChatwootSignature(req);
+  if (!sigCheck.valid) {
+    const enforce = process.env.CHATWOOT_WEBHOOK_ENFORCE === '1';
+    console.warn(`[CRM-WEBHOOK] ⚠️ HMAC ${sigCheck.mode} | enforce=${enforce}`);
+    if (enforce) {
+      return res.status(401).json({ error: 'invalid signature', mode: sigCheck.mode });
+    }
+  }
+
   const body = req.body || {};
   const event = body.event;
 
-  // Log completo pra debug
-  console.log(`[CRM-WEBHOOK] event=${event} | keys=${Object.keys(body).join(',')} | labels=${JSON.stringify((body.conversation || body.data || {}).labels || (body.changed_attributes || []))}`);
+  // Log com contadores, sem PII completa
+  const labelsPreview = JSON.stringify(
+    (body.conversation || body.data || {}).labels || (body.changed_attributes || [])
+  ).slice(0, 120);
+  console.log(`[CRM-WEBHOOK] event=${event} | hmac=${sigCheck.mode} | labels=${labelsPreview}`);
 
   // Capturar ctwa_clid de mensagens novas (message_created do Chatwoot)
   // O Chatwoot inclui source_id (wamid) — verificar se a msg tem referral de anúncio CTWA
@@ -101,7 +150,8 @@ export default async function handler(req, res) {
       // Buscar referral via Graph API (se a msg veio de anúncio CTWA, terá referral)
       try {
         const msgResp = await fetch(
-          `https://graph.facebook.com/v25.0/${sourceId}?fields=referral&access_token=${token}`
+          `${GRAPH_BASE}/${sourceId}?fields=referral`,
+          { headers: { 'Authorization': `Bearer ${token}` } }
         );
         const msgData = await msgResp.json();
 
@@ -109,7 +159,7 @@ export default async function handler(req, res) {
           const ctwaClid = msgData.referral.ctwa_clid;
           const sourceUrl = msgData.referral.source_url || '';
           const headline = msgData.referral.headline || '';
-          console.log(`[CRM-WEBHOOK] 🎯 CTWA Lead! clid=${ctwaClid.substring(0,20)}... phone=${phone} source=${sourceUrl}`);
+          console.log(`[CRM-WEBHOOK] 🎯 CTWA Lead! clid=${ctwaClid.substring(0,20)}... phone=${maskPhone(phone)} source=${sourceUrl}`);
 
           // Salvar ctwa_clid no Blob vinculado ao telefone
           if (process.env.BLOB_READ_WRITE_TOKEN) {
@@ -284,7 +334,7 @@ export default async function handler(req, res) {
   if (fbc) userData.fbc = fbc;
   if (ctwaClid) {
     userData.ctwa_clid = ctwaClid; // user_data — posição oficial Meta para CTWA
-    userData.whatsapp_business_account_id = '920807647253970';
+    userData.whatsapp_business_account_id = WABA_ID;
   }
 
   // Tenta recuperar URL da LP original salva nos atributos; fallback para domínio canônico
@@ -306,8 +356,12 @@ export default async function handler(req, res) {
   };
 
   const events = [];
-  const eventId = `crm_${contact.id || 'unknown'}_${now}`;
-  const orderId = `order_${contact.id || 'unknown'}_${now}`;
+  // Dedup edge case: se contact.id ausente, adicionar fallback + jitter
+  // pra não colidir event_id entre contatos diferentes no mesmo segundo
+  const contactKey = contact.id || (telefone ? telefone.replace(/\D/g, '') : 'unk');
+  const jitter = Math.random().toString(36).slice(2, 6);
+  const eventId = `crm_${contactKey}_${now}_${jitter}`;
+  const orderId = `order_${contactKey}_${now}`;
 
   // BUG FIX #2: customerSeg baseado em labels ANTERIORES, não nas atuais
   // Se compra_realizada já estava antes desta atualização → existing_customer
@@ -376,7 +430,7 @@ export default async function handler(req, res) {
 
   // 💳 LINK DE PAGAMENTO (atendente enviou link / cliente vai pagar)
   if (hasLabel('link_pagamento', '💳 Link Pagamento', '💳_link_pagamento', 'link pagamento', 'pagamento', 'checkout')) {
-    const valor = parseFloat(customAttrs.purchase_value) || 497;
+    const valor = parseFloat(customAttrs.purchase_value) || DEFAULT_PURCHASE_VALUE;
     events.push({
       ...baseEvent,
       event_name: 'InitiateCheckout',
@@ -388,7 +442,7 @@ export default async function handler(req, res) {
 
   // 💰 COMPRA REALIZADA
   if (hasLabel('compra_realizada', '💰 Compra Realizada', '💰_compra_realizada', 'purchase', 'compra realizada', 'comprou', 'vendido', 'sold')) {
-    const valor = parseFloat(customAttrs.purchase_value) || 497;
+    const valor = parseFloat(customAttrs.purchase_value) || DEFAULT_PURCHASE_VALUE;
     events.push(
       {
         ...baseEvent,
@@ -407,7 +461,7 @@ export default async function handler(req, res) {
           ...crmBase,
           currency: 'BRL',
           value: valor,
-          predicted_ltv: 980,
+          predicted_ltv: DEFAULT_PREDICTED_LTV,
           content_name: 'Pacote Depilacao Laser',
           content_type: 'product',
           num_items: 1,
@@ -442,7 +496,7 @@ export default async function handler(req, res) {
 
   try {
     const result = await sendCAPI(validEvents, token);
-    console.log(`[CRM-WEBHOOK] ${event} | ${nome} | labels: ${labels.join(',')} | CAPI: ${result.events_received} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+    console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${result.events_received} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
     return res.status(200).json({
       ok: true,
       contact: nome,
