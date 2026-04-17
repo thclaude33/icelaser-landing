@@ -12,8 +12,7 @@
 
 import crypto from 'crypto';
 import { list, put, del } from '@vercel/blob';
-
-const PIXEL_ID = '2774496306216737';
+import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE } from './_lib/config.js';
 
 function sha256(value) {
   return crypto.createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex');
@@ -71,7 +70,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid API key' });
   }
 
-  const { nome, telefone, value = 150, currency = 'BRL' } = req.body || {};
+  const { nome, telefone, value = DEFAULT_PURCHASE_VALUE, currency = 'BRL' } = req.body || {};
 
   if (!nome && !telefone) {
     return res.status(400).json({ error: 'nome or telefone required' });
@@ -90,7 +89,14 @@ export default async function handler(req, res) {
     const lead = await findLeadInBlob(nome || '', telefone || '');
 
     // 2. Monta user_data com dados originais (melhor EMQ) ou dados fornecidos
-    const userData = { country: [sha256('br')] };
+    // Incluir geo-defaults como nos outros endpoints pra consistência de matching
+    const userData = {
+      country: [sha256('br')],
+      st: [sha256('pe')],
+      ct: [sha256('recife')],
+      zp: [sha256('50000')],
+      ge: [sha256('f')],
+    };
 
     const tel = telefone || lead?.data?.telefone;
     const nm = nome || lead?.data?.nome;
@@ -131,11 +137,15 @@ export default async function handler(req, res) {
       }],
     };
 
+    // Authorization Bearer (evita expor token na URL / logs)
     const metaRes = await fetch(
-      `https://graph.facebook.com/v25.0/${PIXEL_ID}/events?access_token=${token}`,
+      `${GRAPH_BASE}/${PIXEL_ID}/events`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       }
     );

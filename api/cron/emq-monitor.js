@@ -6,7 +6,8 @@
  * Retorna: EMQ score (0-10), event coverage (%), data freshness, diagnostics
  */
 
-const PIXEL_ID = '2774496306216737';
+import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
+
 const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS = process.env.EMAIL_PASS;
 const EMAIL_TO = (process.env.EMAIL_TO || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
@@ -50,8 +51,10 @@ export default async function handler(req, res) {
 
   try {
     const fields = 'web{event_name,event_match_quality{composite_score,match_key_feedback{identifier,coverage{percentage}},diagnostics{description}},event_coverage{percentage,goal_percentage},acr{percentage},data_freshness{upload_frequency}}';
+    // Authorization Bearer (evita token na URL / logs)
     const response = await fetch(
-      `https://graph.facebook.com/v25.0/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}&access_token=${token}`
+      `${GRAPH_BASE}/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
     );
     const data = await response.json();
 

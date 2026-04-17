@@ -6,13 +6,7 @@
  * Flag gerenciada em: Vercel Dashboard → Flags → cta-variant
  */
 
-const ALLOWED_ORIGINS = [
-  'https://icelaser-landing.vercel.app',
-  'https://icelaser-landing-c9in.vercel.app',
-  'https://landing-page-six-xi-77.vercel.app',
-  'https://icelaser.com.br',
-  'https://www.icelaser.com.br',
-];
+import { ALLOWED_ORIGINS } from './_lib/config.js';
 
 export default async function handler(req, res) {
   const origin = req.headers['origin'] || '';

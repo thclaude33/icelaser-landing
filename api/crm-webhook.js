@@ -195,7 +195,9 @@ export default async function handler(req, res) {
           // Salvar ctwa_clid no Blob vinculado ao telefone
           if (process.env.BLOB_READ_WRITE_TOKEN) {
             try {
-              const telDigits = phone.replace(/\D/g, '');
+              // Sanitiza pra evitar path traversal no pathname Blob
+              const telDigits = String(phone).replace(/\D/g, '').slice(0, 20);
+              if (!telDigits) throw new Error('invalid phone');
               await put(`ctwa/${telDigits}.json`, JSON.stringify({
                 ctwa_clid: ctwaClid,
                 phone: telDigits,
@@ -354,11 +356,15 @@ export default async function handler(req, res) {
     console.log(`[CRM-WEBHOOK] fbc derivado do ctwa_clid: ${fbc.slice(0, 30)}...`);
   }
 
-  // external_id: prefere nome, fallback pra telefone (garante matching mesmo sem nome)
-  if (nome) {
-    userData.external_id = [sha256(nome.trim().toLowerCase())];
-  } else if (telefone) {
-    userData.external_id = [sha256(normalizePhone(telefone))];
+  // external_id: priority consistente com track.js (email > phone > nome > fbp)
+  // Dedup cross-source (LP + CRM mesmo lead) só funciona se external_id bate.
+  let externalIdRaw = null;
+  if (email) externalIdRaw = email.toLowerCase().trim();
+  else if (telefone) externalIdRaw = normalizePhone(telefone);
+  else if (nome) externalIdRaw = nome.trim().toLowerCase();
+  else if (fbp) externalIdRaw = fbp;
+  if (externalIdRaw) {
+    userData.external_id = [sha256(externalIdRaw)];
   }
 
   if (fbp) userData.fbp = fbp;

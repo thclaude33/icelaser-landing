@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE } from './_lib/config.js';
-import { timingSafeStringEqual, maskPhone } from './_lib/security.js';
+import { timingSafeStringEqual, maskPhone, maskEmail, maskName } from './_lib/security.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
@@ -74,7 +74,7 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
   const servico  = dados.servico || dados.service || 'Depilação Laser';
   const agora    = new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
 
-  console.log(`[LEAD FLOW] ${nome} | ${telefone} | ${servico} | ctwa:${ctwaClid || 'direto'}`);
+  console.log(`[LEAD FLOW] ${maskName(nome)} | ${maskPhone(telefone)} | ${servico} | ctwa:${ctwaClid ? ctwaClid.slice(0,12)+'...' : 'direto'}`);
 
   const ctwaTag = ctwaClid
     ? `<span style="background:#1877f2;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">📣 CTWA</span>`
@@ -125,16 +125,19 @@ async function processarCTWA(from, message, referral) {
   if (clid && from && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
       const ts = new Date().toISOString();
-      await put(`ctwa/${from}.json`, JSON.stringify({
+      // Sanitiza from (phone) pra evitar path traversal no pathname Blob
+      const safeFrom = String(from).replace(/[^0-9]/g, '').slice(0, 20);
+      if (!safeFrom) throw new Error('invalid phone');
+      await put(`ctwa/${safeFrom}.json`, JSON.stringify({
         ctwa_clid: clid,
-        phone: from,
+        phone: safeFrom,
         source_url: sourceUrl,
         source_type: sourceType,
         headline: headlineText,
         body: bodyText,
         timestamp: ts,
       }), { access: 'public', contentType: 'application/json' });
-      console.log(`[CTWA] Saved to Blob: ctwa/${from}.json`);
+      console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}.json`);
     } catch (e) {
       console.warn('[CTWA] Blob save failed:', e.message);
     }
@@ -145,8 +148,9 @@ async function processarCTWA(from, message, referral) {
   if (clid && from && META_TOKEN) {
     try {
       const eventTime = Math.floor(Date.now() / 1000);
-      // fbc = fb.1.{timestamp}.{ctwa_clid} — formato oficial Meta
-      const fbc = `fb.1.${eventTime}.${clid}`;
+      // fbc = fb.1.{creationTime_ms}.{ctwa_clid} — formato oficial Meta usa MILISSEGUNDOS
+      // (era segundos aqui — inconsistente com crm-webhook.js que usa ms; afeta matching)
+      const fbc = `fb.1.${Date.now()}.${clid}`;
       await fetch(
         `${GRAPH_BASE}/${PIXEL_ID}/events`,
         {
@@ -431,7 +435,7 @@ export default async function handler(req, res) {
                 const nome = fields.find(f => f.name === 'full_name')?.values?.[0] || '?';
                 const tel = fields.find(f => f.name === 'phone_number')?.values?.[0] || '?';
                 const email = fields.find(f => f.name === 'email')?.values?.[0] || '';
-                console.log(`[LEADGEN] ${nome} | ${tel} | ${email}`);
+                console.log(`[LEADGEN] ${maskName(nome)} | ${maskPhone(tel)} | ${maskEmail(email)}`);
                 await enviarEmail(
                   `🎯 Lead Nativo — ${nome} | IceLaser`,
                   `<div style="font-family:Arial;max-width:540px;margin:auto">
@@ -498,9 +502,10 @@ export default async function handler(req, res) {
             continue;
           }
 
-          // Texto normal
+          // Texto normal (mascara phone e trunca body pra não vazar PII)
           if (msg.type === 'text') {
-            console.log(`[MSG] ${from}: ${(msg.text?.body || '').substring(0, 80)}`);
+            const preview = (msg.text?.body || '').substring(0, 40);
+            console.log(`[MSG] ${maskPhone(from)}: ${preview}${preview.length === 40 ? '...' : ''}`);
           }
         }
 
@@ -540,10 +545,14 @@ export default async function handler(req, res) {
     };
 
     const sendToChat = async (payload, label = 'original') => {
-      const chatSig = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(payload).digest('hex');
+      const headers = { 'Content-Type': 'application/json' };
+      // Só assina se APP_SECRET configurado (evita crypto throw)
+      if (APP_SECRET) {
+        headers['X-Hub-Signature-256'] = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(payload).digest('hex');
+      }
       const r = await fetch(CHATWOOT_WA_WEBHOOK, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': chatSig },
+        headers,
         body: payload,
       });
       console.log(`[CHATWOOT] ${label}: ${r.status}`);
@@ -576,8 +585,11 @@ export default async function handler(req, res) {
         const fileResp = await fetch(metaData.url, { headers: { 'Authorization': `Bearer ${META_TOKEN}` } });
         if (!fileResp.ok) return null;
         const buffer = Buffer.from(await fileResp.arrayBuffer());
-        const ext = (mediaObj.mime_type || '').split('/')[1]?.split(';')[0] || 'bin';
-        const filename = `media/${msg.from}/${Date.now()}_${msg.type}.${ext}`;
+        const ext = (mediaObj.mime_type || '').split('/')[1]?.split(';')[0]?.replace(/[^a-z0-9]/gi, '') || 'bin';
+        // Sanitiza msg.from (phone) e msg.type pra evitar path traversal
+        const safeFrom = String(msg.from || 'unknown').replace(/[^0-9]/g, '').slice(0, 20) || 'unknown';
+        const safeType = String(msg.type || 'media').replace(/[^a-z]/gi, '').slice(0, 20);
+        const filename = `media/${safeFrom}/${Date.now()}_${safeType}.${ext}`;
         const blob = await put(filename, buffer, { access: 'public', contentType: mediaObj.mime_type || 'application/octet-stream' });
         console.log(`[MEDIA] ✅ ${filename} (${buffer.length} bytes)`);
         return blob.url;

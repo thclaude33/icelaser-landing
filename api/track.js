@@ -2,7 +2,6 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
-import { maskPhone, maskEmail, maskName } from './_lib/security.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -343,11 +342,15 @@ export default async function handler(req, res) {
     // PageView não precisa de custom_data — só user_data para matching
   }
 
-  // Validação: garantir campos mínimos para matching funcionar
-  // Meta rejeita batch INTEIRO se 1 evento for inválido
-  const userDataKeys = Object.keys(userData).filter(k => !['client_user_agent', 'client_ip_address'].includes(k));
-  if (userDataKeys.length === 0) {
-    return res.status(400).json({ error: 'Insufficient user_data for matching' });
+  // Validação: garantir MATCHING KEY real (não só geo).
+  // Meta v13+ rejeita eventos só com geo+UA sem identifier.
+  // Evento é matchable se tem: em, ph, fn+ln, external_id, fbp, fbc, madid
+  const hasMatchingKey = !!(
+    userData.em || userData.ph || (userData.fn && userData.ln) ||
+    userData.external_id || userData.fbp || userData.fbc
+  );
+  if (!hasMatchingKey) {
+    return res.status(400).json({ error: 'Insufficient user_data for matching (need em/ph/fn+ln/external_id/fbp/fbc)' });
   }
 
   const payload = {
@@ -398,7 +401,9 @@ export default async function handler(req, res) {
       // Salva lead no Blob (só se token configurado)
       if (process.env.BLOB_READ_WRITE_TOKEN) {
       const ts = new Date().toISOString();
-      const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${nome.split(' ')[0].toLowerCase()}.json`;
+      // Sanitiza firstName pra evitar path traversal / chars inválidos no filename
+      const firstName = nome.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'anon';
+      const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${firstName}.json`;
       promises.push(
         put(fileName, JSON.stringify({
           nome,
