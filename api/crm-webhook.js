@@ -47,16 +47,6 @@ function validateChatwootSignature(req, rawBody) {
   if (!sig) return { valid: false, mode: 'no-signature' };
 
   const valid = verifyHmacSignature(rawBody, sig, secret);
-
-  // Debug temporário: loga length + prefix da signature pra diagnosticar
-  // (sem vazar secret ou body completo). Ativar com CHATWOOT_WEBHOOK_DEBUG=1.
-  if (process.env.CHATWOOT_WEBHOOK_DEBUG === '1') {
-    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-    console.log(
-      `[HMAC DEBUG] body.len=${rawBody.length} content-type=${req.headers['content-type']||'-'} received=${String(sig).slice(0,20)} expected=${expected.slice(0,20)}...`
-    );
-  }
-
   return { valid, mode: valid ? 'valid' : 'invalid' };
 }
 
