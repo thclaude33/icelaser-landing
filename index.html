@@ -116,7 +116,7 @@
   <!-- fbp early generation (fallback manual) — garante _fbp se ParamBuilder ainda não carregou -->
   <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.1.'+Date.now()+'.'+Math.floor(Math.random()*1e15);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax';}}catch(e){}}());</script>
   <!-- IPv6 capture — IP residencial raramente muda em 24h -->
-  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=86400;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=7200;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
 
   <!-- Meta Pixel — disparo imediato -->
   <script>
@@ -1866,12 +1866,13 @@
     };
 
     // Advanced Matching — reinit pixel com dados do usuário para aumentar EMQ
-    // external_id deve bater com track.js (email > phone > fbp) pra deduplicação
+    // external_id SÓ identidade estável (email > phone). NÃO usar fbp (já é matching
+    // key nativa — duplicar causa Meta contar 'múltiplos users por IP' em NAT).
     try {
       const telDigits = tel.replace(/\D/g, '');
       const phNormalized = telDigits.startsWith('55') ? telDigits : '55' + telDigits;
       const nomeParts = nome.trim().toLowerCase().split(/\s+/);
-      const externalId = email || phNormalized || fbp;
+      const externalId = email || phNormalized || undefined;
       fbq('init', '2774496306216737', {
         em: email || undefined,
         ph: phNormalized,

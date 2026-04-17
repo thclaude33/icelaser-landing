@@ -277,9 +277,14 @@ export default async function handler(req, res) {
     if (parts.length > 1) userData.ln = [sha256(parts[parts.length - 1])];
   }
 
-  // external_id: priorizar identificador estável (email > phone > fbp)
-  // Pixel browser DEVE usar a mesma chave pra deduplicação funcionar
-  const externalIdRaw = normalizedEmail || normalizedPhone || fbp;
+  // external_id: SÓ identidade estável (email > phone). NÃO usar fbp como fallback.
+  //
+  // Motivo: fbp já é matching key nativa do Meta (user_data.fbp). Setar
+  // external_id = sha256(fbp) DUPLICA a identidade (Meta vê fbp E external_id como
+  // 2 chaves), o que em IP residencial/NAT compartilhado faz Meta contabilizar
+  // "múltiplos users por IP" — vira o aviso do Events Manager.
+  // Eventos anônimos (sem email/phone) ficam só com fbp + geo como matching.
+  const externalIdRaw = normalizedEmail || normalizedPhone;
   if (externalIdRaw) {
     userData.external_id = [sha256(externalIdRaw)];
   }

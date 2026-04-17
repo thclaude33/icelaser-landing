@@ -356,13 +356,14 @@ export default async function handler(req, res) {
     console.log(`[CRM-WEBHOOK] fbc derivado do ctwa_clid: ${fbc.slice(0, 30)}...`);
   }
 
-  // external_id: priority consistente com track.js (email > phone > nome > fbp)
-  // Dedup cross-source (LP + CRM mesmo lead) só funciona se external_id bate.
+  // external_id: SÓ identidade estável (email > phone > nome).
+  // NÃO usar fbp como fallback — fbp já é matching key nativa (user_data.fbp),
+  // duplicar em external_id faz Meta contar "múltiplos users por IP" em NAT/residencial.
+  // Dedup cross-source (LP + CRM) funciona pelos 3 campos confiáveis acima.
   let externalIdRaw = null;
   if (email) externalIdRaw = email.toLowerCase().trim();
   else if (telefone) externalIdRaw = normalizePhone(telefone);
   else if (nome) externalIdRaw = nome.trim().toLowerCase();
-  else if (fbp) externalIdRaw = fbp;
   if (externalIdRaw) {
     userData.external_id = [sha256(externalIdRaw)];
   }
