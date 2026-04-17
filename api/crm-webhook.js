@@ -8,10 +8,9 @@
  *   💰 Compra Realizada → Lead + CR + InitiateCheckout + Purchase
  */
 
-import crypto from 'crypto';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
-import { verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
+import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -19,15 +18,8 @@ export const config = {
   api: { bodyParser: false },
 };
 
-function sha256(value) {
-  return crypto.createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex');
-}
-
-function normalizePhone(phone) {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('55')) return digits;
-  return '55' + digits;
-}
+// Alias local (normalizePhoneBR é a única fonte de verdade em _lib/security.js).
+const normalizePhone = normalizePhoneBR;
 
 /**
  * Valida webhook Chatwoot usando DUAS camadas:

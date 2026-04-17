@@ -27,20 +27,14 @@ function proximoDomingo() {
   return `domingo ${dd}/${mm}`;
 }
 
-const ALLOWED_ORIGINS = [
-  'https://icelaser-landing.vercel.app',
-  'https://icelaser-landing-c9in.vercel.app',
-  'https://landing-page-six-xi-77.vercel.app',
-  'https://icelaser.com.br',
-  'https://www.icelaser.com.br',
-  'https://icelasers.com.br',
-  'https://www.icelasers.com.br',
-];
+// ALLOWED_ORIGINS importado de _lib/config.js (única fonte de verdade).
+import { ALLOWED_ORIGINS } from './_lib/config.js';
 
 export default async function handler(req, res) {
   const origin = req.headers['origin'] || '';
   if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Cache-Control', 'no-store');
 

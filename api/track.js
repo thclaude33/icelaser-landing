@@ -1,7 +1,7 @@
-import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
+import { sha256, normalizePhoneBR } from './_lib/security.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -204,15 +204,8 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
   }
 }
 
-function sha256(value) {
-  return crypto.createHash('sha256').update(String(value).trim().toLowerCase()).digest('hex');
-}
-
-function normalizePhone(phone) {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('55')) return digits;
-  return '55' + digits;
-}
+// Alias local pra manter nome anterior (normalizePhoneBR vem de _lib/security.js).
+const normalizePhone = normalizePhoneBR;
 
 export default async function handler(req, res) {
   const origin = req.headers['origin'] || '';

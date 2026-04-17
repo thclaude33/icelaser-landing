@@ -10,14 +10,10 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE } from './_lib/config.js';
-import { timingSafeStringEqual, maskPhone, maskEmail, maskName } from './_lib/security.js';
+import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName } from './_lib/security.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
-
-function sha256(v) {
-  return crypto.createHash('sha256').update(String(v).trim().toLowerCase()).digest('hex');
-}
 const EMAIL_FROM      = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS      = process.env.EMAIL_PASS;
 const EMAIL_TO        = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');

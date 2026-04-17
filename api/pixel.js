@@ -5,25 +5,19 @@
  * Safari ITP nao limita cookies first-party HTTP — persistem 180 dias
  */
 
+import { ALLOWED_ORIGINS } from './_lib/config.js';
+
 const PIXEL_JS_URL = 'https://connect.facebook.net/en_US/fbevents.js';
 let cachedScript = null;
 let cacheTime = 0;
 const CACHE_TTL = 3600000; // 1 hora
 
 export default async function handler(req, res) {
-  // CORS
+  // CORS — única fonte de origens permitidas em _lib/config.js
   const origin = req.headers['origin'] || '';
-  const allowed = [
-    'https://icelaser-landing.vercel.app',
-    'https://icelaser-landing-c9in.vercel.app',
-    'https://landing-page-six-xi-77.vercel.app',
-    'https://icelaser.com.br',
-    'https://www.icelaser.com.br',
-    'https://icelasers.com.br',
-    'https://www.icelasers.com.br',
-  ];
-  if (allowed.includes(origin)) {
+  if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
   }
 
   if (req.method === 'OPTIONS') {
