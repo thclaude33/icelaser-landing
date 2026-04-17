@@ -11,7 +11,7 @@
 import crypto from 'crypto';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
-import { verifyChatwootSignature, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
+import { verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -30,28 +30,43 @@ function normalizePhone(phone) {
 }
 
 /**
- * Valida assinatura HMAC do Chatwoot v3.x.
- * Formato oficial: X-Chatwoot-Signature: sha256=HMAC-SHA256(secret, "{timestamp}.{body}")
- *                  X-Chatwoot-Timestamp: Unix seconds
- *                  X-Chatwoot-Delivery: delivery ID (não usado na verificação)
+ * Valida webhook Chatwoot usando DUAS camadas:
+ *  1. HMAC signature oficial (Chatwoot 3.17+): HMAC-SHA256(secret, "{ts}.{body}")
+ *  2. Query token (fallback pra Chatwoot < 3.17): ?auth=TOKEN na URL do webhook
  *
- * Docs: https://www.chatwoot.com/hc/user-guide/articles/1677693021-how-to-use-webhooks
+ * Chatwoot antigo (como o rodando no Railway, versão 2024) não envia HMAC.
+ * Workaround: incluir token na URL do webhook configurada em Chatwoot Settings.
+ * URL: https://icelasers.com.br/api/crm-webhook?auth=XXXX
  *
- * Modo WARN-ONLY por padrão: loga mas NÃO bloqueia. Ativar bloqueio via
- * CHATWOOT_WEBHOOK_ENFORCE=1 depois de validar que signatures chegam corretas.
+ * Modo WARN-ONLY por padrão. Ativar bloqueio via CHATWOOT_WEBHOOK_ENFORCE=1.
  */
-function validateChatwootSignature(req, rawBody) {
+function validateChatwootWebhook(req, rawBody) {
   const secret = process.env.CHATWOOT_WEBHOOK_SECRET;
-  if (!secret) return { valid: true, mode: 'no-secret' };
+  const queryToken = process.env.CHATWOOT_WEBHOOK_QUERY_TOKEN;
 
+  // Sem nenhum dos 2 configurados = sem auth (comportamento antigo)
+  if (!secret && !queryToken) return { valid: true, mode: 'no-auth-configured' };
+
+  // 1. Try HMAC signature (Chatwoot 3.17+)
   const sig = req.headers['x-chatwoot-signature'];
   const ts = req.headers['x-chatwoot-timestamp'];
+  if (secret && sig && ts) {
+    const valid = verifyChatwootSignature(rawBody, sig, ts, secret);
+    return { valid, mode: valid ? 'hmac-valid' : 'hmac-invalid' };
+  }
 
-  if (!sig) return { valid: false, mode: 'no-signature' };
-  if (!ts) return { valid: false, mode: 'no-timestamp' };
+  // 2. Fallback: query token na URL (compat com Chatwoot antigo)
+  if (queryToken) {
+    const reqUrl = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
+    const providedToken = reqUrl.searchParams.get('auth') || '';
+    if (timingSafeStringEqual(providedToken, queryToken)) {
+      return { valid: true, mode: 'query-token-valid' };
+    }
+    return { valid: false, mode: 'query-token-invalid-or-missing' };
+  }
 
-  const valid = verifyChatwootSignature(rawBody, sig, ts, secret);
-  return { valid, mode: valid ? 'valid' : 'invalid' };
+  // Secret configurado mas Chatwoot não enviou signature (old version)
+  return { valid: false, mode: 'no-signature' };
 }
 
 async function sendCAPI(events, token, retryCount = 0) {
@@ -127,15 +142,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'body read failed' });
   }
 
-  // ── HMAC signature check (WARN-ONLY por padrão) ────────────────────
-  // Ativa enforcement com CHATWOOT_WEBHOOK_ENFORCE=1 depois de confirmar
-  // que Chatwoot envia signature correta (zero rejeições em 48h).
-  const sigCheck = validateChatwootSignature(req, rawBody);
-  if (!sigCheck.valid) {
+  // ── Auth check (HMAC signature OU query token) — WARN-ONLY por padrão ──
+  // Ativa enforcement com CHATWOOT_WEBHOOK_ENFORCE=1 depois de validar.
+  const authCheck = validateChatwootWebhook(req, rawBody);
+  if (!authCheck.valid) {
     const enforce = process.env.CHATWOOT_WEBHOOK_ENFORCE === '1';
-    console.warn(`[CRM-WEBHOOK] ⚠️ HMAC ${sigCheck.mode} | enforce=${enforce}`);
+    console.warn(`[CRM-WEBHOOK] ⚠️ AUTH ${authCheck.mode} | enforce=${enforce}`);
     if (enforce) {
-      return res.status(401).json({ error: 'invalid signature', mode: sigCheck.mode });
+      return res.status(401).json({ error: 'unauthorized', mode: authCheck.mode });
     }
   }
 
@@ -153,7 +167,7 @@ export default async function handler(req, res) {
   const labelsPreview = JSON.stringify(
     (body.conversation || body.data || {}).labels || (body.changed_attributes || [])
   ).slice(0, 120);
-  console.log(`[CRM-WEBHOOK] event=${event} | hmac=${sigCheck.mode} | labels=${labelsPreview}`);
+  console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
 
   // Capturar ctwa_clid de mensagens novas (message_created do Chatwoot)
   // O Chatwoot inclui source_id (wamid) — verificar se a msg tem referral de anúncio CTWA
