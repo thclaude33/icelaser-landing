@@ -11,7 +11,7 @@
 import crypto from 'crypto';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
-import { verifyHmacSignature, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
+import { verifyChatwootSignature, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -30,23 +30,27 @@ function normalizePhone(phone) {
 }
 
 /**
- * Valida assinatura HMAC do Chatwoot usando RAW BODY (bytes originais).
- * Chatwoot envia: X-Chatwoot-Signature-256 ou X-Chatwoot-Signature (SHA256 hex)
+ * Valida assinatura HMAC do Chatwoot v3.x.
+ * Formato oficial: X-Chatwoot-Signature: sha256=HMAC-SHA256(secret, "{timestamp}.{body}")
+ *                  X-Chatwoot-Timestamp: Unix seconds
+ *                  X-Chatwoot-Delivery: delivery ID (não usado na verificação)
+ *
+ * Docs: https://www.chatwoot.com/hc/user-guide/articles/1677693021-how-to-use-webhooks
  *
  * Modo WARN-ONLY por padrão: loga mas NÃO bloqueia. Ativar bloqueio via
- * CHATWOOT_WEBHOOK_ENFORCE=1 depois de confirmar que Chatwoot envia signature correta.
+ * CHATWOOT_WEBHOOK_ENFORCE=1 depois de validar que signatures chegam corretas.
  */
 function validateChatwootSignature(req, rawBody) {
   const secret = process.env.CHATWOOT_WEBHOOK_SECRET;
   if (!secret) return { valid: true, mode: 'no-secret' };
 
-  const sig = req.headers['x-chatwoot-signature-256']
-    || req.headers['x-chatwoot-signature']
-    || req.headers['x-hub-signature-256'];
+  const sig = req.headers['x-chatwoot-signature'];
+  const ts = req.headers['x-chatwoot-timestamp'];
 
   if (!sig) return { valid: false, mode: 'no-signature' };
+  if (!ts) return { valid: false, mode: 'no-timestamp' };
 
-  const valid = verifyHmacSignature(rawBody, sig, secret);
+  const valid = verifyChatwootSignature(rawBody, sig, ts, secret);
   return { valid, mode: valid ? 'valid' : 'invalid' };
 }
 
