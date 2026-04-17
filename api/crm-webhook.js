@@ -13,10 +13,10 @@ import { put, list } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
 import { verifyHmacSignature, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 
-// Config: bodyParser:false permite ler raw body pra validação HMAC
-// (sem quebrar req.body quando HMAC está desativado)
+// Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
+// preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
 export const config = {
-  api: { bodyParser: { sizeLimit: '1mb' } },
+  api: { bodyParser: false },
 };
 
 function sha256(value) {
@@ -30,15 +30,15 @@ function normalizePhone(phone) {
 }
 
 /**
- * Valida assinatura HMAC do Chatwoot se CHATWOOT_WEBHOOK_SECRET estiver configurado.
+ * Valida assinatura HMAC do Chatwoot usando RAW BODY (bytes originais).
  * Chatwoot envia: X-Chatwoot-Signature-256 ou X-Chatwoot-Signature (SHA256 hex)
  *
  * Modo WARN-ONLY por padrão: loga mas NÃO bloqueia. Ativar bloqueio via
  * CHATWOOT_WEBHOOK_ENFORCE=1 depois de confirmar que Chatwoot envia signature correta.
  */
-function validateChatwootSignature(req) {
+function validateChatwootSignature(req, rawBody) {
   const secret = process.env.CHATWOOT_WEBHOOK_SECRET;
-  if (!secret) return { valid: true, mode: 'no-secret' }; // sem secret = sem check
+  if (!secret) return { valid: true, mode: 'no-secret' };
 
   const sig = req.headers['x-chatwoot-signature-256']
     || req.headers['x-chatwoot-signature']
@@ -46,9 +46,6 @@ function validateChatwootSignature(req) {
 
   if (!sig) return { valid: false, mode: 'no-signature' };
 
-  // req.body está parseado como JSON object — precisa reserializar
-  // (não é 100% confiável pois JSON.stringify pode variar ordem de keys)
-  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
   const valid = verifyHmacSignature(rawBody, sig, secret);
   return { valid, mode: valid ? 'valid' : 'invalid' };
 }
@@ -117,10 +114,19 @@ export default async function handler(req, res) {
   const token = process.env.META_ACCESS_TOKEN;
   if (!token) return res.status(500).json({ error: 'META_ACCESS_TOKEN not configured' });
 
+  // Ler raw body (bodyParser:false) — necessário pra HMAC validar byte-por-byte
+  let rawBody;
+  try {
+    rawBody = await getRawBody(req);
+  } catch (e) {
+    console.error('[CRM-WEBHOOK] raw body read failed:', e.message);
+    return res.status(400).json({ error: 'body read failed' });
+  }
+
   // ── HMAC signature check (WARN-ONLY por padrão) ────────────────────
   // Ativa enforcement com CHATWOOT_WEBHOOK_ENFORCE=1 depois de confirmar
   // que Chatwoot envia signature correta (zero rejeições em 48h).
-  const sigCheck = validateChatwootSignature(req);
+  const sigCheck = validateChatwootSignature(req, rawBody);
   if (!sigCheck.valid) {
     const enforce = process.env.CHATWOOT_WEBHOOK_ENFORCE === '1';
     console.warn(`[CRM-WEBHOOK] ⚠️ HMAC ${sigCheck.mode} | enforce=${enforce}`);
@@ -129,7 +135,14 @@ export default async function handler(req, res) {
     }
   }
 
-  const body = req.body || {};
+  // Parse JSON manualmente (bodyParser:false)
+  let body;
+  try {
+    body = JSON.parse(rawBody.toString('utf8') || '{}');
+  } catch (e) {
+    console.error('[CRM-WEBHOOK] invalid JSON:', e.message);
+    return res.status(400).json({ error: 'invalid json' });
+  }
   const event = body.event;
 
   // Log com contadores, sem PII completa
