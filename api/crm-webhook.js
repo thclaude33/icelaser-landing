@@ -169,19 +169,14 @@ export default async function handler(req, res) {
   ).slice(0, 120);
   console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
 
-  // [DEBUG-17-04] Dump de payload Chatwoot — remover depois de validar
-  if (event === 'conversation_updated' || event === 'conversation_created' || event === 'contact_updated') {
-    const dump = {
-      event,
-      has_changed_attributes: Array.isArray(body.changed_attributes),
-      changed_attributes: body.changed_attributes,
-      body_top_keys: Object.keys(body),
-      labels_on_body: body.labels,
-      labels_on_conversation: body.conversation?.labels,
-      labels_on_data: body.data?.labels,
-      conversation_id: body.id || body.conversation?.id,
-    };
-    console.log(`[DBG-PAYLOAD] ${JSON.stringify(dump).slice(0, 1500)}`);
+  // [DEBUG-17-04] Dump FULL payload no Blob pra debug (remover depois)
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const ts = Date.now();
+      await put(`debug/crm-${ts}-${event}.json`, rawBody.toString('utf8').slice(0, 20000), {
+        access: 'public', contentType: 'application/json',
+      });
+    } catch (e) { /* silent */ }
   }
 
   // Capturar ctwa_clid de mensagens novas (message_created do Chatwoot)
