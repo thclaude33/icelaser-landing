@@ -32,12 +32,23 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Cache em memoria pra evitar buscar a cada request
+    // Cache em memoria pra evitar buscar a cada request.
+    // VALIDA resp.ok + tamanho mínimo pra não cachear resposta vazia/erro
+    // (bug anterior: se Meta retornava 5xx, cacheScript ficava vazio por 1h
+    // e Pixel client-side parava de disparar PV/VC).
     if (!cachedScript || Date.now() - cacheTime > CACHE_TTL) {
       const resp = await fetch(PIXEL_JS_URL, {
         headers: { 'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0' },
       });
-      cachedScript = await resp.text();
+      if (!resp.ok) {
+        throw new Error(`fbevents.js fetch failed: status=${resp.status}`);
+      }
+      const text = await resp.text();
+      // fbevents.js tem ~200KB — menor que 10KB = resposta inválida
+      if (!text || text.length < 10000) {
+        throw new Error(`fbevents.js too small: bytes=${text.length}`);
+      }
+      cachedScript = text;
       cacheTime = Date.now();
     }
 
@@ -46,7 +57,8 @@ export default async function handler(req, res) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     return res.status(200).send(cachedScript);
   } catch (err) {
-    // Fallback: redireciona pro original
+    console.error(`[PIXEL PROXY] ${err.message} — fallback to direct Meta`);
+    // Fallback: redireciona pro original (perde first-party cookies nessa request)
     return res.redirect(302, PIXEL_JS_URL);
   }
 }
