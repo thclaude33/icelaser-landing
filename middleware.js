@@ -2,7 +2,8 @@
  * Edge Middleware
  * 1. Redirect domínios vercel.app → icelasers.com.br
  * 2. Gera _fbp server-side pra novos visitantes (bypassa iOS ITP 7d → 180d)
- * 3. Rate limiting best-effort por IP (WARN-ONLY; enforce via env)
+ * 3. Captura _fbc server-side quando URL tem ?fbclid= (antes do JS rodar)
+ * 4. Rate limiting best-effort por IP (WARN-ONLY; enforce via env)
  *
  * NOTA: ViewContent CAPI foi removido daqui pois index.html já dispara
  * browser pixel + CAPI via /api/track com o mesmo event_id (vc_XXXX),
@@ -16,6 +17,7 @@ export const config = {
 };
 
 const FBP_MAX_AGE = 15552000; // 180 dias (bypassa iOS ITP 7d do JS cookie)
+const FBC_MAX_AGE = 7776000;  // 90 dias — padrão Meta pra _fbc
 
 // Rate limit: 120 requests por minuto por IP (conservador pra não impactar usuários legítimos)
 // Edge Runtime: Map persiste por instance enquanto quente. Reset em cold start — best effort.
@@ -28,6 +30,12 @@ function generateFbp() {
   // Formato oficial Meta: fb.{subdomainIndex}.{timestamp_ms}.{random}
   // subdomainIndex=1 pra icelasers.com.br (apex domain)
   return `fb.1.${Date.now()}.${Math.floor(Math.random() * 1e16)}`;
+}
+
+function buildFbcFromClid(fbclid) {
+  // Formato oficial Meta: fb.{subdomainIndex}.{creationTime_ms}.{fbclid}
+  // NÃO alterar case do fbclid (é case-sensitive).
+  return `fb.1.${Date.now()}.${fbclid}`;
 }
 
 function checkRateLimit(ip) {
@@ -76,17 +84,44 @@ export default function middleware(request) {
     }
   }
 
-  // 3. Gera _fbp server-side se não existir
-  //    iOS Safari ITP limita JS-set cookies a 7 dias — HTTP-set Max-Age vale até 180 dias
+  // 3. Cookie setup pra fbp/fbc (bypassa iOS Safari ITP; HTTP-set vale mais que JS)
   const cookies = request.headers.get('cookie') || '';
-  const hasFbp = /(?:^|;\s*)_fbp=/.test(cookies);
+  const url = new URL(request.url);
+  const fbclid = url.searchParams.get('fbclid');
 
+  const hasFbp = /(?:^|;\s*)_fbp=/.test(cookies);
+  const fbcCookieMatch = cookies.match(/(?:^|;\s*)_fbc=([^;]+)/);
+  const existingFbc = fbcCookieMatch ? fbcCookieMatch[1] : null;
+
+  // Critério pra setar fbc:
+  //  - não existe cookie _fbc AINDA → setar se tem fbclid
+  //  - existe mas fbclid da URL atual é DIFERENTE → atualizar (click novo)
+  let shouldSetFbc = false;
+  if (fbclid) {
+    if (!existingFbc) {
+      shouldSetFbc = true;
+    } else {
+      // Extrai o fbclid do cookie existente (último segmento após "fb.1.ts.")
+      const existingClid = existingFbc.split('.').slice(3).join('.');
+      if (existingClid !== fbclid) shouldSetFbc = true;
+    }
+  }
+
+  const cookiesToSet = [];
   if (!hasFbp) {
-    const response = next();
-    response.headers.append(
-      'Set-Cookie',
+    cookiesToSet.push(
       `_fbp=${generateFbp()}; Path=/; Max-Age=${FBP_MAX_AGE}; SameSite=Lax; Secure`
     );
+  }
+  if (shouldSetFbc) {
+    cookiesToSet.push(
+      `_fbc=${buildFbcFromClid(fbclid)}; Path=/; Max-Age=${FBC_MAX_AGE}; SameSite=Lax; Secure`
+    );
+  }
+
+  if (cookiesToSet.length > 0) {
+    const response = next();
+    for (const c of cookiesToSet) response.headers.append('Set-Cookie', c);
     return response;
   }
 }
