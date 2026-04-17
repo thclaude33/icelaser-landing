@@ -7,12 +7,21 @@
  *   urgencia_data   â ex: "domingo 05/04"
  */
 
-// Calcula o prÃ³ximo domingo a partir de hoje (fuso de Recife, UTC-3)
+// Calcula o próximo domingo a partir de hoje no fuso de Recife (America/Recife).
+// Usa Intl.DateTimeFormat pra evitar bug de DST e edge cases do cálculo manual UTC-3.
 function proximoDomingo() {
-  const now = new Date(Date.now() - 3 * 60 * 60 * 1000); // UTC-3
-  const dia = now.getUTCDay(); // 0=dom, 1=seg, ..., 6=sÃ¡b
-  const diasAte = dia === 0 ? 7 : 7 - dia; // se hoje Ã© dom, prÃ³ximo dom = +7
-  const proximo = new Date(now.getTime() + diasAte * 24 * 60 * 60 * 1000);
+  const TZ = 'America/Recife';
+  // Parts no fuso correto via Intl — evita drift em DST/edge hours
+  const partsNow = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
+  }).formatToParts(new Date());
+  const get = (t) => partsNow.find((p) => p.type === t)?.value;
+  const [year, month, day, wdShort] = [get('year'), get('month'), get('day'), get('weekday')];
+  const dia = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[wdShort];
+  const diasAte = dia === 0 ? 7 : 7 - dia;
+  // Constrói Date usando UTC noon pra evitar qualquer drift de timezone; soma dias
+  const baseUtc = Date.UTC(+year, +month - 1, +day, 12, 0, 0);
+  const proximo = new Date(baseUtc + diasAte * 24 * 60 * 60 * 1000);
   const dd = String(proximo.getUTCDate()).padStart(2, '0');
   const mm = String(proximo.getUTCMonth() + 1).padStart(2, '0');
   return `domingo ${dd}/${mm}`;

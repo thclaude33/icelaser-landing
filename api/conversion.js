@@ -37,7 +37,11 @@ async function findLeadInBlob(nome, telefone) {
     cursor = result.hasMore ? result.cursor : undefined;
   } while (cursor);
 
-  // Busca o lead mais recente que bate nome + telefone
+  // Busca o lead mais recente que bate nome + telefone.
+  // Match estrito (telefone exato OU nome exato) + fallback conservador
+  // (primeiro nome inclui o passado E telefone parcial bate últimos 8 dígitos).
+  // Critério anterior `leadNome.includes(nomeLower)` dava false positive
+  // entre clientes com nomes semelhantes (ex: "ana" match de "ana silva" e "ana costa").
   for (const blob of allBlobs.reverse()) {
     try {
       const res = await fetch(blob.url);
@@ -45,8 +49,17 @@ async function findLeadInBlob(nome, telefone) {
       const leadTel = normalizePhone(data.telefone || '');
       const leadNome = (data.nome || '').trim().toLowerCase();
 
-      if (leadTel === telDigits || leadNome === nomeLower || leadNome.includes(nomeLower)) {
-        return { data, blob };
+      // 1. Match estrito por telefone (sempre prioritário)
+      if (telDigits && leadTel === telDigits) return { data, blob };
+      // 2. Match estrito por nome
+      if (nomeLower && leadNome === nomeLower) return { data, blob };
+      // 3. Fallback: primeiro nome igual E últimos 8 dígitos do telefone batem
+      if (nomeLower && telDigits && leadNome && leadTel) {
+        const nomePrimeiro = leadNome.split(/\s+/)[0];
+        const telSuffix = telDigits.slice(-8);
+        if (nomePrimeiro === nomeLower.split(/\s+/)[0] && leadTel.endsWith(telSuffix)) {
+          return { data, blob };
+        }
       }
     } catch { /* skip corrupt entries */ }
   }

@@ -278,9 +278,11 @@ export default async function handler(req, res) {
     const mode = urlParams.get('hub.mode');
     const token = urlParams.get('hub.verify_token');
     const challenge = urlParams.get('hub.challenge');
-    console.log(`[VERIFY] mode=${mode} token=${token}`);
-    // timing-safe comparison evita timing attacks (boa prática, impacto real baixo)
-    const tokenValid = timingSafeStringEqual(token, VERIFY_TOKEN) || token === 'evolution';
+    // Log sem o token (evita vazar secret em logs).
+    console.log(`[VERIFY] mode=${mode}`);
+    // timing-safe comparison evita timing attacks.
+    // Bypass 'evolution' removido (legacy Evolution API desabilitada desde 17/04).
+    const tokenValid = timingSafeStringEqual(token, VERIFY_TOKEN);
     if (mode === 'subscribe' && tokenValid) {
       console.log('[VERIFY] ✅ OK');
       return res.status(200).send(challenge);
