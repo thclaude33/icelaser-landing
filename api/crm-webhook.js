@@ -169,15 +169,6 @@ export default async function handler(req, res) {
   ).slice(0, 120);
   console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
 
-  // [DEBUG-17-04] Dump FULL payload no Blob pra debug (remover depois)
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const ts = Date.now();
-      await put(`debug/crm-${ts}-${event}.json`, rawBody.toString('utf8').slice(0, 20000), {
-        access: 'public', contentType: 'application/json',
-      });
-    } catch (e) { /* silent */ }
-  }
 
   // Capturar ctwa_clid de mensagens novas (message_created do Chatwoot)
   // O Chatwoot inclui source_id (wamid) — verificar se a msg tem referral de anúncio CTWA
@@ -241,8 +232,14 @@ export default async function handler(req, res) {
   // BUG FIX #1: Só processar conversation_updated se houve mudança de labels
   // Chatwoot envia conversation_updated em qualquer atualização (msg enviada, lida, status, etc.)
   // Sem esse filtro, cada mensagem dispararia CAPI com todos os labels existentes → eventos duplicados
+  //
+  // NOTA: Chatwoot v3.x / v4.x envia mudança de labels em `label_list` (array) ou
+  // `cached_label_list` (string CSV). A chave `labels` NUNCA aparece em changed_attributes.
+  // Fix 17/04/2026: procurar label_list (array) primeiro, fallback cached_label_list.
   const changedAttributes = body.changed_attributes || [];
-  const hasLabelChange = changedAttributes.some(attr => attr.labels !== undefined);
+  const hasLabelChange = changedAttributes.some(attr =>
+    attr.label_list !== undefined || attr.labels !== undefined
+  );
   if (event === 'conversation_updated' && !hasLabelChange) {
     return res.status(200).json({ ok: true, skipped: true, reason: 'no_label_change' });
   }
@@ -252,8 +249,8 @@ export default async function handler(req, res) {
   // Bug #4: processar APENAS labels recém-adicionados (evita re-disparar Purchase quando
   //         outra label é adicionada em conversa que já tinha compra_realizada)
   const previousLabels = changedAttributes
-    .filter(attr => attr.labels !== undefined)
-    .flatMap(attr => attr.labels?.previous_value || []);
+    .filter(attr => attr.label_list !== undefined || attr.labels !== undefined)
+    .flatMap(attr => (attr.label_list?.previous_value ?? attr.labels?.previous_value) || []);
 
   // Extrai dados — Chatwoot pode enviar em body.conversation, body.data ou flat (body é a conversa)
   const conversation = body.conversation || body.data || body;
