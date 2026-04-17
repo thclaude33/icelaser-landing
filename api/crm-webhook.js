@@ -169,6 +169,21 @@ export default async function handler(req, res) {
   ).slice(0, 120);
   console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
 
+  // [DEBUG-17-04] Dump de payload Chatwoot — remover depois de validar
+  if (event === 'conversation_updated' || event === 'conversation_created' || event === 'contact_updated') {
+    const dump = {
+      event,
+      has_changed_attributes: Array.isArray(body.changed_attributes),
+      changed_attributes: body.changed_attributes,
+      body_top_keys: Object.keys(body),
+      labels_on_body: body.labels,
+      labels_on_conversation: body.conversation?.labels,
+      labels_on_data: body.data?.labels,
+      conversation_id: body.id || body.conversation?.id,
+    };
+    console.log(`[DBG-PAYLOAD] ${JSON.stringify(dump).slice(0, 1500)}`);
+  }
+
   // Capturar ctwa_clid de mensagens novas (message_created do Chatwoot)
   // O Chatwoot inclui source_id (wamid) — verificar se a msg tem referral de anúncio CTWA
   if (event === 'message_created' && body.message_type === 0) {
