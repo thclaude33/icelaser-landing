@@ -34,8 +34,30 @@ function generateFbp() {
 
 function buildFbcFromClid(fbclid) {
   // Formato oficial Meta: fb.{subdomainIndex}.{creationTime_ms}.{fbclid}
-  // NÃO alterar case do fbclid (é case-sensitive).
+  // subdomainIndex=1 pra eTLD+1 (icelasers.com.br = 1 level).
+  // timestamp em MILISSEGUNDOS (doc oficial Meta 2026).
+  // fbclid CASE-SENSITIVE — nunca alterar.
   return `fb.1.${Date.now()}.${fbclid}`;
+}
+
+/**
+ * Extrai fbclid da query string aplicando o mesmo algoritmo da Meta
+ * capi-param-builder SDK oficial (client_js/shared/utils/urlUtil.js).
+ * Aceita ?fbclid=X, &fbclid=X, #fbclid=X ou fim de URL.
+ * Replace + com espaco e depois decodeURIComponent recuperam o valor
+ * ORIGINAL gerado pela Meta (antes do browser codar).
+ */
+function extractFbclid(urlOrQuery) {
+  if (!urlOrQuery) return null;
+  const regex = /[?#&]fbclid(=([^&#]*)|&|#|$)/;
+  const results = regex.test(urlOrQuery) ? urlOrQuery.match(regex) : null;
+  if (!results) return null;
+  if (!results[2]) return '';
+  try {
+    return decodeURIComponent(results[2].replace(/\+/g, ' '));
+  } catch {
+    return results[2];
+  }
 }
 
 function checkRateLimit(ip) {
@@ -87,7 +109,12 @@ export default function middleware(request) {
   // 3. Cookie setup pra fbp/fbc (bypassa iOS Safari ITP; HTTP-set vale mais que JS)
   const cookies = request.headers.get('cookie') || '';
   const url = new URL(request.url);
-  const fbclid = url.searchParams.get('fbclid');
+  // fbclid: extração IDÊNTICA à Meta capi-param-builder oficial (urlUtil.js).
+  // Source: https://github.com/facebook/capi-param-builder/blob/main/client_js/shared/utils/urlUtil.js
+  // `decodeURIComponent(m[2].replace(/\+/g, ' '))` — exato mesmo código Meta SDK.
+  // Consistência crítica: server-side e client-side SDK DEVEM extrair fbclid
+  // do mesmo jeito, senão cookie fica dessincronizado entre middleware e Pixel browser.
+  const fbclid = extractFbclid(url.search);
 
   const hasFbp = /(?:^|;\s*)_fbp=/.test(cookies);
   const fbcCookieMatch = cookies.match(/(?:^|;\s*)_fbc=([^;]+)/);

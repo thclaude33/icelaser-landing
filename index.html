@@ -127,19 +127,23 @@
     t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
     document,'script','/api/pixel');
     fbq('init', '2774496306216737', {country: 'br', st: 'pe', ct: 'recife'});
-    // fbc: captura fbclid da URL — fallback manual enquanto ParamBuilder async ainda carrega
+    // fbc fallback: algoritmo IDÊNTICO ao Meta capi-param-builder oficial.
+    // urlUtil.js da SDK: regex [?#&]fbclid(=([^&#]*)|&|#|$) + replace '+' por ' '
+    // + decodeURIComponent. Consistente server-side (middleware) ↔ client-side.
     // ParamBuilder (onload) sobrescreve com formato fb.1.{time}.{fbclid}.{appendix}
     (function(){try{
-      // Só cria fbc se ParamBuilder ainda não preencheu (ele tem prioridade quando async terminar)
       if(window._paramBuilderReady) return;
-      var cl=new URLSearchParams(window.location.search).get('fbclid');
-      if(!cl) return;
+      var regex=/[?#&]fbclid(=([^&#]*)|&|#|$)/;
+      var m=window.location.search.match(regex);
+      if(!m||!m[2])return;
+      var cl;
+      try{cl=decodeURIComponent(m[2].replace(/\+/g,' '));}catch(e){cl=m[2];}
+      if(!cl)return;
       var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
-      // Compara apenas o 4º segment (fbclid), ignorando appendix do ParamBuilder
       var existingFbclid=(existingFbc.split('.')[3])||'';
       if(!existingFbc || existingFbclid!==cl){
         var fbc='fb.1.'+Date.now()+'.'+cl;
-        document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax';
+        document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax;Secure';
       }
     }catch(e){}}());
     var pvEventId = 'pv_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
