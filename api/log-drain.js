@@ -74,14 +74,12 @@ async function putWithTimeout(fileName, body, opts) {
 export default async function handler(req, res) {
   // 1. x-vercel-verify em TODA resposta.
   // Valor oficial do Vercel team (data source: vercel_endpoint_verification_code).
-  // Env var permite rotação sem redeploy. Fail-fast se ausente evita drain quebrado silent.
-  const verifyToken = process.env.VERCEL_LOG_DRAIN_VERIFY;
-  if (!verifyToken) {
-    console.error('[LOG-DRAIN] VERCEL_LOG_DRAIN_VERIFY env var ausente — endpoint verification vai falhar');
-    // Continua mesmo assim — só loga pra deixar claro no health check.
-  } else {
-    res.setHeader('x-vercel-verify', verifyToken);
-  }
+  // Hardcoded fallback pro valor atual IceLaser (13/04/2026) — se rotacionar,
+  // setar VERCEL_LOG_DRAIN_VERIFY env var sem redeploy.
+  // Sem este header, Vercel rejeita handshake inicial + re-validação.
+  const verifyToken = process.env.VERCEL_LOG_DRAIN_VERIFY
+    || 'dc04cc178d4addf38b1a252e26f92b0f7b1d0f64';
+  res.setHeader('x-vercel-verify', verifyToken);
 
   if (req.method === 'GET' || req.method === 'HEAD') {
     // Initial verification handshake + manual "Test" button do dashboard.
