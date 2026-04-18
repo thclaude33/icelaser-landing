@@ -3,6 +3,7 @@ import { put, list } from '@vercel/blob';
 import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
 import { sha256, normalizePhoneBR, escapeHtml } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
+import { PARTNER_AGENT } from './_lib/capi.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -389,7 +390,7 @@ export default async function handler(req, res) {
       ...(Object.keys(custom_data).length > 0 && { custom_data }),
     }],
     // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
-    partner_agent: 'icelaser-vercel',
+    partner_agent: PARTNER_AGENT,
   };
 
   const token = process.env.META_ACCESS_TOKEN;

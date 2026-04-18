@@ -14,6 +14,7 @@ import { list, put, del } from '@vercel/blob';
 import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE } from './_lib/config.js';
 import { sha256, normalizePhoneBR } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
+import { PARTNER_AGENT } from './_lib/capi.js';
 
 // Alias local (fonte de verdade em _lib/security.js).
 const normalizePhone = normalizePhoneBR;
@@ -149,7 +150,7 @@ export default async function handler(req, res) {
         },
       }],
       // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
-      partner_agent: 'icelaser-vercel',
+      partner_agent: PARTNER_AGENT,
     };
 
     // Authorization Bearer (evita expor token na URL / logs)

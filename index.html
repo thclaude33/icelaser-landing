@@ -102,15 +102,27 @@
   }
   </script>
 
-  <!-- Meta CAPI Parameter Builder (oficial Meta) — captura fbc/fbp com formato correto
+  <!-- Meta CAPI Parameter Builder (oficial Meta) — captura fbc/fbp/IP com formato correto
        Docs: https://developers.facebook.com/docs/marketing-api/conversions-api/parameter-builder-library
        Versão fixada + SRI SHA-384 pra segurança supply-chain -->
-  <script>window._paramBuilderReady=false;</script>
+  <script>
+    // getIpFn: callback passado ao SDK para capturar IP (IPv6 quando disponível).
+    // Sem isso, clientParamBuilder.getClientIpAddress() retorna vazio.
+    // api64 retorna IPv6 se o cliente tiver; senão IPv4. Meta prefere IPv6 (melhor matching).
+    window._paramBuilderReady = false;
+    window._getIpForParamBuilder = async function() {
+      try {
+        const r = await fetch('https://api64.ipify.org?format=json', { cache: 'no-store' });
+        const d = await r.json();
+        return d && d.ip ? d.ip : null;
+      } catch { return null; }
+    };
+  </script>
   <script async
     src="https://unpkg.com/meta-capi-param-builder-clientjs@1.3.0/dist/clientParamBuilder.bundle.js"
     integrity="sha384-5lFSvv7HyXbqb7dkI1yumfhInd1aLexUs0hiZ8aWaL8N+IFRRDeU2TTlv3ggf9IO"
     crossorigin="anonymous"
-    onload="window._paramBuilderReady=true;try{clientParamBuilder.processAndCollectAllParams();}catch(e){}"
+    onload="window._paramBuilderReady=true;try{clientParamBuilder.processAndCollectAllParams(location.href, window._getIpForParamBuilder);}catch(e){}"
     onerror="window._paramBuilderReady=false;"></script>
 
   <!-- fbp early generation (fallback manual) — garante _fbp se middleware/ParamBuilder ainda não rodou.
@@ -118,8 +130,9 @@
        Verificado executando capi-param-builder-nodejs v1.2.1 contra o host real.
        Usa 1e16 (alinhado com middleware.js pra formato consistente entre server e client). -->
   <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.2.'+Date.now()+'.'+Math.floor(Math.random()*1e16);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax;Secure';}}catch(e){}}());</script>
-  <!-- IPv6 capture — IP residencial raramente muda em 24h -->
-  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=7200;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
+  <!-- IPv6 capture — cache 1h (IP residencial pode mudar em reconnect mobile; cache curto evita IP stale no CAPI).
+       Secure flag adicionado: cookie só viaja em HTTPS (LP sempre é HTTPS, previne leak acidental). -->
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=3600;SameSite=Lax;Secure';}}).catch(function(){});}}catch(e){}}());</script>
 
   <!-- Meta Pixel — disparo imediato -->
   <script>
@@ -159,17 +172,24 @@
       currency: 'BRL'
     }, {eventID: vcEventId});
     // CAPI server-side PageView + ViewContent — mesmo event_id do browser = deduplicação 100%
-    // Helper sendCapi com keepalive desde a 1ª tentativa + sendBeacon fallback
+    // Helper sendCapi com keepalive desde a 1ª tentativa + sendBeacon fallback.
+    // Fallback também em HTTP errors (4xx/5xx) além de network errors (fetch
+    // só rejeita em network; 4xx/5xx viam com r.ok=false — precisamos checar).
     window.sendCapi = function(payload) {
       var body = JSON.stringify(payload);
+      var beacon = function() {
+        try { navigator.sendBeacon('/api/track', new Blob([body], {type: 'application/json'})); } catch(e){}
+      };
       return fetch('/api/track', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: body,
         keepalive: true,
-      }).catch(function(){
-        try { navigator.sendBeacon('/api/track', new Blob([body], {type: 'application/json'})); } catch(e){}
-      });
+      }).then(function(r){
+        // r.ok = status 2xx. 4xx/5xx caem aqui SEM disparar .catch — precisa fallback manual.
+        if (!r || !r.ok) beacon();
+        return r;
+      }).catch(function(){ beacon(); });
     };
     (function(){
       var fbp = (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined;
@@ -1755,9 +1775,12 @@
         try { fbq('track', 'Lead', {content_name:'WA ' + tag, content_category:'depilacao_laser', value:0, currency:'BRL'}, {eventID: waLeadId}); } catch(ex){}
         var origemFallback = getOrigemFallback();
         var isMetaOrigin = origemFallback === 'facebook' || origemFallback === 'instagram';
+        // NÃO passamos `nome` aqui — WA click direct não coleta nome do usuário.
+        // Se passássemos "WA Direto LP3", track.js parsearia como first_name="WA",
+        // last_name="LP3" e hashearia isso → polui fn/ln matching no Meta, PIORA EMQ.
+        // Sem `nome`, user_data fica com fbp/fbc/geo/UA = matching via browser ID.
         window.sendCapi({
           event_name: 'Lead', event_id: waLeadId,
-          nome: 'WA Direto ' + tag,
           event_source_url: location.href, client_user_agent: navigator.userAgent,
           fbp: getCookie('_fbp'),
           fbc: getCookie('_fbc'),
