@@ -19,12 +19,19 @@ export const PAGE_ID = envOr('META_PAGE_ID', '111790301665816');
 export const AD_ACCOUNT_ID = envOr('META_AD_ACCOUNT_ID', 'act_790663154114264');
 export const APP_ID = envOr('META_APP_ID', '940244045396548');
 
-export const GRAPH_VERSION = 'v25.0';
+// GRAPH_VERSION via env var — Meta lança versão nova a cada trimestre.
+// v25.0 é ativa em abr/2026. Atualizar via env var evita redeploy manual.
+export const GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v25.0';
 export const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
-// Default purchase value (pode ser sobrescrito por customAttrs.purchase_value)
-export const DEFAULT_PURCHASE_VALUE = parseFloat(process.env.DEFAULT_PURCHASE_VALUE || '497');
-export const DEFAULT_PREDICTED_LTV = parseFloat(process.env.DEFAULT_PREDICTED_LTV || '980');
+// Default values com validação Number.isFinite — parseFloat('abc') = NaN,
+// que corrompe Purchase events silenciosamente se env var malformada.
+function parseFloatSafe(value, fallback) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+export const DEFAULT_PURCHASE_VALUE = parseFloatSafe(process.env.DEFAULT_PURCHASE_VALUE, 497);
+export const DEFAULT_PREDICTED_LTV = parseFloatSafe(process.env.DEFAULT_PREDICTED_LTV, 980);
 
 export const ALLOWED_ORIGINS = [
   'https://icelaser-landing.vercel.app',
@@ -35,7 +42,3 @@ export const ALLOWED_ORIGINS = [
   'https://icelasers.com.br',
   'https://www.icelasers.com.br',
 ];
-
-export function canonicalOrigin(origin) {
-  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-}
