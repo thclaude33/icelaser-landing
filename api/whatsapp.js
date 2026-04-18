@@ -12,6 +12,7 @@ import { put } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
+import { PARTNER_AGENT } from './_lib/capi.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
@@ -149,17 +150,30 @@ async function processarCTWA(from, message, referral) {
   }
 
   // Disparar CAPI LeadSubmitted (ContactStarted) com telefone + fbc derivado do ctwa_clid
-  // Meta oficial (2026): business_messaging aceita SÓ 13 eventos; "Lead" NÃO está — "LeadSubmitted" é o correto.
+  // Meta oficial (2026): business_messaging aceita 14 eventos; "Lead" NÃO está — "LeadSubmitted" é o correto.
   // Também OBRIGATÓRIO: messaging_channel = "whatsapp" (sem ele, erro 2804063).
   // Este evento representa o 1º contato do lead via CTWA ad — atribuição do click.
   // (Lead qualificado real é disparado depois pelo crm-webhook via label lead_quente.)
   if (clid && from && META_TOKEN) {
     try {
-      const eventTime = Math.floor(Date.now() / 1000);
+      // event_time: prefere timestamp do WA webhook (message.timestamp, unix seconds).
+      // Se Meta retentar o webhook, event_time ainda é consistente com 1ª entrega.
+      const msgTs = parseInt(message?.timestamp, 10);
+      const eventTime = Number.isFinite(msgTs) && msgTs > 0
+        ? msgTs
+        : Math.floor(Date.now() / 1000);
+      // event_id ESTÁVEL: Meta retenta webhook por 7 dias. Se cada retry gerar
+      // event_id diferente (com Date.now()), CAPI dedup não funciona → evento
+      // contado múltiplas vezes. Usa message.id (wamid.XXX, único por msg) ou
+      // fallback ctwa_clid (único por click) pra garantir estabilidade.
+      const stableSeed = message?.id || clid;
+      const eventId = `ctwa_${stableSeed}`;
       // fbc = fb.{subdomainIndex}.{creationTime_ms}.{ctwa_clid}
       // Meta SDK oficial: icelasers.com.br → subdomainIndex=2 (TLD composto .com.br).
       // Verificado rodando ParamBuilder nodejs v1.2.1 contra o host real.
-      const fbc = `fb.2.${Date.now()}.${clid}`;
+      // creationTime_ms usa msgTs*1000 quando disponível (retry = mesmo fbc).
+      const fbcTsMs = Number.isFinite(msgTs) && msgTs > 0 ? msgTs * 1000 : Date.now();
+      const fbc = `fb.2.${fbcTsMs}.${clid}`;
       // user_data via SDK oficial Meta: normaliza (phone strip non-digits + leading zeros)
       // + hasheia SHA-256 + deriva partial matching. `from` já é phone number WA (digits only).
       const userData = await buildUserData({
@@ -182,14 +196,14 @@ async function processarCTWA(from, message, referral) {
           },
           body: JSON.stringify({
             data: [{
-              // Oficial Meta 2026: Lista eventos válidos pra business_messaging =
-              // [Purchase, LeadSubmitted, InitiateCheckout, AddToCart, ViewContent,
-              //  OrderCreated/Shipped/Delivered/Canceled/Returned, CartAbandoned,
-              //  QualifiedLead, RatingProvided, ReviewProvided].
+              // Oficial Meta 2026: Lista eventos válidos pra business_messaging (14):
+              // Purchase, LeadSubmitted, InitiateCheckout, AddToCart, ViewContent,
+              // OrderCreated/Shipped/Delivered/Canceled/Returned, CartAbandoned,
+              // QualifiedLead, RatingProvided, ReviewProvided.
               // "Lead" NÃO está — gerava rejeição silenciosa antes.
               event_name: 'LeadSubmitted',
               event_time: eventTime,
-              event_id: `ctwa_wa_${from}_${eventTime}`,
+              event_id: eventId,
               action_source: 'business_messaging',
               // OBRIGATÓRIO em business_messaging. Sem isto, Meta retorna 2804063.
               messaging_channel: 'whatsapp',
@@ -206,7 +220,7 @@ async function processarCTWA(from, message, referral) {
               },
             }],
             // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
-            partner_agent: 'icelaser-vercel',
+            partner_agent: PARTNER_AGENT,
           }),
         }
       );
