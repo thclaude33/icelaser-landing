@@ -24,9 +24,24 @@ export default async function handler(req, res) {
 
   // Package `flags` v4+ (oficial atual Vercel). @vercel/flags v3 deprecated
   // (npm emit deprecation warning). Removido de package.json nesta passada.
-  const { verifyAccess, version } = await import('flags');
+  let verifyAccess, version;
+  try {
+    ({ verifyAccess, version } = await import('flags'));
+  } catch (e) {
+    console.error('[FLAGS] flags package unavailable:', e.message);
+    return res.status(503).json({ error: 'Flags SDK unavailable' });
+  }
 
-  const access = await verifyAccess(req.headers['authorization']);
+  // verifyAccess pode LANÇAR se authorization header malformado (tokens
+  // corrompidos, caracteres inválidos em base64 da assinatura, etc).
+  // Default era 500 → Vercel Toolbar mostra erro genérico. Agora 401 correto.
+  let access = false;
+  try {
+    access = await verifyAccess(req.headers['authorization']);
+  } catch (e) {
+    console.warn('[FLAGS] verifyAccess threw:', e.message);
+    access = false;
+  }
   if (!access) return res.status(401).json(null);
 
   // Header informando versão do SDK ao Flags Explorer (Vercel docs).

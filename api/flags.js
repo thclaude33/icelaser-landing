@@ -21,27 +21,32 @@ import { ALLOWED_ORIGINS } from './_lib/config.js';
 const EDGE_CONFIG_CACHE = new Map();  // Map<edgeKey, {value, expiresAt}>
 const EDGE_CONFIG_CACHE_TTL_MS = 30_000;
 
+/**
+ * Retorna { value, notFound } — explícito sobre key ausente (semantic correta).
+ * value = undefined + notFound = true → key inexistente (404 normal, NÃO erro).
+ * value = undefined + notFound = false → exception (erro real).
+ */
 async function getEdgeConfigHttp(edgeKey) {
   const cached = EDGE_CONFIG_CACHE.get(edgeKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-  if (!process.env.EDGE_CONFIG) return undefined;
-  try {
-    const edgeUrl = new URL(process.env.EDGE_CONFIG);
-    const itemUrl = `${edgeUrl.origin}${edgeUrl.pathname}/item/${encodeURIComponent(edgeKey)}${edgeUrl.search}`;
-    const r = await fetch(itemUrl, { cache: 'no-store' });
-    if (r.ok) {
-      const value = await r.json();
-      EDGE_CONFIG_CACHE.set(edgeKey, { value, expiresAt: Date.now() + EDGE_CONFIG_CACHE_TTL_MS });
-      return value;
-    }
-    if (r.status === 404) {
-      EDGE_CONFIG_CACHE.set(edgeKey, { value: undefined, expiresAt: Date.now() + EDGE_CONFIG_CACHE_TTL_MS });
-      return undefined;
-    }
-    throw new Error(`http:${r.status}`);
-  } catch (e) {
-    throw new Error(`http-exception:${e.message}`);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { value: cached.value, notFound: cached.notFound === true };
   }
+  if (!process.env.EDGE_CONFIG) {
+    throw new Error('EDGE_CONFIG env var missing');
+  }
+  const edgeUrl = new URL(process.env.EDGE_CONFIG);
+  const itemUrl = `${edgeUrl.origin}${edgeUrl.pathname}/item/${encodeURIComponent(edgeKey)}${edgeUrl.search}`;
+  const r = await fetch(itemUrl, { cache: 'no-store' });
+  if (r.ok) {
+    const value = await r.json();
+    EDGE_CONFIG_CACHE.set(edgeKey, { value, notFound: false, expiresAt: Date.now() + EDGE_CONFIG_CACHE_TTL_MS });
+    return { value, notFound: false };
+  }
+  if (r.status === 404) {
+    EDGE_CONFIG_CACHE.set(edgeKey, { value: undefined, notFound: true, expiresAt: Date.now() + EDGE_CONFIG_CACHE_TTL_MS });
+    return { value: undefined, notFound: true };
+  }
+  throw new Error(`http:${r.status}`);
 }
 
 export default async function handler(req, res) {
@@ -145,31 +150,38 @@ export default async function handler(req, res) {
   // URL+token:  https://edge-config.vercel.com/ecfg_XXX?token=YYY
   // Item endpoint: {EDGE_CONFIG_BASE}/item/{key} (reuse query string pro auth).
   const debug = String(req.query.debug || '') === '1';
-  let edgeValue, edgeError;
+  let edgeValue, edgeError, keyNotFound = false;
   const keyMap = { 'cta-variant': 'cta_variant' };
   const edgeKey = keyMap[flagName] || flagName.replace(/-/g, '_');
 
   try {
     const { get } = await import('@vercel/edge-config');
     edgeValue = await get(edgeKey);
+    if (edgeValue === undefined) keyNotFound = true;  // key ausente, não erro
   } catch (sdkErr) {
-    // SDK lança em Vercel serverless porque @vercel/edge-config-fs não é
-    // encontrado (top-level import em edge-config.ts — bug upstream v1.4.3).
+    // SDK lança em Vercel serverless (bug upstream @vercel/edge-config-fs).
     // Fallback HTTP direto + cache in-memory 30s warm invocations.
-    edgeError = `sdk:${sdkErr.message}`;
     try {
-      edgeValue = await getEdgeConfigHttp(edgeKey);
+      const httpResult = await getEdgeConfigHttp(edgeKey);
+      edgeValue = httpResult.value;
+      keyNotFound = httpResult.notFound;
+      // Só regista edgeError do SDK se HTTP TAMBÉM falhou.
+      // Se HTTP retornou valor OU 404 legítimo, SDK error é ruído.
     } catch (httpErr) {
-      edgeError += ` | ${httpErr.message}`;
+      edgeError = `sdk:${sdkErr.message} | ${httpErr.message}`;
     }
   }
 
   const value = edgeValue ?? fallback;
   await setFlagValuesHeader(flagName, value);
-  const body = {
-    value,
-    source: edgeValue !== undefined ? 'edge-config' : (edgeError ? 'error-fallback' : 'fallback'),
-  };
+  // source semantic:
+  //   edge-config = valor lido com sucesso
+  //   fallback = key não existe no Edge Config (404 normal, usa query fallback)
+  //   error-fallback = erro real (SDK + HTTP ambos falharam)
+  const source = edgeValue !== undefined
+    ? 'edge-config'
+    : (keyNotFound ? 'fallback' : 'error-fallback');
+  const body = { value, source };
   if (debug) {
     body.debug = {
       headerStatus,
