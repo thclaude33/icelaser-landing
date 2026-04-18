@@ -159,10 +159,10 @@ export default async function handler(req, res) {
       hasBlob ? recentBlobs('leads/converted/', 5) : Promise.resolve([]),
     ]);
 
-    // Period calculado via Intl America/Recife (DST-safe se Brasil reintroduzir horário
-    // de verão) — substituiu `getUTCHours() < 12` que funcionava por coincidência
-    // dos crons atuais (11 UTC = 8h manhã, 23 UTC = 20h noite) mas quebraria se
-    // cron schedule mudasse pra 2h UTC (=23h BRT = Noite, mas getUTCHours=2 → "Manhã").
+    // Period via Intl America/Recife — substituiu `getUTCHours() < 12` que
+    // funcionava por coincidência dos crons atuais (11 UTC = 8h manhã, 23 UTC
+    // = 20h noite) mas quebraria se schedule mudasse pra 2h UTC (=23h BRT = Noite
+    // mas getUTCHours=2 → "Manhã").
     const period = brtPeriod();
 
     // Log detalhado inclui timestamps BRT dos últimos leads.
