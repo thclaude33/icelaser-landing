@@ -22,71 +22,57 @@
 
   "functions": {
     "api/flags-manifest.js": {
-      "memory": 128,
       "maxDuration": 10,
       "regions": ["gru1"]
     },
     "api/track.js": {
-      "memory": 512,
       "maxDuration": 30,
       "regions": ["gru1"]
     },
     "api/whatsapp.js": {
-      "memory": 256,
       "maxDuration": 30,
       "regions": ["gru1"]
     },
     "api/flags.js": {
-      "memory": 128,
       "maxDuration": 10,
       "regions": ["gru1"]
     },
     "api/config.js": {
-      "memory": 128,
       "maxDuration": 10,
       "regions": ["gru1"]
     },
     "api/cron/daily-report.js": {
-      "memory": 512,
       "maxDuration": 60,
       "regions": ["gru1"]
     },
     "api/cron/emq-monitor.js": {
-      "memory": 256,
       "maxDuration": 30,
       "regions": ["gru1"]
     },
     "api/og.js": {
-      "memory": 128,
       "maxDuration": 10
     },
     "api/log-drain.js": {
-      "memory": 128,
       "maxDuration": 10,
       "regions": ["gru1"]
     },
     "api/vercel-webhook.js": {
-      "memory": 256,
       "maxDuration": 30,
       "regions": ["gru1"]
     },
     "api/conversion.js": {
-      "memory": 256,
       "maxDuration": 30,
       "regions": ["gru1"]
     },
     "api/crm-webhook.js": {
-      "memory": 512,
       "maxDuration": 30,
       "regions": ["gru1"]
     },
     "api/pixel.js": {
-      "memory": 128,
       "maxDuration": 10,
       "regions": ["gru1"]
     },
     "api/health.js": {
-      "memory": 128,
       "maxDuration": 5,
       "regions": ["gru1"]
     }
