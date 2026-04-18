@@ -462,13 +462,17 @@ export default async function handler(req, res) {
   // custom_data base para todos os eventos CRM (conforme guia Meta Conversion Leads)
   const crmBase = {
     event_source: 'crm',         // obrigatório para Conversion Leads
-    // Attribution CTWA (via Meta Graph API lookup em whatsapp.js):
+    // Attribution CTWA full (via Meta Graph API lookup em whatsapp.js):
     ...(ctwaAdMeta?.ad_id ? { ad_id: ctwaAdMeta.ad_id } : {}),
     ...(ctwaAdMeta?.ad_name ? { ad_name: ctwaAdMeta.ad_name } : {}),
     ...(ctwaAdMeta?.adset_id ? { adset_id: ctwaAdMeta.adset_id } : {}),
     ...(ctwaAdMeta?.adset_name ? { adset_name: ctwaAdMeta.adset_name } : {}),
     ...(ctwaAdMeta?.campaign_id ? { campaign_id: ctwaAdMeta.campaign_id } : {}),
     ...(ctwaAdMeta?.campaign_name ? { campaign_name: ctwaAdMeta.campaign_name } : {}),
+    ...(ctwaAdMeta?.optimization_goal ? { optimization_goal: ctwaAdMeta.optimization_goal } : {}),
+    ...(ctwaAdMeta?.destination_type ? { destination_type: ctwaAdMeta.destination_type } : {}),
+    ...(ctwaAdMeta?.publisher_platforms ? { publisher_platforms: ctwaAdMeta.publisher_platforms } : {}),
+    ...(ctwaAdMeta?.campaign_objective ? { campaign_objective: ctwaAdMeta.campaign_objective } : {}),
     lead_event_source: 'Chatwoot', // nome do CRM
   };
 

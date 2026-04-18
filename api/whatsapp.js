@@ -128,7 +128,19 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
 async function lookupAdMetadata(adId) {
   if (!adId || !META_TOKEN) return null;
   try {
-    const fields = 'campaign_id,adset_id,name,adset_name,campaign_name';
+    // Expandido pra trazer TODO o útil pra attribution CTWA:
+    // - campaign_id/name (já tínhamos)
+    // - adset_id/name (já tínhamos)
+    // - objective: MESSAGES (CTWA padrão) vs OUTCOME_SALES vs OUTCOME_ENGAGEMENT
+    // - destination_type: WHATSAPP (MESSAGES adset) ou ON_AD/APP_STORE/etc
+    // - optimization_goal: CONVERSATIONS, LEAD_GENERATION, CONVERSIONS, etc
+    // - placement: feed/stories/reels (via adset.targeting.publisher_platforms)
+    // Meta rate-limit: 1 call extra por novo CTWA lead. Com cache Blob futuro
+    // (por ad_id vs por phone atual), pode reduzir em >95%.
+    const adFields = 'name,adset_id,adset_name,campaign_id,campaign_name';
+    const adsetFields = 'optimization_goal,destination_type,targeting';
+    const campaignFields = 'objective,buying_type,status';
+    const fields = `${adFields},adset{${adsetFields}},campaign{${campaignFields}}`;
     const r = await fetch(`${GRAPH_BASE}/${adId}?fields=${fields}`, {
       headers: { 'Authorization': `Bearer ${META_TOKEN}` },
     });
@@ -137,6 +149,7 @@ async function lookupAdMetadata(adId) {
       console.warn(`[CTWA AD-LOOKUP] ${adId}: ${data.error.message}`);
       return null;
     }
+    const pubPlatforms = data.adset?.targeting?.publisher_platforms;
     return {
       ad_id: adId,
       ad_name: data.name || null,
@@ -144,11 +157,61 @@ async function lookupAdMetadata(adId) {
       adset_name: data.adset_name || null,
       campaign_id: data.campaign_id || null,
       campaign_name: data.campaign_name || null,
+      // Novos campos ricos:
+      optimization_goal: data.adset?.optimization_goal || null,   // ex: CONVERSATIONS
+      destination_type: data.adset?.destination_type || null,     // ex: WHATSAPP
+      publisher_platforms: Array.isArray(pubPlatforms) ? pubPlatforms.join(',') : null, // "facebook,instagram"
+      campaign_objective: data.campaign?.objective || null,       // ex: OUTCOME_ENGAGEMENT
+      buying_type: data.campaign?.buying_type || null,            // AUCTION / RESERVED
     };
   } catch (e) {
     console.warn(`[CTWA AD-LOOKUP] exception: ${e.message}`);
     return null;
   }
+}
+
+/**
+ * Mapeia DDD brasileiro pro estado. Meta CAPI user_data.st espera 2-letter
+ * lowercase. Hardcoded 'pe' era incorrecto pra leads de outros DDDs.
+ * Fontes: ANATEL + JARVIS ref.
+ */
+const DDD_TO_STATE = {
+  11:'sp',12:'sp',13:'sp',14:'sp',15:'sp',16:'sp',17:'sp',18:'sp',19:'sp',
+  21:'rj',22:'rj',24:'rj',
+  27:'es',28:'es',
+  31:'mg',32:'mg',33:'mg',34:'mg',35:'mg',37:'mg',38:'mg',
+  41:'pr',42:'pr',43:'pr',44:'pr',45:'pr',46:'pr',
+  47:'sc',48:'sc',49:'sc',
+  51:'rs',53:'rs',54:'rs',55:'rs',
+  61:'df',
+  62:'go',64:'go',
+  63:'to',
+  65:'mt',66:'mt',
+  67:'ms',
+  68:'ac',
+  69:'ro',
+  71:'ba',73:'ba',74:'ba',75:'ba',77:'ba',
+  79:'se',
+  81:'pe',87:'pe',
+  82:'al',
+  83:'pb',
+  84:'rn',
+  85:'ce',88:'ce',
+  86:'pi',89:'pi',
+  91:'pa',93:'pa',94:'pa',
+  92:'am',97:'am',
+  95:'rr',
+  96:'ap',
+  98:'ma',99:'ma',
+};
+function stateFromPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  // E.164 BR: 55 + DDD (2) + número
+  if (digits.length >= 12 && digits.slice(0, 2) === '55') {
+    const ddd = parseInt(digits.slice(2, 4), 10);
+    if (DDD_TO_STATE[ddd]) return DDD_TO_STATE[ddd];
+  }
+  return 'pe'; // fallback Recife
 }
 
 // ── PROCESSA MENSAGEM CTWA + SALVA NO BLOB ───────────────────────────────────
@@ -163,6 +226,14 @@ async function processarCTWA(from, message, referral, profileName) {
   const imageUrl = referral?.image_url || '';
   const videoUrl = referral?.video_url || '';
   const thumbnailUrl = referral?.thumbnail_url || '';
+  // Campos extras NÃO-oficiais Meta Cloud API mas presentes em alguns providers
+  // (Evolution, Baileys, contextInfo.externalAdReply) — capturar quando chegarem:
+  const refCustom = referral?.ref || '';                // custom string do botão do ad
+  const sourceApp = referral?.source_app || '';          // "facebook" ou "instagram"
+  const adType = referral?.ad_type || '';                // "CTWA" ou "CAWC"
+  const welcomeMsgText = referral?.welcome_message?.text ||
+                         referral?.greeting_message_body || '';
+  const isCall = !!referral?.click_to_whatsapp_call;
 
   // Lookup Meta Graph API pra enriquecer com metadata da campanha/adset/ad.
   // Paralelo com Blob save pra não atrasar o handler.
@@ -186,6 +257,7 @@ async function processarCTWA(from, message, referral, profileName) {
         ctwa_clid: clid,
         phone: safeFrom,
         profile_name: profileName || null,
+        state: stateFromPhone(safeFrom),  // inferido do DDD brasileiro
         source_url: sourceUrl,
         source_type: sourceType,
         source_id: sourceId,
@@ -195,9 +267,15 @@ async function processarCTWA(from, message, referral, profileName) {
         image_url: imageUrl,
         video_url: videoUrl,
         thumbnail_url: thumbnailUrl,
+        // Campos não-Meta-oficial mas úteis quando presentes:
+        ref_custom: refCustom || null,              // "landing_page_01", "patch_video_ad", etc
+        source_app: sourceApp || null,              // "facebook" | "instagram"
+        ad_type: adType || null,                    // "CTWA" | "CAWC"
+        welcome_message: welcomeMsgText || null,    // texto auto-greeting configurado
+        click_to_whatsapp_call: isCall,             // CTWA Call ad (vs chat)
         first_msg_type: firstMsgType,
-        first_msg_text: firstMsgText.slice(0, 500),  // truncate por segurança
-        ad_metadata: adMetadata,  // {ad_id, ad_name, adset_id, campaign_id, ...} ou null
+        first_msg_text: firstMsgText.slice(0, 500),
+        ad_metadata: adMetadata,
         timestamp: ts,
       }), { access: 'public', contentType: 'application/json', allowOverwrite: true });
       console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}.json (profile=${!!profileName}, ad_meta=${!!adMetadata})`);
@@ -242,19 +320,24 @@ async function processarCTWA(from, message, referral, profileName) {
         firstName = parts[0];
         if (parts.length > 1) lastName = parts[parts.length - 1];
       }
+      const inferredState = stateFromPhone(from);
       const userData = await buildUserData({
         phone: from,
         first_name: firstName || undefined,
         last_name: lastName || undefined,
         gender: 'f',
         city: 'recife',
-        state: 'pe',
+        state: inferredState,         // inferido pelo DDD (antes hardcoded 'pe')
         country: 'br',
-        external_id: from,  // phone como external_id — identidade estável do lead
+        external_id: from,            // phone como identidade estável do lead
       });
       userData.fbc = fbc;
       userData.ctwa_clid = clid;
       userData.whatsapp_business_account_id = WABA_ID;
+      // page_id: Meta Java SDK oficial lista como user_data key válida.
+      // Para CTWA ads, page_id é o Facebook Page que hospeda o ad → melhora
+      // attribution cross-device.
+      if (process.env.META_PAGE_ID) userData.page_id = process.env.META_PAGE_ID;
       const r = await fetch(
         `${GRAPH_BASE}/${PIXEL_ID}/events`,
         {
@@ -285,16 +368,30 @@ async function processarCTWA(from, message, referral, profileName) {
                 customer_segmentation: 'new_customer_to_business',
                 // Enriquecimento: ad metadata do Meta Graph API lookup (source_id → adset/campaign).
                 // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
-                ...(adMetadata && adMetadata.ad_id ? { ad_id: adMetadata.ad_id } : {}),
-                ...(adMetadata && adMetadata.ad_name ? { ad_name: adMetadata.ad_name } : {}),
-                ...(adMetadata && adMetadata.adset_id ? { adset_id: adMetadata.adset_id } : {}),
-                ...(adMetadata && adMetadata.adset_name ? { adset_name: adMetadata.adset_name } : {}),
-                ...(adMetadata && adMetadata.campaign_id ? { campaign_id: adMetadata.campaign_id } : {}),
-                ...(adMetadata && adMetadata.campaign_name ? { campaign_name: adMetadata.campaign_name } : {}),
-                // Intent signal: tipo da 1ª msg + preview (se texto). Útil pra segmentação.
+                ...(adMetadata?.ad_id ? { ad_id: adMetadata.ad_id } : {}),
+                ...(adMetadata?.ad_name ? { ad_name: adMetadata.ad_name } : {}),
+                ...(adMetadata?.adset_id ? { adset_id: adMetadata.adset_id } : {}),
+                ...(adMetadata?.adset_name ? { adset_name: adMetadata.adset_name } : {}),
+                ...(adMetadata?.campaign_id ? { campaign_id: adMetadata.campaign_id } : {}),
+                ...(adMetadata?.campaign_name ? { campaign_name: adMetadata.campaign_name } : {}),
+                ...(adMetadata?.optimization_goal ? { optimization_goal: adMetadata.optimization_goal } : {}),
+                ...(adMetadata?.destination_type ? { destination_type: adMetadata.destination_type } : {}),
+                ...(adMetadata?.publisher_platforms ? { publisher_platforms: adMetadata.publisher_platforms } : {}),
+                ...(adMetadata?.campaign_objective ? { campaign_objective: adMetadata.campaign_objective } : {}),
+                // Campos não-Meta-oficial no referral (presentes em alguns providers).
+                // Enviamos como custom_data custom fields — Meta aceita qualquer chave.
+                ...(refCustom ? { ref_custom: refCustom } : {}),
+                ...(sourceApp ? { source_app: sourceApp } : {}),  // "facebook" | "instagram"
+                ...(adType ? { ad_type: adType } : {}),            // "CTWA" | "CAWC"
+                // Intent signal: tipo da 1ª msg (text/audio/image/video/etc).
                 ...(firstMsgType ? { first_message_type: firstMsgType } : {}),
-                // NÃO incluímos text completo por privacidade (já salvamos truncado no Blob).
-                // Valor real vem depois no Lead qualificado (crm-webhook) e Purchase.
+                // Temporal context (útil pra segmentação pattern analysis).
+                hour_of_day_brt: new Intl.DateTimeFormat('en-US', {
+                  timeZone: 'America/Recife', hour: '2-digit', hour12: false,
+                }).format(new Date(eventTime * 1000)),
+                day_of_week_brt: new Intl.DateTimeFormat('en-US', {
+                  timeZone: 'America/Recife', weekday: 'short',
+                }).format(new Date(eventTime * 1000)),
               },
             }],
             // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
