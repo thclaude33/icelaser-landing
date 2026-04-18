@@ -6,9 +6,12 @@
   <title>Depilação Laser Recife | Pele Lisa para Sempre — 1ª Sessão Grátis | IceLaser</title>
   <meta name="description" content="Chega de cera. 3.000+ clientes em Recife, nas Graças. Laser Crystal 3D Plus — resultado desde a 1ª sessão, sem dor. Garanta sua 1ª sessão grátis nas axilas." />
 
+  <!-- Canonical URL: evita conteúdo duplicado em vercel.app aliases e query strings -->
+  <link rel="canonical" href="https://icelasers.com.br/">
+
   <!-- PWA manifest + apple touch icon (resolve 404s em crawlers Meta/Google/iOS) -->
   <link rel="manifest" href="/manifest.json">
-  <link rel="apple-touch-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <meta name="theme-color" content="#640039">
 
   <!-- Vercel Web Analytics -->
@@ -19,33 +22,57 @@
   <script>window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script>
   <script defer src="/_vercel/speed-insights/script.js"></script>
 
-  <!-- Open Graph -->
+  <!-- Open Graph (Facebook, Instagram, WhatsApp preview, LinkedIn)
+       og:image:alt é a11y + melhora compartilhamento em social media; og:site_name
+       identifica marca; twitter:title/description garantem fallback se OG ausente
+       (alguns crawlers Twitter/X preferem twitter:* sobre og:*). -->
   <meta property="og:title" content="Chega de Cera — 1ª Sessão Grátis nas Axilas | IceLaser Recife">
   <meta property="og:description" content="3.000+ clientes em Recife. Laser Crystal 3D Plus — sem dor, sem ingrown, resultado desde a 1ª sessão. Apenas 3 vagas gratuitas esta semana.">
   <meta property="og:image" content="https://icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:image" content="https://icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
+  <meta property="og:image:alt" content="IceLaser Recife — Depilação a laser Crystal 3D Plus, 1ª sessão grátis">
+  <meta property="og:site_name" content="IceLaser Recife">
   <meta property="og:url" content="https://icelasers.com.br/">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="pt_BR">
+  <!-- Twitter Card (X / LinkedIn fallback) -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Chega de Cera — 1ª Sessão Grátis | IceLaser Recife">
+  <meta name="twitter:description" content="3.000+ clientes em Recife. Laser Crystal 3D Plus — sem dor, resultado desde a 1ª sessão. Apenas 3 vagas esta semana.">
+  <meta name="twitter:image" content="https://icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
+  <meta name="twitter:image:alt" content="IceLaser Recife — Depilação a laser Crystal 3D Plus, 1ª sessão grátis">
 
-  <!-- Schema: BeautySalon -->
+  <!-- Schema: BeautySalon (LocalBusiness subtype)
+       Google Search Central 2026 — required for rich results:
+       name, address (PostalAddress full), image, telephone, priceRange, geo, openingHoursSpecification.
+       `geo` é CRÍTICO pra Maps / local pack; coordenadas oficiais Rua Amélia 598 Graças
+       (REGRA #8 do JARVIS — NÃO usar -8.0547/-34.9030 do Derby).
+       openingHoursSpecification estruturado permite Google mostrar horário
+       por dia corretamente em Rich Results. -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "BeautySalon",
+    "@id": "https://icelasers.com.br/#business",
     "name": "IceLaser Recife",
     "url": "https://icelasers.com.br/",
     "telephone": "+5581995749947",
     "priceRange": "$$",
+    "image": "https://icelasers.com.br/api/og?titulo=IceLaser+Recife",
+    "logo": "https://icelasers.com.br/favicon.ico",
     "address": {
       "@type": "PostalAddress",
-      "streetAddress": "Graças",
+      "streetAddress": "Rua Amélia, 598",
       "addressLocality": "Recife",
       "addressRegion": "PE",
+      "postalCode": "52011-050",
       "addressCountry": "BR"
+    },
+    "geo": {
+      "@type": "GeoCoordinates",
+      "latitude": -8.045105173587222,
+      "longitude": -34.901371694639224
     },
     "aggregateRating": {
       "@type": "AggregateRating",
@@ -53,7 +80,23 @@
       "reviewCount": 3000
     },
     "description": "Clínica de depilação a laser em Recife nas Graças. Tecnologia Crystal 3D Plus. Primeira sessão gratuita.",
-    "openingHours": "Mo-Sa 09:00-19:00"
+    "openingHoursSpecification": [
+      {
+        "@type": "OpeningHoursSpecification",
+        "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+        "opens": "09:00",
+        "closes": "19:00"
+      }
+    ],
+    "sameAs": [
+      "https://www.instagram.com/icelaserrecife/"
+    ],
+    "makesOffer": {
+      "@type": "Offer",
+      "name": "1ª sessão de depilação a laser gratuita",
+      "price": "0",
+      "priceCurrency": "BRL"
+    }
   }
   </script>
 
@@ -379,6 +422,34 @@
       scroll-behavior: smooth;
       -webkit-text-size-adjust: 100%;
       text-rendering: optimizeLegibility;
+    }
+
+    /* Skip link WCAG 2.4.1 — visible on :focus, hidden caso contrário.
+       Permite keyboard/screen reader pular header direto pro main. */
+    .skip-link {
+      position: absolute;
+      left: -9999px;
+      top: 0;
+      z-index: 9999;
+      background: var(--brand);
+      color: var(--cream);
+      padding: 12px 20px;
+      text-decoration: none;
+      font-weight: 600;
+      border-radius: 0 0 8px 0;
+    }
+    .skip-link:focus {
+      left: 0;
+    }
+
+    /* Honrar user preference reduced-motion (WCAG 2.3.3 Animation from Interactions) */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
     }
 
     body {
@@ -1432,16 +1503,30 @@
   </div>
 </noscript>
 
+<!-- Skip link pra keyboard / screen reader (WCAG 2.4.1 Bypass Blocks).
+     Visible on :focus (estilo .skip-link), hidden caso contrário. -->
+<a href="#main-content" class="skip-link">Pular para o conteúdo</a>
+
+<!-- Sprite de ícones inline — define 1 vez, referencia N vezes via <use>.
+     Antes: 4 cópias do path WhatsApp (SVG 2.4KB × 4 = ~10KB). Agora: 1 symbol. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="icon-wa" viewBox="0 0 24 24">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="currentColor"/>
+  </symbol>
+</svg>
+
 <!-- STICKY HEADER -->
 <header class="header">
   <div class="header-logo">Ice<span>Laser</span> · Recife</div>
-  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP1%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="header-cta" id="btn-header-cta" rel="noopener noreferrer">Agendar avaliação</a>
+  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP1%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="header-cta" id="btn-header-cta" rel="noopener">Agendar avaliação</a>
 </header>
 
-<!-- URGENCY BAR -->
-<div class="urgency-bar">
+<!-- URGENCY BAR — role=status anuncia mudança dinâmica pra screen reader sem interromper -->
+<div class="urgency-bar" role="status" aria-live="polite">
   Apenas <span class="red" id="vagas">3</span> vagas gratuitas restantes esta semana — válido até domingo 19/04
 </div>
+
+<main id="main-content">
 
 <!-- HERO -->
 <section class="hero">
@@ -1509,11 +1594,9 @@
     </div>
   </div>
 
-  <!-- BOTÃO WA DIRETO — above the fold -->
-  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero" rel="noopener noreferrer">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
-    </svg>
+  <!-- BOTÃO WA DIRETO — above the fold. Usa <use href> referenciando symbol #icon-wa. -->
+  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero" rel="noopener">
+    <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
     Falar no WhatsApp agora
   </a>
   <div class="hero-wa-sub">Resposta em menos de 2 minutos</div>
@@ -1523,8 +1606,10 @@
     <div class="sp-dots"><span></span><span></span><span></span><span></span></div>
     <div class="hero-sp-text"><strong>14 mulheres</strong> agendaram hoje em Recife</div>
   </div>
+  <!-- Timer role implícito aria-live=off (evita leitor anunciar cada segundo).
+       aria-atomic=true faz anunciar o valor completo quando atualizar manual. -->
   <div class="countdown-bar" id="countdown-bar">
-    Oferta expira em <span id="countdown-timer" class="countdown-num">--:--:--</span>
+    Oferta expira em <span id="countdown-timer" class="countdown-num" role="timer" aria-atomic="true">--:--:--</span>
   </div>
 
   <!-- FORM CARD -->
@@ -1539,23 +1624,25 @@
         Você gasta em média <strong>R$ 80–150 por mês</strong> com cera e lâmina. Nossa avaliação é <strong>100% gratuita</strong> e mostramos como eliminar esse custo de vez.
       </div>
 
-      <form id="lead-form" novalidate>
+      <form id="lead-form" novalidate aria-label="Formulário de agendamento de avaliação gratuita">
         <div class="field">
           <label for="nome">Seu nome</label>
           <input type="text" id="nome" name="nome" placeholder="Ex: Maria Silva"
                  autocomplete="name" required inputmode="text"
                  maxlength="120" minlength="2"
                  pattern="^[A-Za-zÀ-ÿ\s'\-]{2,120}$"
+                 aria-required="true"
                  aria-describedby="nome-err" />
-          <div class="field-error" id="nome-err">Por favor, informe seu nome.</div>
+          <div class="field-error" id="nome-err" role="alert">Por favor, informe seu nome.</div>
         </div>
         <div class="field">
           <label for="tel">Seu WhatsApp</label>
           <input type="tel" id="tel" name="tel" placeholder="(81) 9 9999-9999"
                  autocomplete="tel" required inputmode="tel"
                  maxlength="20" minlength="10"
+                 aria-required="true"
                  aria-describedby="tel-err" />
-          <div class="field-error" id="tel-err">Por favor, informe um WhatsApp válido.</div>
+          <div class="field-error" id="tel-err" role="alert">Por favor, informe um WhatsApp válido.</div>
         </div>
         <div class="field">
           <label for="email">Seu e-mail <span class="field-optional-tag">(opcional — para confirmar agendamento)</span></label>
@@ -1677,31 +1764,34 @@
     </div>
   </div>
 
+  <!-- Depoimentos: cada um é conteúdo auto-contido (HTML5 spec: article quando
+       distributable/reusable independente do contexto). Melhora landmark nav
+       + rich results potencial via Review schema future. -->
   <div class="depoimentos">
-    <div class="dep">
-      <div class="dep-quote">“</div>
-      <div class="dep-stars">★★★★★</div>
+    <article class="dep">
+      <div class="dep-quote" aria-hidden="true">“</div>
+      <div class="dep-stars" aria-label="5 de 5 estrelas">★★★★★</div>
       <div class="dep-text">Fiz a avaliação gratuita e fechei na mesma hora. Já na primeira sessão deu pra ver diferença. Atendimento impecável.</div>
       <div class="dep-autor">Juliana M. <span class="dep-bairro">· Boa Viagem</span></div>
-    </div>
-    <div class="dep">
-      <div class="dep-quote">“</div>
-      <div class="dep-stars">★★★★★</div>
+    </article>
+    <article class="dep">
+      <div class="dep-quote" aria-hidden="true">“</div>
+      <div class="dep-stars" aria-label="5 de 5 estrelas">★★★★★</div>
       <div class="dep-text">Tinha medo de doer mas foi super tranquilo. Tecnologia de ponta e equipe muito atenciosa. Resultado incrível desde a 1ª sessão.</div>
       <div class="dep-autor">Fernanda C. <span class="dep-bairro">· Graças</span></div>
-    </div>
-    <div class="dep">
-      <div class="dep-quote">“</div>
-      <div class="dep-stars">★★★★★</div>
+    </article>
+    <article class="dep">
+      <div class="dep-quote" aria-hidden="true">“</div>
+      <div class="dep-stars" aria-label="5 de 5 estrelas">★★★★★</div>
       <div class="dep-text">Gastava R$120/mês com cera. Fiz o pacote, parcelei tranquilo e em 4 sessões já reduzi 80% dos pelos. Melhor investimento.</div>
       <div class="dep-autor">Camila S. <span class="dep-bairro">· Derby</span></div>
-    </div>
-    <div class="dep">
-      <div class="dep-quote">“</div>
-      <div class="dep-stars">★★★★★</div>
+    </article>
+    <article class="dep">
+      <div class="dep-quote" aria-hidden="true">“</div>
+      <div class="dep-stars" aria-label="5 de 5 estrelas">★★★★★</div>
       <div class="dep-text">Fiz virilha completa e o resultado foi além do esperado. Zero ingrown, zero dor durante a sessão. Clínica super limpa e organizada.</div>
       <div class="dep-autor">Mariana T. <span class="dep-bairro">· Espinheiro</span></div>
-    </div>
+    </article>
   </div>
 </section>
 
@@ -1711,48 +1801,49 @@
   <h2 class="section-title">Perguntas <em>que toda cliente faz</em></h2>
 
   <div class="faq-list">
+    <!-- Cada faq-q com id pra aria-labelledby correlacionar a region (WCAG + APG W3C). -->
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-1">
+      <button id="faq-q-1" class="faq-q" aria-expanded="false" aria-controls="faq-a-1">
         Dói fazer depilação a laser?
         <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a" id="faq-a-1" role="region">
+      <div class="faq-a" id="faq-a-1" role="region" aria-labelledby="faq-q-1">
         Nossa tecnologia Crystal 3D Plus é uma das mais modernas do mercado e causa desconforto mínimo — a maioria das clientes descreve como um leve beliscão. Nada comparado à cera.
       </div>
     </div>
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-2">
+      <button id="faq-q-2" class="faq-q" aria-expanded="false" aria-controls="faq-a-2">
         Funciona para minha cor de pele e tipo de pelo?
         <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a" id="faq-a-2" role="region">
+      <div class="faq-a" id="faq-a-2" role="region" aria-labelledby="faq-q-2">
         O Crystal 3D Plus tem 3 comprimentos de onda que atendem todos os fototipos de pele (inclusive peles negras) e diferentes espessuras de pelo. Na avaliação gratuita, fazemos um teste de pele personalizado.
       </div>
     </div>
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-3">
+      <button id="faq-q-3" class="faq-q" aria-expanded="false" aria-controls="faq-a-3">
         Quantas sessões vou precisar?
         <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a" id="faq-a-3" role="region">
+      <div class="faq-a" id="faq-a-3" role="region" aria-labelledby="faq-q-3">
         Em média 6 a 8 sessões para redução permanente de 90%+ dos pelos. O resultado começa a aparecer já na 1ª sessão, com queda progressiva a cada mês de tratamento.
       </div>
     </div>
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-4">
+      <button id="faq-q-4" class="faq-q" aria-expanded="false" aria-controls="faq-a-4">
         Quanto custa o pacote? Tem parcelamento?
         <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a" id="faq-a-4" role="region">
+      <div class="faq-a" id="faq-a-4" role="region" aria-labelledby="faq-q-4">
         O valor varia conforme as áreas escolhidas. Na avaliação gratuita você recebe um orçamento personalizado. Parcelamos em até 12x sem juros no cartão — sem susto no bolso.
       </div>
     </div>
     <div class="faq-item">
-      <button class="faq-q" aria-expanded="false" aria-controls="faq-a-5">
+      <button id="faq-q-5" class="faq-q" aria-expanded="false" aria-controls="faq-a-5">
         A avaliação é realmente gratuita? Tem alguma obrigação?
         <span class="chevron" aria-hidden="true">▾</span>
       </button>
-      <div class="faq-a" id="faq-a-5" role="region">
+      <div class="faq-a" id="faq-a-5" role="region" aria-labelledby="faq-q-5">
         100% gratuita e sem nenhum compromisso. Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento. A decisão de iniciar o tratamento é inteiramente sua.
       </div>
     </div>
@@ -1771,13 +1862,13 @@
   <span class="section-eyebrow">Última chamada</span>
   <h2>Chega de cera.<br><em>Sua vaga</em> te espera.</h2>
   <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>Apenas <strong id="vagas2">3</strong> vagas disponíveis — válido até domingo 19/04</p>
-  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP4%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-cta2" id="cta-final-btn" rel="noopener noreferrer">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
-    </svg>
+  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP4%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-cta2" id="cta-final-btn" rel="noopener">
+    <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
     Garantir minha 1ª sessão grátis
   </a>
 </section>
+
+</main>
 
 <!-- FOOTER -->
 <footer>
@@ -1798,11 +1889,9 @@
   <div class="footer-copy">© 2026 IceLaser Recife · Todos os direitos reservados</div>
 </footer>
 
-<!-- FLOATING ACTION BUTTON -->
-<a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP5%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="fab" id="fab" aria-label="Falar no WhatsApp" rel="noopener noreferrer">
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
-  </svg>
+<!-- FLOATING ACTION BUTTON — role=complementary landmark (aside-like) -->
+<a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP5%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="fab" id="fab" aria-label="Falar no WhatsApp" rel="noopener">
+  <svg width="20" height="20" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
   Garantir vaga grátis
 </a>
 
@@ -1964,9 +2053,29 @@
     const email   = emailEl ? emailEl.value.trim().toLowerCase() : '';
     let valid    = true;
 
-    if (!nome)                                { nomeEl.classList.add('invalid'); valid=false; } else nomeEl.classList.remove('invalid');
-    if (tel.replace(/\D/g,'').length < 10)   { telEl.classList.add('invalid');  valid=false; } else telEl.classList.remove('invalid');
-    if (!valid) return;
+    // aria-invalid só setado APÓS validação (WCAG ARIA21 best practice:
+    // não declarar invalid antes do submit attempt).
+    if (!nome) {
+      nomeEl.classList.add('invalid');
+      nomeEl.setAttribute('aria-invalid', 'true');
+      valid = false;
+    } else {
+      nomeEl.classList.remove('invalid');
+      nomeEl.removeAttribute('aria-invalid');
+    }
+    if (tel.replace(/\D/g,'').length < 10) {
+      telEl.classList.add('invalid');
+      telEl.setAttribute('aria-invalid', 'true');
+      valid = false;
+    } else {
+      telEl.classList.remove('invalid');
+      telEl.removeAttribute('aria-invalid');
+    }
+    if (!valid) {
+      // Move foco pro primeiro erro — WCAG 3.3.1 Error Identification.
+      (nomeEl.getAttribute('aria-invalid') === 'true' ? nomeEl : telEl).focus();
+      return;
+    }
 
     // Lock submit + disable button visualmente
     submitting = true;
