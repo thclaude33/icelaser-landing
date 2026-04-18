@@ -1780,7 +1780,7 @@
   })();
 
   /* PHONE MASK ────────────────────────────────────── */
-  document.getElementById('tel').addEventListener('input', function(e) {
+  document.getElementById('tel')?.addEventListener('input', function(e) {
     let v = e.target.value.replace(/\D/g,'').substring(0,11);
     if (v.length >= 7)      v = '('+v.slice(0,2)+') '+v.slice(2,7)+'-'+v.slice(7);
     else if (v.length >= 3) v = '('+v.slice(0,2)+') '+v.slice(2);
@@ -1793,7 +1793,7 @@
 
   /* SUBMIT ────────────────────────────────────────── */
   let submitting = false; // guard anti-double-submit
-  document.getElementById('lead-form').addEventListener('submit', function(e) {
+  document.getElementById('lead-form')?.addEventListener('submit', function(e) {
     e.preventDefault();
     if (submitting) return;
 
@@ -1921,11 +1921,12 @@
     // 4. Abre WA — delay 300ms garante envio dos beacons do pixel antes de navegar
     setTimeout(() => { location.href = `https://wa.me/${WA_NUMBER}?text=${msg}`; }, 300);
 
-    // 5. Urgência dinâmica — reduz vagas
+    // 5. Urgência dinâmica — reduz vagas (defensive null check)
     ['vagas','vagas2'].forEach(id => {
       const el  = document.getElementById(id);
-      const cur = parseInt(el.textContent)||3;
-      if (cur > 1) el.textContent = cur-1;
+      if (!el) return;
+      const cur = parseInt(el.textContent) || 3;
+      if (cur > 1) el.textContent = cur - 1;
     });
   });
 
