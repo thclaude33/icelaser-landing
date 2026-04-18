@@ -12,6 +12,7 @@ import { put, list } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 import { buildUserData, hashPII } from './_lib/piiBuilder.js';
+import { PARTNER_AGENT } from './_lib/capi.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -37,8 +38,10 @@ function validateChatwootWebhook(req, rawBody) {
   const secret = process.env.CHATWOOT_WEBHOOK_SECRET;
   const queryToken = process.env.CHATWOOT_WEBHOOK_QUERY_TOKEN;
 
-  // Sem nenhum dos 2 configurados = sem auth (comportamento antigo)
-  if (!secret && !queryToken) return { valid: true, mode: 'no-auth-configured' };
+  // SEGURANÇA: se NENHUM método de auth configurado, REJEITAR (fail-safe).
+  // Antes permitia tudo se env vars faltassem — webhook aberto pra spoofing,
+  // polui EMQ/tracking. Força explicitar ao menos um método em env.
+  if (!secret && !queryToken) return { valid: false, mode: 'no-auth-configured' };
 
   // 1. Try HMAC signature (Chatwoot 3.17+)
   const sig = req.headers['x-chatwoot-signature'];
@@ -73,7 +76,7 @@ async function sendCAPI(events, token, retryCount = 0) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({ data: events, partner_agent: 'icelaser-vercel' }),
+      body: JSON.stringify({ data: events, partner_agent: PARTNER_AGENT }),
     }
   );
 

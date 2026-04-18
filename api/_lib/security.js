@@ -19,6 +19,9 @@ export function verifyHmacSignature(rawBody, signature, secret) {
   if (!secret || !signature) return false;
 
   const sigValue = signature.startsWith('sha256=') ? signature.slice(7) : signature;
+  // Validar formato hex ESTRITO antes do Buffer.from — ele é tolerante a chars
+  // não-hex (ignora silenciosamente), o que aceita signatures corrompidas.
+  if (!/^[a-f0-9]{64}$/i.test(sigValue)) return false;
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
 
   try {
@@ -52,6 +55,8 @@ export function verifyChatwootSignature(rawBody, signature, timestamp, secret, m
   if (Math.abs(now - ts) > maxAgeSeconds) return false;
 
   const sigValue = signature.startsWith('sha256=') ? signature.slice(7) : signature;
+  // Validar hex estrito antes do Buffer.from (ver comentário em verifyHmacSignature).
+  if (!/^[a-f0-9]{64}$/i.test(sigValue)) return false;
   const bodyStr = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
   const payload = `${timestamp}.${bodyStr}`;
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
@@ -107,18 +112,46 @@ export function maskName(name) {
 export function getRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
+    let settled = false;
+    const settle = (fn, val) => { if (!settled) { settled = true; fn(val); } };
     req.on('data', (c) => chunks.push(Buffer.from(c)));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
+    req.on('end', () => settle(resolve, Buffer.concat(chunks)));
+    req.on('error', (e) => settle(reject, e));
+    // Edge case: cliente aborta connection no meio da request (TCP FIN/RST).
+    // Sem este handler o Promise nunca resolve/reject → handler hang + timeout
+    // da function a 30s. Tratar como erro pra falhar cedo.
+    req.on('aborted', () => settle(reject, new Error('Request aborted')));
+    req.on('close', () => {
+      if (!settled) settle(reject, new Error('Connection closed before end'));
+    });
   });
 }
 
 /**
  * Normaliza telefone BR pro formato E.164 sem prefixo '+' (só dígitos).
+ *
+ * Regras:
+ *  1. Strip non-digits
+ *  2. Remove leading zeros (prefixo internacional "00" ou DDI zero — ex: "005511999")
+ *  3. Se já começa com "55" + DDD brasileiro válido (11-99) → mantém
+ *  4. Senão → prefixa "55"
+ *
+ * Casos cobertos:
+ *  "81999990000"       → "5581999990000"  (sem DDI)
+ *  "5581999990000"     → "5581999990000"  (com DDI, correto)
+ *  "+55 81 99999-0000" → "5581999990000"  (formato humano)
+ *  "0055 81 99999..."  → "5581999990000"  (prefixo internacional)
+ *  "55 0081 99999..."  → "5581999990000"  (DDI com zero — ajuste edge)
  */
 export function normalizePhoneBR(phone) {
-  const digits = String(phone).replace(/\D/g, '');
-  return digits.startsWith('55') ? digits : `55${digits}`;
+  let digits = String(phone).replace(/\D/g, '').replace(/^0+/, '');
+  // Se já tem prefixo 55 + DDD válido (11-99) — mantém.
+  // DDD brasileiro é 2º e 3º dígitos depois de 55. Valid range: 11-99 (exclui 00,01-10).
+  if (digits.startsWith('55') && digits.length >= 12 && digits.length <= 13) {
+    const ddd = parseInt(digits.slice(2, 4), 10);
+    if (ddd >= 11 && ddd <= 99) return digits;
+  }
+  return `55${digits}`;
 }
 
 /**

@@ -11,7 +11,7 @@ const RATE_LIMIT_THRESHOLD = 80; // alerta a 80% de uso
 
 // Meta best practice (docs oficiais 2026): incluir partner_agent pra identificar plataforma.
 // Restrições Meta: <23 chars, >=2 letras. Enviado no payload top-level (não em cada event).
-const PARTNER_AGENT = 'icelaser-vercel';
+export const PARTNER_AGENT = 'icelaser-vercel';
 
 function monitorRateLimit(res) {
   const appUsage = res.headers.get('x-app-usage');
