@@ -342,6 +342,9 @@ export default async function handler(req, res) {
     custom_data.content_name = 'Avaliacao Gratuita LP';
     custom_data.content_category = 'depilacao_laser';
     custom_data.lead_event_source = 'landing_page';
+    // Oficial Meta 2026 (docs server-event): enum customer_segmentation (9 valores).
+    // Primeiro contato via LP = novo cliente pro negócio.
+    custom_data.customer_segmentation = 'new_customer_to_business';
   } else if (event_name === 'ViewContent') {
     custom_data.value = 0;
     custom_data.currency = 'BRL';
@@ -381,6 +384,8 @@ export default async function handler(req, res) {
       user_data: userData,
       ...(Object.keys(custom_data).length > 0 && { custom_data }),
     }],
+    // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
+    partner_agent: 'icelaser-vercel',
   };
 
   const token = process.env.META_ACCESS_TOKEN;

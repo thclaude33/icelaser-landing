@@ -26,18 +26,40 @@ const RL_MAX = parseInt(process.env.RATE_LIMIT_MAX || '120', 10);
 const RL_ENFORCE = process.env.RATE_LIMIT_ENFORCE === '1';
 const rlBuckets = new Map();
 
-function generateFbp() {
-  // Formato oficial Meta: fb.{subdomainIndex}.{timestamp_ms}.{random}
-  // subdomainIndex=1 pra icelasers.com.br (apex domain)
-  return `fb.1.${Date.now()}.${Math.floor(Math.random() * 1e16)}`;
+/**
+ * Calcula subdomainIndex conforme Meta SDK oficial (nodejs ParamBuilder.js):
+ *   etld_plus_1.split('.').length - 1
+ *
+ * Verificado executando o SDK real (test-subdomain.mjs) contra icelasers.com.br:
+ *   host=icelasers.com.br          → subdomainIndex=2
+ *   host=www.icelasers.com.br      → subdomainIndex=3
+ *   host=example.com               → subdomainIndex=1
+ *
+ * `.com.br` é TLD composto: Meta SDK interpreta como 3 segments (ice|com|br)
+ * → index = 3 - 1 = 2. Consistência crítica com Pixel browser (que carrega
+ * o mesmo SDK via unpkg CDN) — mismatch aqui causa Events Manager flag.
+ */
+function computeSubdomainIndex(host) {
+  if (!host) return 2;
+  // Strip port (host:port) e lowercase.
+  const clean = host.split(':')[0].toLowerCase();
+  const segments = clean.split('.').filter(Boolean);
+  if (segments.length === 0) return 2;
+  return Math.max(1, segments.length - 1);
 }
 
-function buildFbcFromClid(fbclid) {
+function generateFbp(host) {
+  // Formato oficial Meta: fb.{subdomainIndex}.{timestamp_ms}.{random}
+  const idx = computeSubdomainIndex(host);
+  return `fb.${idx}.${Date.now()}.${Math.floor(Math.random() * 1e16)}`;
+}
+
+function buildFbcFromClid(fbclid, host) {
   // Formato oficial Meta: fb.{subdomainIndex}.{creationTime_ms}.{fbclid}
-  // subdomainIndex=1 pra eTLD+1 (icelasers.com.br = 1 level).
   // timestamp em MILISSEGUNDOS (doc oficial Meta 2026).
   // fbclid CASE-SENSITIVE — nunca alterar.
-  return `fb.1.${Date.now()}.${fbclid}`;
+  const idx = computeSubdomainIndex(host);
+  return `fb.${idx}.${Date.now()}.${fbclid}`;
 }
 
 /**
@@ -137,12 +159,12 @@ export default function middleware(request) {
   const cookiesToSet = [];
   if (!hasFbp) {
     cookiesToSet.push(
-      `_fbp=${generateFbp()}; Path=/; Max-Age=${FBP_MAX_AGE}; SameSite=Lax; Secure`
+      `_fbp=${generateFbp(host)}; Path=/; Max-Age=${FBP_MAX_AGE}; SameSite=Lax; Secure`
     );
   }
   if (shouldSetFbc) {
     cookiesToSet.push(
-      `_fbc=${buildFbcFromClid(fbclid)}; Path=/; Max-Age=${FBC_MAX_AGE}; SameSite=Lax; Secure`
+      `_fbc=${buildFbcFromClid(fbclid, host)}; Path=/; Max-Age=${FBC_MAX_AGE}; SameSite=Lax; Secure`
     );
   }
 

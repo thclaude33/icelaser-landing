@@ -139,8 +139,13 @@ export default async function handler(req, res) {
           content_name: 'Depilacao Laser',
           content_category: 'depilacao_laser',
           content_type: 'product',
+          // Oficial Meta 2026 (docs server-event custom_data):
+          // Purchase vindo de CRM website = customer novo pra relacionamento com o negócio.
+          customer_segmentation: 'new_customer_to_business',
         },
       }],
+      // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
+      partner_agent: 'icelaser-vercel',
     };
 
     // Authorization Bearer (evita expor token na URL / logs)

@@ -113,9 +113,11 @@
     onload="window._paramBuilderReady=true;try{clientParamBuilder.processAndCollectAllParams();}catch(e){}"
     onerror="window._paramBuilderReady=false;"></script>
 
-  <!-- fbp early generation (fallback manual) — garante _fbp se middleware/ParamBuilder ainda não rodou
-       Usa 1e16 (alinhado com middleware.js pra formato consistente entre server e client) -->
-  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.1.'+Date.now()+'.'+Math.floor(Math.random()*1e16);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax;Secure';}}catch(e){}}());</script>
+  <!-- fbp early generation (fallback manual) — garante _fbp se middleware/ParamBuilder ainda não rodou.
+       subdomainIndex=2 pro apex icelasers.com.br (.com.br é TLD composto; SDK Meta calcula split('.').length-1 = 3-1 = 2).
+       Verificado executando capi-param-builder-nodejs v1.2.1 contra o host real.
+       Usa 1e16 (alinhado com middleware.js pra formato consistente entre server e client). -->
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.2.'+Date.now()+'.'+Math.floor(Math.random()*1e16);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax;Secure';}}catch(e){}}());</script>
   <!-- IPv6 capture — IP residencial raramente muda em 24h -->
   <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=7200;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
 
@@ -130,7 +132,8 @@
     // fbc fallback: algoritmo IDÊNTICO ao Meta capi-param-builder oficial.
     // urlUtil.js da SDK: regex [?#&]fbclid(=([^&#]*)|&|#|$) + replace '+' por ' '
     // + decodeURIComponent. Consistente server-side (middleware) ↔ client-side.
-    // ParamBuilder (onload) sobrescreve com formato fb.1.{time}.{fbclid}.{appendix}
+    // ParamBuilder (onload) sobrescreve com formato fb.2.{time}.{fbclid}.{appendix}
+    // subdomainIndex=2 pro apex icelasers.com.br (verificado via SDK nodejs v1.2.1).
     (function(){try{
       if(window._paramBuilderReady) return;
       var regex=/[?#&]fbclid(=([^&#]*)|&|#|$)/;
@@ -142,7 +145,7 @@
       var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
       var existingFbclid=(existingFbc.split('.')[3])||'';
       if(!existingFbc || existingFbclid!==cl){
-        var fbc='fb.1.'+Date.now()+'.'+cl;
+        var fbc='fb.2.'+Date.now()+'.'+cl;
         document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax;Secure';
       }
     }catch(e){}}());

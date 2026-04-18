@@ -63,6 +63,7 @@ function validateChatwootWebhook(req, rawBody) {
 
 async function sendCAPI(events, token, retryCount = 0) {
   // Authorization: Bearer (mais seguro que access_token na URL)
+  // partner_agent: Meta best practice — identifica plataforma emissora (<23 chars, >=2 letras).
   const res = await fetch(
     `${GRAPH_BASE}/${PIXEL_ID}/events`,
     {
@@ -71,7 +72,7 @@ async function sendCAPI(events, token, retryCount = 0) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({ data: events }),
+      body: JSON.stringify({ data: events, partner_agent: 'icelaser-vercel' }),
     }
   );
 
@@ -284,12 +285,13 @@ export default async function handler(req, res) {
 
   // UTMs do contato (se vieram da LP)
   let fbp = customAttrs.fbp || undefined;
-  // Bug fix: customAttrs.fbclid pode ser o fbclid RAW (sem o prefixo fb.1.ts.)
-  // Nesse caso precisa ser convertido pro formato oficial fbc antes de enviar ao CAPI
+  // Bug fix: customAttrs.fbclid pode ser o fbclid RAW (sem o prefixo fb.X.ts.)
+  // Nesse caso precisa ser convertido pro formato oficial fbc antes de enviar ao CAPI.
+  // subdomainIndex=2 pro apex icelasers.com.br — verificado via SDK Meta capi-param-builder-nodejs v1.2.1.
   const rawFbclid = customAttrs.fbclid;
   let fbc = customAttrs.fbc ||
     (rawFbclid
-      ? (rawFbclid.startsWith('fb.') ? rawFbclid : `fb.1.${Date.now()}.${rawFbclid}`)
+      ? (rawFbclid.startsWith('fb.') ? rawFbclid : `fb.2.${Date.now()}.${rawFbclid}`)
       : undefined);
   let ctwaClid = customAttrs.ctwa_clid || undefined;
 
@@ -372,8 +374,9 @@ export default async function handler(req, res) {
   }
 
   // Se tem ctwa_clid mas não fbc, derivar fbc do ctwa_clid (formato oficial Meta)
+  // subdomainIndex=2 pro apex icelasers.com.br (.com.br TLD composto → SDK calcula 2).
   if (ctwaClid && !fbc) {
-    fbc = `fb.1.${Date.now()}.${ctwaClid}`; // Bug fix: Date.now() em ms (não segundos)
+    fbc = `fb.2.${Date.now()}.${ctwaClid}`; // Date.now() em ms (não segundos)
     console.log(`[CRM-WEBHOOK] fbc derivado do ctwa_clid: ${fbc.slice(0, 30)}...`);
   }
 

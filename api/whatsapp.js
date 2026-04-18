@@ -155,8 +155,10 @@ async function processarCTWA(from, message, referral) {
   if (clid && from && META_TOKEN) {
     try {
       const eventTime = Math.floor(Date.now() / 1000);
-      // fbc = fb.1.{creationTime_ms}.{ctwa_clid} — formato oficial Meta (MILISSEGUNDOS)
-      const fbc = `fb.1.${Date.now()}.${clid}`;
+      // fbc = fb.{subdomainIndex}.{creationTime_ms}.{ctwa_clid}
+      // Meta SDK oficial: icelasers.com.br → subdomainIndex=2 (TLD composto .com.br).
+      // Verificado rodando ParamBuilder nodejs v1.2.1 contra o host real.
+      const fbc = `fb.2.${Date.now()}.${clid}`;
       const r = await fetch(
         `${GRAPH_BASE}/${PIXEL_ID}/events`,
         {
@@ -192,10 +194,15 @@ async function processarCTWA(from, message, referral) {
                 lead_event_source: 'WhatsApp CTWA',
                 source_url: sourceUrl,
                 content_name: 'CTWA Contact Started - WhatsApp',
+                // Primeiro contato CTWA = novo relacionamento com o negócio.
+                // Oficial Meta enum customer_segmentation (9 valores): aqui é new_customer_to_business.
+                customer_segmentation: 'new_customer_to_business',
                 // Não setamos value aqui — ainda não há sinal de qualificação.
                 // Valor real vem depois no Lead qualificado (crm-webhook) e Purchase.
               },
             }],
+            // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
+            partner_agent: 'icelaser-vercel',
           }),
         }
       );

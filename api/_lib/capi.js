@@ -9,6 +9,10 @@ import { GRAPH_BASE, PIXEL_ID } from './config.js';
 
 const RATE_LIMIT_THRESHOLD = 80; // alerta a 80% de uso
 
+// Meta best practice (docs oficiais 2026): incluir partner_agent pra identificar plataforma.
+// Restrições Meta: <23 chars, >=2 letras. Enviado no payload top-level (não em cada event).
+const PARTNER_AGENT = 'icelaser-vercel';
+
 function monitorRateLimit(res) {
   const appUsage = res.headers.get('x-app-usage');
   if (appUsage) {
@@ -62,7 +66,7 @@ function monitorRateLimit(res) {
 export async function sendCapiEvents(events, token, options = {}) {
   const pixelId = options.pixelId || PIXEL_ID;
   const maxRetries = options.maxRetries ?? 2;
-  const payload = { data: events };
+  const payload = { data: events, partner_agent: PARTNER_AGENT };
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const res = await fetch(`${GRAPH_BASE}/${pixelId}/events`, {

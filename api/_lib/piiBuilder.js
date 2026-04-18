@@ -133,6 +133,14 @@ function manualFallback(value, dataType) {
  * Batch helper: recebe user_data plain-text e retorna hashed conforme Meta SDK.
  * Campos não-PII (fbp, fbc, client_ip_address, client_user_agent, ctwa_clid,
  * whatsapp_business_account_id, page_id, page_scoped_user_id, ig_sid) NÃO são hasheados.
+ *
+ * Advanced matching partial keys (Meta Java SDK oficial 2026):
+ *  - f5first: primeiros 5 chars do first_name, normalizados e hasheados
+ *  - f5last: primeiros 5 chars do last_name, normalizados e hasheados
+ *  - fi: inicial do first_name, normalizada e hasheada
+ *  - dobd/dobm/doby: dia/mês/ano de nascimento individual, cada um hasheado
+ * Quando fn/ln chegam completos, enviamos os partial keys TAMBÉM pra aumentar
+ * matching surface (Meta compara múltiplas keys em paralelo → mais chance de match).
  */
 export async function buildUserData(plain) {
   const ud = {};
@@ -153,6 +161,56 @@ export async function buildUserData(plain) {
     if (val) {
       const h = await hashPII(val, type);
       if (h) ud[key] = [h];
+    }
+  }
+
+  // Advanced matching partial keys (derivados — não alteram fn/ln já enviados).
+  // Normalização Meta oficial: lowercase + strip whitespace_and_punctuation; slice chars só do valor normalizado.
+  // Usamos a mesma função hashPII via dataType 'first_name'/'last_name' pra reaproveitar a normalização do SDK.
+  if (plain.first_name) {
+    const fnNormHash = await hashPII(plain.first_name, 'first_name');
+    // Não temos direct access ao valor normalizado antes do hash — a Meta Java SDK
+    // aceita o input bruto e aplica a mesma normalização internamente em f5first/fi.
+    // Aqui replicamos a normalização canônica Meta (lowercase + strip punct+ws) ANTES do slice.
+    const normFirst = String(plain.first_name)
+      .toLowerCase()
+      .replace(/[!"#$%&'()*+,\-./:;<=>?@ \[\]^_`{|}~\s]+/g, '');
+    if (normFirst.length > 0) {
+      const initial = normFirst.charAt(0);
+      const first5 = normFirst.slice(0, 5);
+      const fiHash = await hashPII(initial, 'external_id'); // reaproveita path sha256 puro
+      const f5Hash = await hashPII(first5, 'external_id');
+      if (fiHash) ud.fi = [fiHash];
+      if (f5Hash) ud.f5first = [f5Hash];
+    }
+    // Marca de uso pra lint (fn já setado via loop acima — sem duplicar).
+    void fnNormHash;
+  }
+  if (plain.last_name) {
+    const normLast = String(plain.last_name)
+      .toLowerCase()
+      .replace(/[!"#$%&'()*+,\-./:;<=>?@ \[\]^_`{|}~\s]+/g, '');
+    if (normLast.length > 0) {
+      const last5 = normLast.slice(0, 5);
+      const f5lHash = await hashPII(last5, 'external_id');
+      if (f5lHash) ud.f5last = [f5lHash];
+    }
+  }
+  // DOB partials: se date_of_birth (YYYYMMDD) chegou, derivar dobd/dobm/doby.
+  if (plain.date_of_birth) {
+    const dobDigits = String(plain.date_of_birth).replace(/\D/g, '');
+    if (dobDigits.length === 8) {
+      const yr = dobDigits.slice(0, 4);
+      const mo = dobDigits.slice(4, 6);
+      const dy = dobDigits.slice(6, 8);
+      const [doyH, domH, dodH] = await Promise.all([
+        hashPII(yr, 'external_id'),
+        hashPII(mo, 'external_id'),
+        hashPII(dy, 'external_id'),
+      ]);
+      if (doyH) ud.doby = [doyH];
+      if (domH) ud.dobm = [domH];
+      if (dodH) ud.dobd = [dodH];
     }
   }
   // Non-hashed keys pass-through (Meta requer plain)
