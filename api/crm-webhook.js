@@ -11,6 +11,7 @@
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
+import { buildUserData, hashPII } from './_lib/piiBuilder.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -271,17 +272,28 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, skipped: true, reason: 'no_contact_data' });
   }
 
-  // Monta user_data pra CAPI
+  // Monta user_data pra CAPI via SDK oficial Meta capi-param-builder-nodejs v1.2.1.
+  // Normaliza (email RFC2822, phone e.164 strip zeros, nome lowercase+strip punct,
+  // country/state mapping completo), hasheia SHA-256 e deriva advanced matching
+  // partial keys (f5first, f5last, fi) automaticamente pra aumentar EMQ.
   const now = Math.floor(Date.now() / 1000);
-  const userData = { country: [sha256('br')], st: [sha256('pe')], ct: [sha256('recife')], zp: [sha256('50000')], ge: [sha256('f')] };
-
-  if (telefone) userData.ph = [sha256(normalizePhone(telefone))];
-  if (email) userData.em = [sha256(email.toLowerCase())];
+  let firstName = null, lastName = null;
   if (nome) {
-    const parts = nome.trim().toLowerCase().split(/\s+/);
-    userData.fn = [sha256(parts[0])];
-    if (parts.length > 1) userData.ln = [sha256(parts[parts.length - 1])];
+    const parts = nome.trim().split(/\s+/);
+    firstName = parts[0];
+    if (parts.length > 1) lastName = parts[parts.length - 1];
   }
+  const userData = await buildUserData({
+    email: email || undefined,
+    phone: telefone ? normalizePhone(telefone) : undefined,
+    first_name: firstName || undefined,
+    last_name: lastName || undefined,
+    city: 'recife',
+    state: 'pe',
+    zip_code: '50000',
+    country: 'br',
+    gender: 'f',
+  });
 
   // UTMs do contato (se vieram da LP)
   let fbp = customAttrs.fbp || undefined;
@@ -380,16 +392,16 @@ export default async function handler(req, res) {
     console.log(`[CRM-WEBHOOK] fbc derivado do ctwa_clid: ${fbc.slice(0, 30)}...`);
   }
 
-  // external_id: SÓ identidade estável (email > phone > nome).
-  // NÃO usar fbp como fallback — fbp já é matching key nativa (user_data.fbp),
-  // duplicar em external_id faz Meta contar "múltiplos users por IP" em NAT/residencial.
-  // Dedup cross-source (LP + CRM) funciona pelos 3 campos confiáveis acima.
+  // external_id: identidade estável (email > phone > nome).
+  // NÃO usar fbp como fallback (fbp já é matching key nativa; duplicar infla multi-user-per-IP).
+  // Normalização via SDK oficial Meta: lowercase + strip whitespace_only + sha256.
   let externalIdRaw = null;
-  if (email) externalIdRaw = email.toLowerCase().trim();
+  if (email) externalIdRaw = email;
   else if (telefone) externalIdRaw = normalizePhone(telefone);
-  else if (nome) externalIdRaw = nome.trim().toLowerCase();
+  else if (nome) externalIdRaw = nome;
   if (externalIdRaw) {
-    userData.external_id = [sha256(externalIdRaw)];
+    const extHash = await hashPII(externalIdRaw, 'external_id');
+    if (extHash) userData.external_id = [extHash];
   }
 
   if (fbp) userData.fbp = fbp;

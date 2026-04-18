@@ -11,6 +11,7 @@ import nodemailer from 'nodemailer';
 import { put } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml } from './_lib/security.js';
+import { buildUserData } from './_lib/piiBuilder.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
@@ -159,6 +160,18 @@ async function processarCTWA(from, message, referral) {
       // Meta SDK oficial: icelasers.com.br → subdomainIndex=2 (TLD composto .com.br).
       // Verificado rodando ParamBuilder nodejs v1.2.1 contra o host real.
       const fbc = `fb.2.${Date.now()}.${clid}`;
+      // user_data via SDK oficial Meta: normaliza (phone strip non-digits + leading zeros)
+      // + hasheia SHA-256 + deriva partial matching. `from` já é phone number WA (digits only).
+      const userData = await buildUserData({
+        phone: from,
+        gender: 'f',
+        city: 'recife',
+        state: 'pe',
+        country: 'br',
+      });
+      userData.fbc = fbc;
+      userData.ctwa_clid = clid;
+      userData.whatsapp_business_account_id = WABA_ID;
       const r = await fetch(
         `${GRAPH_BASE}/${PIXEL_ID}/events`,
         {
@@ -180,16 +193,7 @@ async function processarCTWA(from, message, referral) {
               action_source: 'business_messaging',
               // OBRIGATÓRIO em business_messaging. Sem isto, Meta retorna 2804063.
               messaging_channel: 'whatsapp',
-              user_data: {
-                ph: [sha256(from)],
-                ge: [sha256('f')],
-                country: [sha256('br')],
-                st: [sha256('pe')],
-                ct: [sha256('recife')],
-                fbc,
-                ctwa_clid: clid,
-                whatsapp_business_account_id: WABA_ID,
-              },
+              user_data: userData,
               custom_data: {
                 lead_event_source: 'WhatsApp CTWA',
                 source_url: sourceUrl,
