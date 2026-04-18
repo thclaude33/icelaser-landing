@@ -32,6 +32,7 @@
  */
 
 import { list, del } from '@vercel/blob';
+import { brtISO, isVercelCron } from '../_lib/time.js';
 
 // Retention policy (dias por prefix).
 // CHAVES PERIGOSAS (leads/, ctwa/, conversions/) INTENCIONALMENTE AUSENTES.
@@ -114,12 +115,18 @@ async function deleteBatched(urls) {
 }
 
 export default async function handler(req, res) {
-  // Auth: Vercel Cron envia Bearer ${CRON_SECRET}.
+  // Auth: Vercel Cron envia Bearer ${CRON_SECRET} + User-Agent "vercel-cron/1.0".
+  // Bypass tolerado pra testing manual com dry-run via Bearer correto.
   if (!process.env.CRON_SECRET) {
     console.error('[BLOB-GC] CRON_SECRET ausente — endpoint bloqueado');
     return res.status(503).json({ error: 'cron_secret_not_configured' });
   }
-  if (req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
+  const hasValidBearer = req.headers['authorization'] === `Bearer ${process.env.CRON_SECRET}`;
+  const isCron = isVercelCron(req);
+  // Permite: Vercel Cron (UA vercel-cron + Bearer) OU manual com Bearer correto
+  // (útil pra dry-run em dev/debug). Defense-in-depth não exclui testing legítimo.
+  if (!hasValidBearer) {
+    console.warn(`[BLOB-GC] unauthorized ua="${(req.headers['user-agent']||'').slice(0,60)}"`);
     return res.status(401).json({ error: 'unauthorized' });
   }
 
@@ -166,7 +173,7 @@ export default async function handler(req, res) {
   const totalExpired = Object.values(report)
     .reduce((acc, r) => acc + (r.expired || 0), 0);
 
-  console.log(`[BLOB-GC] ${dryRun ? 'DRY-RUN' : 'EXECUTED'} duration=${duration}ms expired=${totalExpired} deleted=${totalDeleted}`);
+  console.log(`[BLOB-GC] ${dryRun ? 'DRY-RUN' : 'EXECUTED'} ${brtISO()} trigger=${isCron ? 'cron' : 'manual'} duration=${duration}ms expired=${totalExpired} deleted=${totalDeleted}`);
 
   return res.status(200).json({
     ok: true,

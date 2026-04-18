@@ -10,6 +10,7 @@
 
 import { list } from '@vercel/blob';
 import { sanitizeHeader } from '../_lib/security.js';
+import { brtPeriod, brtISO } from '../_lib/time.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -158,14 +159,16 @@ export default async function handler(req, res) {
       hasBlob ? recentBlobs('leads/converted/', 5) : Promise.resolve([]),
     ]);
 
-    const hour = new Date().getUTCHours();
-    const period = hour < 12 ? 'Manhã' : 'Noite';
+    // Period calculado via Intl America/Recife (DST-safe se Brasil reintroduzir horário
+    // de verão) — substituiu `getUTCHours() < 12` que funcionava por coincidência
+    // dos crons atuais (11 UTC = 8h manhã, 23 UTC = 20h noite) mas quebraria se
+    // cron schedule mudasse pra 2h UTC (=23h BRT = Noite, mas getUTCHours=2 → "Manhã").
+    const period = brtPeriod();
 
-    // Log detalhado inclui timestamps dos últimos leads — ajuda diagnosticar
-    // "cron sempre mostra 0" sem precisar endpoint debug.
+    // Log detalhado inclui timestamps BRT dos últimos leads.
     const lastPendingTs = recentPending[0]?.uploadedAt || 'none';
     const lastConvertedTs = recentConverted[0]?.uploadedAt || 'none';
-    console.log(`[CRON] ${period} 24h: pending=${pending24h} converted=${converted24h} | total hist: pending=${pendingTotal} converted=${convertedTotal} | last_pending=${lastPendingTs} last_converted=${lastConvertedTs}`);
+    console.log(`[CRON] ${period} (${brtISO()}) 24h: pending=${pending24h} converted=${converted24h} | total hist: pending=${pendingTotal} converted=${convertedTotal} | last_pending=${lastPendingTs} last_converted=${lastConvertedTs}`);
 
     await sendReport(pending24h, converted24h, period, {
       pendingTotal, convertedTotal, recentPending, recentConverted,
