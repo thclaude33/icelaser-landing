@@ -549,10 +549,19 @@ export default async function handler(req, res) {
         // Extrair phone do primeiro message pra identificar o backup
         const firstMsg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
         const fromPhone = firstMsg?.from || 'status';
-        const filename = `webhooks/wa/${ts}_${fromPhone}.json`;
+        // Sanitiza phone no path (path traversal defense).
+        const safePhone = String(fromPhone).replace(/[^0-9a-z]/gi, '').slice(0, 20) || 'unknown';
+        const filename = `webhooks/wa/${ts}_${safePhone}.json`;
         await put(filename, rawBody.toString(), {
-          access: 'public',
+          // access:'private' — webhook WA backup emergencial, não precisa ser público.
+          // cacheControlMaxAge:0 — logs não se beneficiam de CDN cache.
+          // addRandomSuffix:true — garante unicidade mesmo se dois webhooks chegarem
+          //   no mesmo ms (ts tem resolução ms, mas race-condition teórica).
+          // Blob GC cron limpa após 30 dias (api/cron/blob-gc.js).
+          access: 'private',
           contentType: 'application/json',
+          cacheControlMaxAge: 0,
+          addRandomSuffix: true,
         });
         console.log(`[BACKUP] ✅ Salvo: ${filename}`);
       } catch (e) {

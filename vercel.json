@@ -10,7 +10,8 @@
   "crons": [
     { "path": "/api/cron/daily-report", "schedule": "0 11 * * *" },
     { "path": "/api/cron/daily-report", "schedule": "0 23 * * *" },
-    { "path": "/api/cron/emq-monitor", "schedule": "0 13 * * *" }
+    { "path": "/api/cron/emq-monitor", "schedule": "0 13 * * *" },
+    { "path": "/api/cron/blob-gc", "schedule": "0 6 * * *" }
   ],
 
   "rewrites": [
@@ -46,6 +47,14 @@
       "regions": ["gru1"]
     },
     "api/cron/emq-monitor.js": {
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/cron/blob-gc.js": {
+      "maxDuration": 60,
+      "regions": ["gru1"]
+    },
+    "api/cron/blob-stats.js": {
       "maxDuration": 30,
       "regions": ["gru1"]
     },

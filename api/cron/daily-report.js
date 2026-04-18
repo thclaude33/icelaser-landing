@@ -32,6 +32,27 @@ async function countBlobs(prefix, sinceMs = 0) {
   return count;
 }
 
+/**
+ * Retorna os N leads mais recentes de um prefix com timestamps.
+ * Usado no email pra dar visibilidade mesmo quando contagem 24h é 0
+ * (ajuda diagnóstico "cron sempre mostra 0 leads" — se últimos leads
+ * são de 2d atrás, signal é baixo volume de form, não bug de contagem).
+ */
+async function recentBlobs(prefix, limit = 5) {
+  const all = [];
+  let cursor;
+  do {
+    const result = await list({ prefix, cursor, limit: 1000 });
+    for (const blob of result.blobs) {
+      if (blob.uploadedAt) all.push({ pathname: blob.pathname, uploadedAt: blob.uploadedAt });
+    }
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
+  return all
+    .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))
+    .slice(0, limit);
+}
+
 async function sendReport(pending, converted, period, totals = {}) {
   if (!EMAIL_PASS) {
     console.warn('[CRON] EMAIL_PASS não configurado — email ignorado');
@@ -42,7 +63,21 @@ async function sendReport(pending, converted, period, totals = {}) {
   const total = pending + converted;
   const taxa  = total > 0 ? ((converted / total) * 100).toFixed(1) : '0';
   const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
-  const { pendingTotal = 0, convertedTotal = 0 } = totals;
+  const { pendingTotal = 0, convertedTotal = 0, recentPending = [], recentConverted = [] } = totals;
+
+  const fmtRecent = (arr) => arr.length === 0
+    ? '<tr><td colspan="2" style="padding:6px 8px;color:#aaa;font-style:italic">Nenhum</td></tr>'
+    : arr.map(b => {
+        const dt = new Date(b.uploadedAt).toLocaleString('pt-BR', {
+          timeZone: 'America/Recife',
+          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+        });
+        // Extrai firstName do pathname: leads/pending/TIMESTAMP_name.json
+        const parts = b.pathname.split('/').pop().replace(/\.json$/, '').split('_');
+        const name = parts.slice(-1)[0] || '?';
+        return `<tr><td style="padding:4px 8px;color:#666;font-size:12px">${name}</td>
+                    <td style="padding:4px 8px;color:#999;font-size:12px;text-align:right">${dt}</td></tr>`;
+      }).join('');
 
   const html = `
   <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto">
@@ -77,6 +112,10 @@ async function sendReport(pending, converted, period, totals = {}) {
           <td style="padding:8px;text-align:right;color:#999">${convertedTotal}</td>
         </tr>
       </table>
+      <h3 style="margin:16px 0 8px;color:#333;font-size:13px">Últimos 5 leads pendentes</h3>
+      <table style="width:100%;border-collapse:collapse">${fmtRecent(recentPending)}</table>
+      <h3 style="margin:16px 0 8px;color:#333;font-size:13px">Últimos 5 leads convertidos</h3>
+      <table style="width:100%;border-collapse:collapse">${fmtRecent(recentConverted)}</table>
     </div>
   </div>`;
 
@@ -109,21 +148,35 @@ export default async function handler(req, res) {
     const nowMs = Date.now();
     const last24hMs = nowMs - 24 * 60 * 60 * 1000;
 
-    const [pending24h, converted24h, pendingTotal, convertedTotal] = await Promise.all([
-      process.env.BLOB_READ_WRITE_TOKEN ? countBlobs('leads/pending/', last24hMs) : Promise.resolve(0),
-      process.env.BLOB_READ_WRITE_TOKEN ? countBlobs('leads/converted/', last24hMs) : Promise.resolve(0),
-      process.env.BLOB_READ_WRITE_TOKEN ? countBlobs('leads/pending/') : Promise.resolve(0),
-      process.env.BLOB_READ_WRITE_TOKEN ? countBlobs('leads/converted/') : Promise.resolve(0),
+    const hasBlob = !!process.env.BLOB_READ_WRITE_TOKEN;
+    const [pending24h, converted24h, pendingTotal, convertedTotal, recentPending, recentConverted] = await Promise.all([
+      hasBlob ? countBlobs('leads/pending/', last24hMs) : Promise.resolve(0),
+      hasBlob ? countBlobs('leads/converted/', last24hMs) : Promise.resolve(0),
+      hasBlob ? countBlobs('leads/pending/') : Promise.resolve(0),
+      hasBlob ? countBlobs('leads/converted/') : Promise.resolve(0),
+      hasBlob ? recentBlobs('leads/pending/', 5) : Promise.resolve([]),
+      hasBlob ? recentBlobs('leads/converted/', 5) : Promise.resolve([]),
     ]);
 
     const hour = new Date().getUTCHours();
     const period = hour < 12 ? 'Manhã' : 'Noite';
 
-    console.log(`[CRON] ${period} 24h: pending=${pending24h} converted=${converted24h} | total hist: pending=${pendingTotal} converted=${convertedTotal}`);
+    // Log detalhado inclui timestamps dos últimos leads — ajuda diagnosticar
+    // "cron sempre mostra 0" sem precisar endpoint debug.
+    const lastPendingTs = recentPending[0]?.uploadedAt || 'none';
+    const lastConvertedTs = recentConverted[0]?.uploadedAt || 'none';
+    console.log(`[CRON] ${period} 24h: pending=${pending24h} converted=${converted24h} | total hist: pending=${pendingTotal} converted=${convertedTotal} | last_pending=${lastPendingTs} last_converted=${lastConvertedTs}`);
 
-    await sendReport(pending24h, converted24h, period, { pendingTotal, convertedTotal });
+    await sendReport(pending24h, converted24h, period, {
+      pendingTotal, convertedTotal, recentPending, recentConverted,
+    });
 
-    return res.status(200).json({ ok: true, pending24h, converted24h, pendingTotal, convertedTotal });
+    return res.status(200).json({
+      ok: true,
+      pending24h, converted24h, pendingTotal, convertedTotal,
+      last_pending: lastPendingTs,
+      last_converted: lastConvertedTs,
+    });
   } catch (err) {
     console.error('[CRON]', err.message);
     return res.status(500).json({ error: err.message });
