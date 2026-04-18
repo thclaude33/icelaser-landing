@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
 import { sha256, normalizePhoneBR, escapeHtml } from './_lib/security.js';
+import { buildUserData } from './_lib/piiBuilder.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -256,42 +257,38 @@ export default async function handler(req, res) {
   const rawIp = xff[0] || req.headers['x-real-ip'] || req.socket?.remoteAddress || undefined;
   const client_ip_address = cipIp || (rawIp ? stripMappedIPv4(rawIp) : undefined);
 
-  const userData = {
-    country: [sha256('br')],
-    st: [sha256('pe')],
-    ct: [sha256('recife')],
-    zp: [sha256('50000')],
-    ge: [sha256('f')], // público alvo 100% feminino (mulheres 20-44) — parâmetro correto: ge (não gen)
-  };
+  // Parse nome em first_name/last_name ANTES de chamar buildUserData
+  // (SDK Meta normaliza + hasheia + deriva f5first/f5last/fi automaticamente).
+  let firstName = null, lastName = null;
+  if (nome) {
+    const parts = nome.trim().split(/\s+/);
+    firstName = parts[0];
+    if (parts.length > 1) lastName = parts[parts.length - 1];
+  }
 
+  // external_id: identidade estável (email > phone). NÃO usar fbp como fallback
+  // (fbp já é matching key nativa; duplicar via external_id infla multi-user-per-IP).
   const normalizedPhone = telefone ? normalizePhone(telefone) : null;
   const normalizedEmail = email ? email.toLowerCase().trim() : null;
-
-  if (normalizedPhone) {
-    userData.ph = [sha256(normalizedPhone)];
-  }
-
-  if (normalizedEmail) {
-    userData.em = [sha256(normalizedEmail)];
-  }
-
-  if (nome) {
-    const parts = nome.trim().toLowerCase().split(/\s+/);
-    userData.fn = [sha256(parts[0])];
-    if (parts.length > 1) userData.ln = [sha256(parts[parts.length - 1])];
-  }
-
-  // external_id: SÓ identidade estável (email > phone). NÃO usar fbp como fallback.
-  //
-  // Motivo: fbp já é matching key nativa do Meta (user_data.fbp). Setar
-  // external_id = sha256(fbp) DUPLICA a identidade (Meta vê fbp E external_id como
-  // 2 chaves), o que em IP residencial/NAT compartilhado faz Meta contabilizar
-  // "múltiplos users por IP" — vira o aviso do Events Manager.
-  // Eventos anônimos (sem email/phone) ficam só com fbp + geo como matching.
   const externalIdRaw = normalizedEmail || normalizedPhone;
-  if (externalIdRaw) {
-    userData.external_id = [sha256(externalIdRaw)];
-  }
+
+  // buildUserData: wrapper do SDK oficial Meta capi-param-builder-nodejs v1.2.1.
+  // Aplica normalização canônica (lowercase, strip ws+punct, RFC2822 email,
+  // e.164 phone sem prefixo 0, mapeamento país/estado completo) + SHA-256 via SDK.
+  // Deriva automaticamente f5first, f5last, fi (partial matching advanced keys
+  // do Meta Java SDK oficial) quando first_name/last_name presentes.
+  const userData = await buildUserData({
+    email: normalizedEmail || undefined,
+    phone: normalizedPhone || undefined,
+    first_name: firstName || undefined,
+    last_name: lastName || undefined,
+    city: 'recife',
+    state: 'pe',
+    zip_code: '50000',
+    country: 'br',
+    gender: 'f',             // público alvo 100% feminino (mulheres 20-44)
+    external_id: externalIdRaw || undefined,
+  });
 
   if (client_user_agent) userData.client_user_agent = client_user_agent;
   if (client_ip_address) userData.client_ip_address = client_ip_address;
@@ -325,33 +322,40 @@ export default async function handler(req, res) {
   if (finalFbp) userData.fbp = finalFbp;
   if (finalFbc) userData.fbc = finalFbc;
 
-  // custom_data: todos os eventos precisam de value+currency para evitar diagnóstico Meta
+  // custom_data: todos os eventos (exceto PageView) recebem value+currency pra
+  // evitar diagnóstico Meta, e customer_segmentation conforme enum oficial 2026.
+  // Visitantes da LP são sempre "new_customer_to_business" — já filtramos
+  // Pixel Custom Audience "Compradores+Leads Quentes 180d" antes de enviar?
+  // Não — o customer_segmentation é declarado do ponto de vista do evento
+  // específico (primeiro touchpoint LP = new), não do histórico do usuário.
   const custom_data = {};
   if (event_name === 'CompleteRegistration') {
     custom_data.value = 0;
     custom_data.currency = 'BRL';
     custom_data.status = 'submitted';
     custom_data.content_name = 'Avaliacao Gratuita LP';
+    custom_data.customer_segmentation = 'new_customer_to_business';
   } else if (event_name === 'InitiateCheckout') {
     custom_data.value = 0;
     custom_data.currency = 'BRL';
     custom_data.content_name = 'Form Avaliacao Gratuita';
+    custom_data.customer_segmentation = 'new_customer_to_business';
   } else if (event_name === 'Lead') {
     custom_data.value = 0;
     custom_data.currency = 'BRL';
     custom_data.content_name = 'Avaliacao Gratuita LP';
     custom_data.content_category = 'depilacao_laser';
     custom_data.lead_event_source = 'landing_page';
-    // Oficial Meta 2026 (docs server-event): enum customer_segmentation (9 valores).
-    // Primeiro contato via LP = novo cliente pro negócio.
     custom_data.customer_segmentation = 'new_customer_to_business';
   } else if (event_name === 'ViewContent') {
     custom_data.value = 0;
     custom_data.currency = 'BRL';
     custom_data.content_name = 'LP Avaliacao Gratuita';
     custom_data.content_category = 'depilacao_laser';
+    custom_data.customer_segmentation = 'new_customer_to_business';
   } else if (event_name === 'PageView') {
-    // PageView não precisa de custom_data — só user_data para matching
+    // PageView não precisa de custom_data — só user_data para matching.
+    // customer_segmentation não se aplica (Meta docs só cita em eventos de funil).
   }
 
   // Validação: garantir MATCHING KEY real (não só geo).

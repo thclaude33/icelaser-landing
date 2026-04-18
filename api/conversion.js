@@ -13,6 +13,7 @@
 import { list, put, del } from '@vercel/blob';
 import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE } from './_lib/config.js';
 import { sha256, normalizePhoneBR } from './_lib/security.js';
+import { buildUserData } from './_lib/piiBuilder.js';
 
 // Alias local (fonte de verdade em _lib/security.js).
 const normalizePhone = normalizePhoneBR;
@@ -94,25 +95,28 @@ export default async function handler(req, res) {
     // 1. Busca lead original no Blob
     const lead = await findLeadInBlob(nome || '', telefone || '');
 
-    // 2. Monta user_data com dados originais (melhor EMQ) ou dados fornecidos
-    // Incluir geo-defaults como nos outros endpoints pra consistência de matching
-    const userData = {
-      country: [sha256('br')],
-      st: [sha256('pe')],
-      ct: [sha256('recife')],
-      zp: [sha256('50000')],
-      ge: [sha256('f')],
-    };
-
+    // 2. Monta user_data via SDK oficial Meta capi-param-builder-nodejs v1.2.1.
+    // Normaliza+hasheia conforme regras Meta (RFC2822 email, e.164 phone,
+    // strip ws+punct em nome/cidade, country/state mapping) e deriva advanced
+    // matching partial keys (f5first, f5last, fi) automaticamente.
     const tel = telefone || lead?.data?.telefone;
     const nm = nome || lead?.data?.nome;
-
-    if (tel) userData.ph = [sha256(normalizePhone(tel))];
+    let firstName = null, lastName = null;
     if (nm) {
-      const parts = nm.trim().toLowerCase().split(/\s+/);
-      userData.fn = [sha256(parts[0])];
-      if (parts.length > 1) userData.ln = [sha256(parts[parts.length - 1])];
+      const parts = nm.trim().split(/\s+/);
+      firstName = parts[0];
+      if (parts.length > 1) lastName = parts[parts.length - 1];
     }
+    const userData = await buildUserData({
+      phone: tel ? normalizePhone(tel) : undefined,
+      first_name: firstName || undefined,
+      last_name: lastName || undefined,
+      city: 'recife',
+      state: 'pe',
+      zip_code: '50000',
+      country: 'br',
+      gender: 'f',
+    });
 
     // Dados originais da sessão do lead (fbp, fbc, IP, UA) — maximiza match quality
     if (lead?.data) {
