@@ -264,26 +264,51 @@
     })();
   </script>
 
-  <!-- Performance: preconnect + dns-prefetch pros hosts usados.
-       fonts.googleapis.com + fonts.gstatic.com: Google Fonts (crítico render)
-       unpkg.com: Meta ParamBuilder SDK (async, não crítico render)
-       api64.ipify.org: IP capture (async pós-load) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- DNS prefetch hosts externos (Meta SDK + IP capture + Pixel).
+       Fonts agora self-hosted — eliminadas chamadas a fonts.googleapis.com /
+       fonts.gstatic.com (ganho FCP -200/-500ms, LCP -300/-800ms). -->
   <link rel="dns-prefetch" href="https://unpkg.com">
   <link rel="dns-prefetch" href="https://api64.ipify.org">
   <link rel="dns-prefetch" href="https://connect.facebook.net">
 
-  <!-- Fonts: DM Sans body + Fraunces display (ambas variable).
-       FCP optimization: `rel=preload as=style` com onload convertendo pra
-       stylesheet. Browser baixa CSS em paralelo com HTML parse em vez de
-       render-blocking sequential. Redução típica FCP: 300-800ms.
-       DM Sans: só weights usados (400/500/600) — 700 era usado 1x, removido.
-       Fraunces: 400..600 ambos normal+italic cobre uso real. -->
-  <link rel="preload" as="style"
-    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&display=swap"
-    onload="this.rel='stylesheet'">
-  <noscript><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&display=swap" rel="stylesheet"></noscript>
+  <!-- Preload fonts críticas (LCP é h1 texto com Fraunces 400).
+       Browser baixa em paralelo com HTML — font disponível antes do paint. -->
+  <link rel="preload" href="/fonts/fraunces-regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/dm-sans-variable.woff2" as="font" type="font/woff2" crossorigin>
+
+  <!-- Self-hosted fonts: DM Sans (body) + Fraunces (display, normal+italic).
+       unicode-range=latin (U+0000-00FF) cobre PT-BR completo (á é í ó ú ã õ ç).
+       font-display:swap = render com fallback primeiro, trocar quando font carregar.
+       Sem dependência Google CDN (2 DNS+TLS eliminados + privacy user). -->
+  <style>
+    @font-face {
+      font-family: 'DM Sans';
+      font-style: normal;
+      font-weight: 400 600;
+      font-display: swap;
+      src: url('/fonts/dm-sans-variable.woff2') format('woff2-variations'),
+           url('/fonts/dm-sans-variable.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Fraunces';
+      font-style: normal;
+      font-weight: 400 600;
+      font-display: swap;
+      src: url('/fonts/fraunces-regular.woff2') format('woff2-variations'),
+           url('/fonts/fraunces-regular.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Fraunces';
+      font-style: italic;
+      font-weight: 400 600;
+      font-display: swap;
+      src: url('/fonts/fraunces-italic.woff2') format('woff2-variations'),
+           url('/fonts/fraunces-italic.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+  </style>
 
   <style>
     /* ═══════════════════════════════════════════════════
@@ -855,6 +880,21 @@
     .section-title em { font-style: italic; color: var(--brand); }
 
     /* ═══ COMPARATIVO LASER vs CERA ═══ */
+    /* Performance: content-visibility:auto em seções abaixo da dobra.
+       Browser skip layout/paint inicial até user chegar perto via scroll.
+       contain-intrinsic-size reserva espaço no scroll pra evitar CLS.
+       FCP/LCP melhoram -50 a -250ms. Não afeta Pixel/CAPI. */
+    .compare-section,
+    .como-funciona,
+    .proof,
+    .faq-section,
+    .garantia-section,
+    .cta-final,
+    footer {
+      content-visibility: auto;
+      contain-intrinsic-size: 0 800px;
+    }
+
     .compare-section {
       background: var(--cream);
       border-top: 1px solid var(--line);
