@@ -27,24 +27,36 @@ export default async function handler(req, res) {
   const flagName = String(req.query.flag || 'cta-variant');
   const fallback = String(req.query.fallback || 'avaliar');
 
-  // Helper: seta `x-flags-values` header pro Flags Explorer (Vercel Toolbar)
-  // reconhecer o valor atual do flag. Quando FLAGS_SECRET disponível, usa
-  // encryptFlagValues pra não vazar valor na rede; senão base64 simples.
+  // Helper: seta `x-flags-values` header pro Flags Explorer (Vercel Toolbar).
+  // Estratégia dupla: tenta encryptFlagValues (seguro, exige FLAGS_SECRET 256-bit
+  // válido); se falhar por qualquer razão, FALLBACK pra base64 plaintext.
+  // Antes: falha no encrypt deixava header VAZIO → toolbar não via valor.
+  // `encryptFlagValues` lança se FLAGS_SECRET não é exatamente 32 bytes base64url.
+  let headerStatus = 'unset';
   async function setFlagValuesHeader(name, value) {
-    try {
-      if (process.env.FLAGS_SECRET) {
-        const { encryptFlagValues } = await import('flags');
-        const encrypted = await encryptFlagValues({ [name]: value });
-        res.setHeader('x-flags-values', encrypted);
-      } else {
-        // Sem FLAGS_SECRET: Vercel Toolbar espera base64 JSON como legado.
+    const fallbackBase64 = () => {
+      try {
         res.setHeader(
           'x-flags-values',
           Buffer.from(JSON.stringify({ [name]: value })).toString('base64'),
         );
+        headerStatus = 'base64';
+      } catch (e) {
+        headerStatus = `fail:${e.message}`;
       }
+    };
+    if (!process.env.FLAGS_SECRET) {
+      fallbackBase64();
+      return;
+    }
+    try {
+      const { encryptFlagValues } = await import('flags');
+      const encrypted = await encryptFlagValues({ [name]: value });
+      res.setHeader('x-flags-values', encrypted);
+      headerStatus = 'encrypted';
     } catch (e) {
-      console.warn('[FLAGS] setFlagValuesHeader failed:', e.message);
+      console.warn('[FLAGS] encrypt failed, base64 fallback:', e.message);
+      fallbackBase64();
     }
   }
 
@@ -66,7 +78,8 @@ export default async function handler(req, res) {
     }
   }
 
-  // 2. Edge Config
+  // 2. Edge Config. Query `?debug=1` retorna info diagnóstico (não vaza valores).
+  const debug = String(req.query.debug || '') === '1';
   try {
     const { get } = await import('@vercel/edge-config');
     const keyMap = { 'cta-variant': 'cta_variant' };
@@ -74,13 +87,17 @@ export default async function handler(req, res) {
     const edgeValue = await get(edgeKey);
     const value = edgeValue ?? fallback;
     await setFlagValuesHeader(flagName, value);
-    return res.status(200).json({
+    const body = {
       value,
       source: edgeValue !== undefined ? 'edge-config' : 'fallback',
-    });
+    };
+    if (debug) body.debug = { headerStatus, edgeKey, hasFlagsSecret: !!process.env.FLAGS_SECRET, hasEdgeConfig: !!process.env.EDGE_CONFIG };
+    return res.status(200).json(body);
   } catch (e) {
     console.warn('[FLAGS] Edge Config fallback:', e.message);
     await setFlagValuesHeader(flagName, fallback);
-    return res.status(200).json({ value: fallback, source: 'error-fallback' });
+    const body = { value: fallback, source: 'error-fallback' };
+    if (debug) body.debug = { headerStatus, error: e.message, hasFlagsSecret: !!process.env.FLAGS_SECRET, hasEdgeConfig: !!process.env.EDGE_CONFIG };
+    return res.status(200).json(body);
   }
 }
