@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
-import { sha256, normalizePhoneBR } from './_lib/security.js';
+import { sha256, normalizePhoneBR, escapeHtml } from './_lib/security.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -105,6 +105,11 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
              <td style="padding:6px 0;font-size:13px"><code style="background:${color || '#eee'};padding:2px 6px;border-radius:3px">${value}</code></td></tr>`
       : '';
 
+    // XSS-safe: user-controlled fields (nome, telefone, email) passam por escapeHtml.
+    // Campos internos (lpNome, plataforma, device.*, etc) são determinísticos — safe as-is.
+    const nomeSafe = escapeHtml(nome);
+    const telefoneSafe = escapeHtml(telefone);
+    const emailSafe = escapeHtml(origem.email);
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
       <div style="background:#1a1a2e;padding:20px;border-radius:8px 8px 0 0">
@@ -117,11 +122,11 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
           <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Dados do Lead</div>
           <table style="width:100%;border-collapse:collapse">
             <tr><td style="padding:6px 0;color:#666;width:120px;font-size:13px">Nome</td>
-                <td style="padding:6px 0;font-size:15px"><strong>${nome}</strong></td></tr>
+                <td style="padding:6px 0;font-size:15px"><strong>${nomeSafe}</strong></td></tr>
             <tr><td style="padding:6px 0;color:#666;font-size:13px">Telefone</td>
-                <td style="padding:6px 0">${telLimpo ? `<a href="${waLink}" style="color:#25D366;font-weight:bold;font-size:15px">${telefone}</a>` : '<span style="color:#999">WA Direto (sem formulário)</span>'}</td></tr>
+                <td style="padding:6px 0">${telLimpo ? `<a href="${waLink}" style="color:#25D366;font-weight:bold;font-size:15px">${telefoneSafe}</a>` : '<span style="color:#999">WA Direto (sem formulário)</span>'}</td></tr>
             ${origem.email ? `<tr><td style="padding:6px 0;color:#666;font-size:13px">E-mail</td>
-                <td style="padding:6px 0;font-size:13px"><a href="mailto:${origem.email}" style="color:#1877f2">${origem.email}</a></td></tr>` : ''}
+                <td style="padding:6px 0;font-size:13px"><a href="mailto:${emailSafe}" style="color:#1877f2">${emailSafe}</a></td></tr>` : ''}
             <tr><td style="padding:6px 0;color:#666;font-size:13px">Origem</td>
                 <td style="padding:6px 0">${origemBadge}</td></tr>
           </table>
@@ -196,7 +201,7 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     await t.sendMail({
       from: `"IceLaser Bot" <${EMAIL_FROM}>`,
       to: EMAIL_TO.join(','),
-      subject: `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${nome} | ${lpNome}`,
+      subject: `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${nome.replace(/[\r\n]/g, ' ').slice(0, 100)} | ${lpNome}`,
       html,
     });
   } catch (e) {

@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE } from './_lib/config.js';
-import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName } from './_lib/security.js';
+import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml } from './_lib/security.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
@@ -76,6 +76,12 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
     ? `<span style="background:#1877f2;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">📣 CTWA</span>`
     : `<span style="background:#25D366;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px">📲 Direto</span>`;
 
+  // XSS-safe: user-controlled fields (nome, telefone, servico) passam por escapeHtml.
+  const nomeSafe = escapeHtml(nome);
+  const telefoneSafe = escapeHtml(telefone);
+  const servicoSafe = escapeHtml(servico);
+  const ctwaClidSafe = escapeHtml(ctwaClid || '');
+  const telDigits = String(telefone || '').replace(/\D/g, '');
   const html = `
   <div style="font-family:Arial,sans-serif;max-width:580px;margin:auto">
     <div style="background:#1a1a2e;padding:20px;border-radius:8px 8px 0 0">
@@ -85,22 +91,22 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
     <div style="background:#f9f9f9;padding:20px;border-radius:0 0 8px 8px;border:1px solid #eee">
       <table style="width:100%;border-collapse:collapse">
         <tr><td style="padding:8px 0;color:#666;width:100px">Nome</td>
-            <td style="padding:8px 0"><strong>${nome}</strong></td></tr>
+            <td style="padding:8px 0"><strong>${nomeSafe}</strong></td></tr>
         <tr><td style="padding:8px 0;color:#666">Telefone</td>
             <td style="padding:8px 0">
-              <a href="https://wa.me/55${telefone.replace(/\D/g,'')}" style="color:#25D366;font-weight:bold">${telefone}</a>
+              <a href="https://wa.me/55${telDigits}" style="color:#25D366;font-weight:bold">${telefoneSafe}</a>
             </td></tr>
         <tr><td style="padding:8px 0;color:#666">Serviço</td>
-            <td style="padding:8px 0">${servico}</td></tr>
+            <td style="padding:8px 0">${servicoSafe}</td></tr>
         <tr><td style="padding:8px 0;color:#666">Origem</td>
             <td style="padding:8px 0">${ctwaTag}</td></tr>
         ${ctwaClid ? `<tr><td style="padding:8px 0;color:#666;font-size:11px">CTWA ID</td>
-            <td style="padding:8px 0;font-size:11px;color:#999">${ctwaClid}</td></tr>` : ''}
+            <td style="padding:8px 0;font-size:11px;color:#999">${ctwaClidSafe}</td></tr>` : ''}
       </table>
     </div>
   </div>`;
 
-  await enviarEmail(`🔥 Lead Flow WA — ${nome} | IceLaser`, html);
+  await enviarEmail(`🔥 Lead Flow WA — ${String(nome).replace(/[\r\n]/g, ' ').slice(0, 100)} | IceLaser`, html);
 
   // Envia template de confirmação se Cloud API ativo
   if (META_TOKEN && from !== '—') {
@@ -214,6 +220,9 @@ async function processarAlertaTemplate(ev) {
   console.warn(`[TEMPLATE ALERTA] ${nome} → ${status}`);
 
   if (['PAUSED','DISABLED','FLAGGED','REJECTED'].includes(status)) {
+    // XSS-safe mesmo que nome venha da Meta (defense-in-depth)
+    const nomeSafe = escapeHtml(nome);
+    const statusSafe = escapeHtml(status);
     const html = `
     <div style="font-family:Arial;max-width:540px;margin:auto">
       <div style="background:#c0392b;padding:16px;border-radius:8px 8px 0 0">
@@ -221,13 +230,13 @@ async function processarAlertaTemplate(ev) {
         <p style="color:#fcc;margin:4px 0 0">${agora}</p>
       </div>
       <div style="background:#fff5f5;padding:16px;border-radius:0 0 8px 8px;border:1px solid #fcc">
-        <p><strong>Template:</strong> ${nome}</p>
-        <p><strong>Status:</strong> <span style="color:#c0392b">${status}</span></p>
+        <p><strong>Template:</strong> ${nomeSafe}</p>
+        <p><strong>Status:</strong> <span style="color:#c0392b">${statusSafe}</span></p>
         <p style="font-size:12px"><a href="https://business.facebook.com/wa/manage/message-templates/">
           Abrir WhatsApp Manager →</a></p>
       </div>
     </div>`;
-    await enviarEmail(`⚠️ Template WA pausado: ${nome}`, html);
+    await enviarEmail(`⚠️ Template WA pausado: ${String(nome).replace(/[\r\n]/g, ' ').slice(0, 100)}`, html);
   }
 }
 
@@ -368,16 +377,20 @@ export default async function handler(req, res) {
             const adId = value?.ad_id || value?.id || '?';
             const adName = value?.ad_name || '?';
             console.warn(`[CREATIVE FATIGUE] 🔥 Ad ${adId} (${adName}) → Fadiga: ${nivel}`);
+            // escape defensive (ad names vêm da Meta — confiáveis, mas hardening)
+            const nivelS = escapeHtml(nivel);
+            const adIdS = escapeHtml(adId);
+            const adNameS = escapeHtml(adName);
             await enviarEmail(
-              `🔥 Creative Fatigue: ${adName} → ${nivel}`,
+              `🔥 Creative Fatigue: ${String(adName).replace(/[\r\n]/g, ' ').slice(0, 80)} → ${String(nivel).slice(0, 20)}`,
               `<div style="font-family:Arial;max-width:540px;margin:auto">
                 <div style="background:${nivel === 'High' ? '#c0392b' : nivel === 'Medium' ? '#f39c12' : '#3498db'};padding:16px;border-radius:8px 8px 0 0">
-                  <h2 style="color:#fff;margin:0">🔥 Creative Fatigue — ${nivel}</h2>
+                  <h2 style="color:#fff;margin:0">🔥 Creative Fatigue — ${nivelS}</h2>
                 </div>
                 <div style="background:#f9f9f9;padding:16px;border-radius:0 0 8px 8px;border:1px solid #eee">
-                  <p><strong>Ad:</strong> ${adName}</p>
-                  <p><strong>Ad ID:</strong> ${adId}</p>
-                  <p><strong>Nível:</strong> <span style="color:${nivel === 'High' ? '#c0392b' : '#f39c12'};font-weight:bold">${nivel}</span></p>
+                  <p><strong>Ad:</strong> ${adNameS}</p>
+                  <p><strong>Ad ID:</strong> ${adIdS}</p>
+                  <p><strong>Nível:</strong> <span style="color:${nivel === 'High' ? '#c0392b' : '#f39c12'};font-weight:bold">${nivelS}</span></p>
                   <p><strong>Ação:</strong> ${nivel === 'High' ? '⛔ PAUSAR criativo imediatamente' : nivel === 'Medium' ? '⚠️ Preparar substituto' : 'ℹ️ Monitorar'}</p>
                   <p style="font-size:12px;color:#999">Conta: act_790663154114264 | ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })}</p>
                 </div>
@@ -392,18 +405,23 @@ export default async function handler(req, res) {
             const errSummary = value?.error_summary || '';
             const errMsg = value?.error_message || '';
             console.error(`[WITH_ISSUES] ⚠️ ${level} ${objId}: ${errSummary}`);
+            const levelS = escapeHtml(level);
+            const objIdS = escapeHtml(objId);
+            const errCodeS = escapeHtml(errCode);
+            const errSummaryS = escapeHtml(errSummary);
+            const errMsgS = escapeHtml(errMsg);
             await enviarEmail(
-              `⚠️ ${level} com problema: ${errSummary}`,
+              `⚠️ ${String(level).slice(0, 20)} com problema: ${String(errSummary).replace(/[\r\n]/g, ' ').slice(0, 80)}`,
               `<div style="font-family:Arial;max-width:540px;margin:auto">
                 <div style="background:#e74c3c;padding:16px;border-radius:8px 8px 0 0">
-                  <h2 style="color:#fff;margin:0">⚠️ ${level} — WITH_ISSUES</h2>
+                  <h2 style="color:#fff;margin:0">⚠️ ${levelS} — WITH_ISSUES</h2>
                 </div>
                 <div style="background:#fff5f5;padding:16px;border-radius:0 0 8px 8px;border:1px solid #fcc">
-                  <p><strong>Tipo:</strong> ${level}</p>
-                  <p><strong>ID:</strong> ${objId}</p>
-                  <p><strong>Erro:</strong> ${errSummary}</p>
-                  <p><strong>Detalhe:</strong> ${errMsg}</p>
-                  <p><strong>Código:</strong> ${errCode}</p>
+                  <p><strong>Tipo:</strong> ${levelS}</p>
+                  <p><strong>ID:</strong> ${objIdS}</p>
+                  <p><strong>Erro:</strong> ${errSummaryS}</p>
+                  <p><strong>Detalhe:</strong> ${errMsgS}</p>
+                  <p><strong>Código:</strong> ${errCodeS}</p>
                   <p style="font-size:12px"><a href="https://business.facebook.com/adsmanager/manage/campaigns?act=790663154114264">Abrir Ads Manager →</a></p>
                 </div>
               </div>`
@@ -448,18 +466,23 @@ export default async function handler(req, res) {
                 const tel = fields.find(f => f.name === 'phone_number')?.values?.[0] || '?';
                 const email = fields.find(f => f.name === 'email')?.values?.[0] || '';
                 console.log(`[LEADGEN] ${maskName(nome)} | ${maskPhone(tel)} | ${maskEmail(email)}`);
+                // XSS-safe: nome, tel, email podem vir maliciosos via Lead Gen Form
+                const nomeLgSafe = escapeHtml(nome);
+                const telLgSafe = escapeHtml(tel);
+                const emailLgSafe = escapeHtml(email || '');
+                const telLgDigits = String(tel || '').replace(/\D/g, '');
                 await enviarEmail(
-                  `🎯 Lead Nativo — ${nome} | IceLaser`,
+                  `🎯 Lead Nativo — ${String(nome).replace(/[\r\n]/g, ' ').slice(0, 100)} | IceLaser`,
                   `<div style="font-family:Arial;max-width:540px;margin:auto">
                     <div style="background:#27ae60;padding:16px;border-radius:8px 8px 0 0">
                       <h2 style="color:#fff;margin:0">🎯 Novo Lead — Form Nativo</h2>
                     </div>
                     <div style="background:#f0fff4;padding:16px;border-radius:0 0 8px 8px;border:1px solid #c3e6cb">
-                      <p><strong>Nome:</strong> ${nome}</p>
-                      <p><strong>Telefone:</strong> <a href="https://wa.me/${tel.replace(/\D/g,'')}">${tel}</a></p>
-                      ${email ? `<p><strong>Email:</strong> ${email}</p>` : ''}
-                      <p><strong>Form ID:</strong> ${formId}</p>
-                      <p><strong>Ad ID:</strong> ${adId || 'orgânico'}</p>
+                      <p><strong>Nome:</strong> ${nomeLgSafe}</p>
+                      <p><strong>Telefone:</strong> <a href="https://wa.me/${telLgDigits}">${telLgSafe}</a></p>
+                      ${email ? `<p><strong>Email:</strong> ${emailLgSafe}</p>` : ''}
+                      <p><strong>Form ID:</strong> ${escapeHtml(formId)}</p>
+                      <p><strong>Ad ID:</strong> ${escapeHtml(adId || 'orgânico')}</p>
                       <p style="font-size:12px;color:#999">${new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })}</p>
                     </div>
                   </div>`

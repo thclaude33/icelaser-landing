@@ -120,3 +120,22 @@ export function normalizePhoneBR(phone) {
   const digits = String(phone).replace(/\D/g, '');
   return digits.startsWith('55') ? digits : `55${digits}`;
 }
+
+/**
+ * Escapa HTML pra prevenir XSS em templates de email.
+ * Uso: `<strong>${escapeHtml(nome)}</strong>` nos templates de enviarEmail.
+ *
+ * Atendentes IceLaser recebem emails dos forms; user podia injetar
+ * <script>, <img onerror>, etc via campos nome/email/telefone. Fix previne
+ * renderização de HTML malicioso nos clients Gmail/Outlook/Apple Mail.
+ */
+export function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\//g, '&#x2F;');
+}
