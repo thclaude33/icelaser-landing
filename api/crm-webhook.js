@@ -667,7 +667,19 @@ export default async function handler(req, res) {
       customer_segmentation: customerSeg,
     });
   } catch (err) {
-    console.error('[CRM-WEBHOOK]', err.message);
+    // Logging defensivo: captura contexto completo pra debug de 500s raros.
+    // Investigação 18/04/2026: 1 500 isolado em >500 requests (7 dias), sem
+    // payload acessível pelos logs anteriores. Agora inclui event type +
+    // stack trace pra reproduzir quando acontecer de novo.
+    const ctx = {
+      event: event || 'unknown',
+      message: err?.message || 'no message',
+      stack: (err?.stack || '').split('\n').slice(0, 6).join(' | '),
+      auth_mode: authCheck?.mode || 'unknown',
+      has_conversation: !!body?.conversation,
+      has_labels: !!(body?.conversation?.labels || body?.changed_attributes),
+    };
+    console.error(`[CRM-WEBHOOK][500]`, JSON.stringify(ctx));
     return res.status(500).json({ error: err.message });
   }
 }

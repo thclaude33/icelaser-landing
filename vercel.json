@@ -11,6 +11,7 @@
     { "path": "/api/cron/blob-gc",       "schedule": "15 6 * * *" },
     { "path": "/api/cron/daily-report",  "schedule": "5 11 * * *" },
     { "path": "/api/cron/emq-monitor",   "schedule": "35 13 * * *" },
+    { "path": "/api/cron/emq-alert",     "schedule": "45 * * * *" },
     { "path": "/api/cron/daily-report",  "schedule": "25 23 * * *" }
   ],
 
@@ -59,6 +60,10 @@
       "regions": ["gru1"]
     },
     "api/cron/emq-realtime.js": {
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/cron/emq-alert.js": {
       "maxDuration": 30,
       "regions": ["gru1"]
     },
