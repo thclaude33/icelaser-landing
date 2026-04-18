@@ -1,0 +1,18 @@
+{
+  "name": "IceLaser Recife — Depilação a Laser",
+  "short_name": "IceLaser",
+  "description": "Depilação a laser Crystal 3D Plus em Recife. 3.000+ clientes. 1ª sessão gratuita.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F2",
+  "theme_color": "#640039",
+  "lang": "pt-BR",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "32x32",
+      "type": "image/x-icon"
+    }
+  ]
+}

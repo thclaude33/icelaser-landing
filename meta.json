@@ -1,0 +1,32 @@
+{
+  "name": "IceLaser Recife",
+  "short_name": "IceLaser",
+  "description": "Depilação a laser Crystal 3D Plus em Recife, nas Graças. 3.000+ clientes. Primeira sessão gratuita.",
+  "url": "https://icelasers.com.br/",
+  "lang": "pt-BR",
+  "business": {
+    "type": "BeautySalon",
+    "phone": "+5581995749947",
+    "whatsapp": "https://wa.me/5581995749947",
+    "address": {
+      "streetAddress": "Rua Amélia, 598, Graças",
+      "locality": "Recife",
+      "region": "PE",
+      "country": "BR",
+      "postalCode": "52011-050"
+    },
+    "openingHours": "Mo-Sa 09:00-19:00",
+    "priceRange": "$$",
+    "aggregateRating": {
+      "ratingValue": 5,
+      "reviewCount": 3000
+    }
+  },
+  "og": {
+    "title": "Chega de Cera — 1ª Sessão Grátis nas Axilas | IceLaser Recife",
+    "description": "3.000+ clientes em Recife. Laser Crystal 3D Plus — sem dor, resultado desde a 1ª sessão.",
+    "image": "https://icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis",
+    "type": "website",
+    "locale": "pt_BR"
+  }
+}
