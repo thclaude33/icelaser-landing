@@ -177,11 +177,22 @@
       var ua = navigator.userAgent;
       var src = location.href;
       var urlParams = new URLSearchParams(location.search);
-      var utmSrc = urlParams.get('utm_source') || undefined;
-      var utmCamp = urlParams.get('utm_campaign') || undefined;
+      // Captura TODAS as UTMs + Meta Ads tracking params (não só source/campaign).
+      // /api/track aceita utm_medium, utm_content, utm_term, ad_id, adset_id,
+      // campaign_id, placement, site_source_name, platform. Captura máxima =
+      // melhor attribution no email notification + Blob lead snapshot.
+      var get = function(k) { return urlParams.get(k) || undefined; };
       var baseData = {
         event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
-        utm_source: utmSrc, utm_campaign: utmCamp,
+        utm_source:   get('utm_source'),
+        utm_medium:   get('utm_medium'),
+        utm_campaign: get('utm_campaign'),
+        utm_content:  get('utm_content'),
+        utm_term:     get('utm_term'),
+        ad_id:        get('ad_id'),
+        adset_id:     get('adset_id'),
+        campaign_id:  get('campaign_id'),
+        placement:    get('placement'),
       };
       window.sendCapi(Object.assign({ event_name: 'PageView', event_id: pvEventId }, baseData));
       window.sendCapi(Object.assign({ event_name: 'ViewContent', event_id: vcEventId }, baseData));
