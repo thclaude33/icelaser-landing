@@ -264,15 +264,15 @@ export default async function handler(req, res) {
   }
 
   // Loga no Blob (assíncrono, não bloqueia a resposta).
-  // access:'private' — webhooks contêm deploymentId, urls, projeto (não super sensível
-  // mas não precisa ser público); seguindo mesmo pattern da 19ª pass (log-drain).
-  // cacheControlMaxAge:0 — webhook logs não precisam CDN cache.
+  // Store Vercel é public — `access:'private'` lança runtime error.
+  // addRandomSuffix + pathname sanitizado = URL não-adivinhável como bearer token.
+  // Conteúdo: deploymentId/urls/projeto — metadata não-sensível.
   const ts       = new Date().toISOString().replace(/[:.]/g, '-');
   // event.type pode conter caracteres exóticos se payload corrompido — sanitize pathname.
   const safeType = String(event.type || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
   const fileName = `webhooks/${safeType}/${ts}.json`;
   put(fileName, rawBody, {
-    access: 'private',
+    access: 'public',
     contentType: 'application/json',
     addRandomSuffix: true,
     cacheControlMaxAge: 0,

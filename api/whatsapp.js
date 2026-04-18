@@ -553,12 +553,11 @@ export default async function handler(req, res) {
         const safePhone = String(fromPhone).replace(/[^0-9a-z]/gi, '').slice(0, 20) || 'unknown';
         const filename = `webhooks/wa/${ts}_${safePhone}.json`;
         await put(filename, rawBody.toString(), {
-          // access:'private' — webhook WA backup emergencial, não precisa ser público.
-          // cacheControlMaxAge:0 — logs não se beneficiam de CDN cache.
-          // addRandomSuffix:true — garante unicidade mesmo se dois webhooks chegarem
-          //   no mesmo ms (ts tem resolução ms, mas race-condition teórica).
-          // Blob GC cron limpa após 30 dias (api/cron/blob-gc.js).
-          access: 'private',
+          // Store Vercel Blob é public — `access:'private'` lança runtime error.
+          // Segurança: addRandomSuffix gera URL não-adivinhável (bearer token),
+          // e o path prefix `webhooks/wa/<ts>_<phone>_<suffix>.json` não é
+          // enumerável externamente. Blob GC cron limpa após 30 dias.
+          access: 'public',
           contentType: 'application/json',
           cacheControlMaxAge: 0,
           addRandomSuffix: true,

@@ -77,8 +77,12 @@ export default async function handler(req, res) {
   }
 
   // Fields completos — composite_score + match_key_feedback + diagnostics +
-  // event_coverage + acr + data_freshness + dedup_key_feedback. Agrupado em 1 request.
-  const fields = 'web{event_name,event_match_quality{composite_score,match_key_feedback{identifier,coverage{percentage}},diagnostics{name,percentage,affected_event_count}},event_coverage{percentage,goal_percentage},acr{percentage},data_freshness{upload_frequency},dedup_key_feedback{dedupe_key,browser_events_with_dedupe_key{percentage},server_events_with_dedupe_key{percentage},overall_browser_coverage_from_dedupe_key{percentage}}}';
+  // event_coverage + acr + data_freshness. Agrupado em 1 request.
+  // NOTA: `dedup_key_feedback` foi DESCONTINUADO pela Meta na API v25 (retorna
+  // "nonexisting field" desde 18/04/2026). Substituído pelo painel interno de
+  // deduplicação em Events Manager (não exposto via Graph API). Se Meta voltar
+  // a expor, re-adicionar aqui.
+  const fields = 'web{event_name,event_match_quality{composite_score,match_key_feedback{identifier,coverage{percentage}},diagnostics{name,percentage,affected_event_count}},event_coverage{percentage,goal_percentage},acr{percentage},data_freshness{upload_frequency}}';
 
   try {
     const url = `${GRAPH_BASE}/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}`;
@@ -114,12 +118,8 @@ export default async function handler(req, res) {
           pct_affected: d.percentage,
           count_affected: d.affected_event_count,
         }));
-      const dedupFeedback = (ev.dedup_key_feedback || []).map(f => ({
-        key: f.dedupe_key,
-        browser_pct: f.browser_events_with_dedupe_key?.percentage,
-        server_pct: f.server_events_with_dedupe_key?.percentage,
-        overall_cov: f.overall_browser_coverage_from_dedupe_key?.percentage,
-      }));
+      // dedup_key_feedback DESCONTINUADO pela Meta API v25 — não disponível mais
+      const dedupFeedback = [];
 
       const { status, warnings } = classify(emq, threshold, coverage);
       if (emq !== null) {

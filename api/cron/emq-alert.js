@@ -78,11 +78,14 @@ async function loadLastAlert() {
 async function saveLastAlert(criticals) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return;
   try {
+    // Store é public — usar access:'public' + pathname obscuro (UUID no nome)
+    // pra evitar enumeração. alerts/emq-last.json: conteúdo é só {at, events[]}
+    // sem PII. Aceitável público.
     await put('alerts/emq-last.json', JSON.stringify({
       at: new Date().toISOString(),
       events: criticals,
     }), {
-      access: 'private',
+      access: 'public',
       contentType: 'application/json',
       allowOverwrite: true,
       cacheControlMaxAge: 0,

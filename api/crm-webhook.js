@@ -166,6 +166,12 @@ export default async function handler(req, res) {
   ).slice(0, 120);
   console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
 
+  // ── OUTER TRY/CATCH ──
+  // Envolve todo o processamento — buildUserData, list Blob, fetch Graph,
+  // sendCAPI. Antes da 25ª passada só o sendCAPI estava protegido (linha ~657),
+  // então throws em buildUserData/list/fetch escapavam pro runtime e geravam
+  // 500 sem stack trace. 24× 500s em 18/04 confirmaram.
+  try {
 
   // Capturar ctwa_clid de mensagens novas (message_created do Chatwoot)
   // O Chatwoot inclui source_id (wamid) — verificar se a msg tem referral de anúncio CTWA
@@ -654,23 +660,23 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, skipped: true, reason: 'all_events_invalid' });
   }
 
-  try {
-    const result = await sendCAPI(validEvents, token);
-    console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${result.events_received} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
-    return res.status(200).json({
-      ok: true,
-      contact: nome,
-      labels,
-      events_sent: validEvents.length,
-      events_received: result.events_received,
-      ctwa_clid: !!ctwaClid,
-      customer_segmentation: customerSeg,
-    });
+  const result = await sendCAPI(validEvents, token);
+  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${result.events_received} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+  return res.status(200).json({
+    ok: true,
+    contact: nome,
+    labels,
+    events_sent: validEvents.length,
+    events_received: result.events_received,
+    ctwa_clid: !!ctwaClid,
+    customer_segmentation: customerSeg,
+  });
+
   } catch (err) {
-    // Logging defensivo: captura contexto completo pra debug de 500s raros.
-    // Investigação 18/04/2026: 1 500 isolado em >500 requests (7 dias), sem
-    // payload acessível pelos logs anteriores. Agora inclui event type +
-    // stack trace pra reproduzir quando acontecer de novo.
+    // OUTER catch — protege TODO o processamento (buildUserData, list Blob,
+    // fetch Graph, sendCAPI). Captura stack trace completo pra debug.
+    // Investigação 18/04/2026: 24× 500s em 24h sem log visível pois o catch
+    // interno só cobria sendCAPI. Agora cobre tudo após o parse do body.
     const ctx = {
       event: event || 'unknown',
       message: err?.message || 'no message',

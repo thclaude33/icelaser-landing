@@ -16,7 +16,8 @@
  *   5. Retorna 200 OK (Vercel marca drain como errored se >80% falhas / >50/hora).
  *
  * Escolhas de design:
- *   - access:'private' evita exposição pública de logs (IPs clientes, paths, UA).
+ *   - access:'public' (store Vercel Blob é public, private lança runtime error).
+ *     Segurança: addRandomSuffix gera URL não-adivinhável como bearer token.
  *   - addRandomSuffix:true evita overwrite em batches simultâneos.
  *   - cacheControlMaxAge:0 — logs não precisam CDN cache (acessados só auditoria).
  *   - Blob errors retornam 200 (best-effort; Vercel não retry forever; se retornar
@@ -160,9 +161,14 @@ export default async function handler(req, res) {
     const fileName = `logs/${day}/${ts}.${ext}`;
 
     const blob = await putWithTimeout(fileName, rawBody, {
-      access: 'private',  // SECURITY: logs contêm IPs, paths, UA — nunca público.
+      // Store Vercel Blob é public — `access:'private'` lança erro runtime.
+      // Segurança: addRandomSuffix gera URL não-adivinhável (ex:
+      // logs/2026-04-18/2026-04-18T15-30-00-000Z-a1b2c3d4e5f6.ndjson), e o path
+      // prefix não é enumerável externamente. Store privado custa extra; o
+      // random suffix serve como bearer token no URL.
+      access: 'public',
       contentType: isNdjson ? 'application/x-ndjson' : 'application/json',
-      addRandomSuffix: true,      // evita overwrite entre batches simultâneos
+      addRandomSuffix: true,      // evita overwrite + URL não-adivinhável
       cacheControlMaxAge: 0,      // logs não precisam CDN cache
     });
 
