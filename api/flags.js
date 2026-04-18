@@ -14,6 +14,36 @@
 
 import { ALLOWED_ORIGINS } from './_lib/config.js';
 
+// Cache in-memory do fallback HTTP. Vercel serverless warm-invocations
+// compartilham memória → evita hit na Edge Config API cada request.
+// TTL 30s pra não serve stale se dashboard mudar. Edge Config real-time
+// seria >1s consistency mesmo, então 30s é aceitável.
+const EDGE_CONFIG_CACHE = new Map();  // Map<edgeKey, {value, expiresAt}>
+const EDGE_CONFIG_CACHE_TTL_MS = 30_000;
+
+async function getEdgeConfigHttp(edgeKey) {
+  const cached = EDGE_CONFIG_CACHE.get(edgeKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (!process.env.EDGE_CONFIG) return undefined;
+  try {
+    const edgeUrl = new URL(process.env.EDGE_CONFIG);
+    const itemUrl = `${edgeUrl.origin}${edgeUrl.pathname}/item/${encodeURIComponent(edgeKey)}${edgeUrl.search}`;
+    const r = await fetch(itemUrl, { cache: 'no-store' });
+    if (r.ok) {
+      const value = await r.json();
+      EDGE_CONFIG_CACHE.set(edgeKey, { value, expiresAt: Date.now() + EDGE_CONFIG_CACHE_TTL_MS });
+      return value;
+    }
+    if (r.status === 404) {
+      EDGE_CONFIG_CACHE.set(edgeKey, { value: undefined, expiresAt: Date.now() + EDGE_CONFIG_CACHE_TTL_MS });
+      return undefined;
+    }
+    throw new Error(`http:${r.status}`);
+  } catch (e) {
+    throw new Error(`http-exception:${e.message}`);
+  }
+}
+
 export default async function handler(req, res) {
   const origin = req.headers['origin'] || '';
   if (ALLOWED_ORIGINS.includes(origin)) {
@@ -95,22 +125,14 @@ export default async function handler(req, res) {
     const { get } = await import('@vercel/edge-config');
     edgeValue = await get(edgeKey);
   } catch (sdkErr) {
+    // SDK lança em Vercel serverless porque @vercel/edge-config-fs não é
+    // encontrado (top-level import em edge-config.ts — bug upstream v1.4.3).
+    // Fallback HTTP direto + cache in-memory 30s warm invocations.
     edgeError = `sdk:${sdkErr.message}`;
-    // Fallback HTTP direto na Edge Config API.
-    if (process.env.EDGE_CONFIG) {
-      try {
-        const edgeUrl = new URL(process.env.EDGE_CONFIG);
-        const itemUrl = `${edgeUrl.origin}${edgeUrl.pathname}/item/${encodeURIComponent(edgeKey)}${edgeUrl.search}`;
-        const r = await fetch(itemUrl, { cache: 'no-store' });
-        if (r.ok) {
-          edgeValue = await r.json();
-        } else if (r.status !== 404) {
-          edgeError += ` | http:${r.status}`;
-        }
-        // 404 = key ausente = normal, edgeValue fica undefined → cai pra fallback value
-      } catch (httpErr) {
-        edgeError += ` | http-exception:${httpErr.message}`;
-      }
+    try {
+      edgeValue = await getEdgeConfigHttp(edgeKey);
+    } catch (httpErr) {
+      edgeError += ` | ${httpErr.message}`;
     }
   }
 
