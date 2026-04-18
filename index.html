@@ -181,13 +181,34 @@
         document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax;Secure';
       }
     }catch(e){}}());
+    // Advanced Matching 1ª init — se user visitou antes e submeteu form,
+    // temos email/phone em localStorage. Re-init com dados preservados
+    // DOBRA match quality em PV/VC iniciais (antes era só geo).
+    try {
+      var _lsEm = localStorage.getItem('ice_em');
+      var _lsPh = localStorage.getItem('ice_ph');
+      var _lsFn = localStorage.getItem('ice_fn');
+      var _lsLn = localStorage.getItem('ice_ln');
+      if (_lsEm || _lsPh) {
+        fbq('init', window._PIXEL_ID, {
+          em: _lsEm || undefined,
+          ph: _lsPh || undefined,
+          fn: _lsFn || undefined,
+          ln: _lsLn || undefined,
+          external_id: _lsEm || _lsPh,
+          country: 'br', st: 'pe', ct: 'recife', zp: '50000', ge: 'f',
+        });
+      }
+    } catch(_e) {}
     var pvEventId = 'pv_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
     fbq('track', 'PageView', {}, {eventID: pvEventId});
     var vcEventId = 'vc_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+    // value=300 é proxy do ticket médio da avaliação gratuita convertida
+    // (Meta recomenda value > 0 em ViewContent pra value optimization).
     fbq('track', 'ViewContent', {
       content_name: 'LP Avaliacao Gratuita',
       content_category: 'depilacao_laser',
-      value: 0,
+      value: 300,
       currency: 'BRL'
     }, {eventID: vcEventId});
     // CAPI server-side PageView + ViewContent — mesmo event_id do browser = deduplicação 100%
@@ -1340,6 +1361,17 @@
 
 <body>
 
+<!-- Noscript fallback: se JS desabilitado (rare mas existe — privacy mode, Lynx),
+     LP vira link direto pro WhatsApp em vez de página quebrada. -->
+<noscript>
+  <div style="background:#640039;color:#fff;padding:16px;text-align:center;font:16px/1.5 system-ui,sans-serif">
+    Para melhor experiência, ative o JavaScript. Ou fale direto:
+    <a href="https://api.whatsapp.com/send?phone=5581995749947" style="color:#F5E6D3;text-decoration:underline">
+      WhatsApp IceLaser (+55 81 99574-9947)
+    </a>
+  </div>
+</noscript>
+
 <!-- STICKY HEADER -->
 <header class="header">
   <div class="header-logo">Ice<span>Laser</span> · Recife</div>
@@ -1758,7 +1790,7 @@
       if (v) sessionStorage.setItem('ice_' + k, v);
     });
     if (document.referrer) sessionStorage.setItem('ice_referrer', document.referrer);
-    if (p.get('fbclid')) sessionStorage.setItem('ice_fbclid', p.get('fbclid'));
+    if (p.get('fbclid')) localStorage.setItem('ice_fbclid', p.get('fbclid'));
   })();
 
   // Função pra pegar dados do anúncio (URL params ou sessionStorage)
@@ -1770,7 +1802,7 @@
   // Detecta origem quando não tem UTMs
   function getOrigemFallback() {
     var ref = document.referrer || sessionStorage.getItem('ice_referrer') || '';
-    var fbclid = new URLSearchParams(location.search).get('fbclid') || sessionStorage.getItem('ice_fbclid') || '';
+    var fbclid = new URLSearchParams(location.search).get('fbclid') || localStorage.getItem('ice_fbclid') || '';
     if (fbclid) return 'facebook';
     if (ref.includes('facebook.com') || ref.includes('fb.com')) return 'facebook';
     if (ref.includes('instagram.com')) return 'instagram';
@@ -1910,13 +1942,13 @@
 
     // Dados de qualificação do lead (navegador, tela, idioma, timezone)
     const bodyHeight = Math.max(1, document.body.scrollHeight);
+    // landing_url removido — duplicava event_source_url no capiData.
     const qualData = {
       screen_width:  screen.width,
       screen_height: screen.height,
       language:      navigator.language,
       timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone,
       referrer:      document.referrer || undefined,
-      landing_url:   location.href,
       time_on_page:  Math.round(performance.now() / 1000),
       scroll_depth:  Math.min(100, Math.round(((window.scrollY + window.innerHeight) / bodyHeight) * 100)),
     };
@@ -1941,11 +1973,13 @@
       const phNormalized = window._normalizePhoneBR(tel);
       const nomeParts = nome.trim().toLowerCase().split(/\s+/);
       const externalId = email || phNormalized || undefined;
+      const fnPart = nomeParts[0];
+      const lnPart = nomeParts.length > 1 ? nomeParts[nomeParts.length - 1] : undefined;
       fbq('init', window._PIXEL_ID, {
         em: email || undefined,
         ph: phNormalized,
-        fn: nomeParts[0],
-        ln: nomeParts.length > 1 ? nomeParts[nomeParts.length - 1] : undefined,
+        fn: fnPart,
+        ln: lnPart,
         external_id: externalId,
         country: 'br',
         st: 'pe',
@@ -1953,6 +1987,15 @@
         zp: '50000',
         ge: 'f',
       });
+      // Persiste em localStorage pra Advanced Matching em próximas visitas.
+      // NÃO armazenamos em clear — Meta Pixel JS faz sha256 no init.
+      // Mas também NÃO é hash — é plain value que fbq hash. Storage por 90 dias.
+      try {
+        if (email)       localStorage.setItem('ice_em', email);
+        if (phNormalized) localStorage.setItem('ice_ph', phNormalized);
+        if (fnPart)      localStorage.setItem('ice_fn', fnPart);
+        if (lnPart)      localStorage.setItem('ice_ln', lnPart);
+      } catch(_) {}
     } catch(ex) { console.warn('[PIXEL AM] re-init failed:', ex && ex.message); }
 
     try {

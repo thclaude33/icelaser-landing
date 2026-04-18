@@ -316,24 +316,27 @@ export default async function handler(req, res) {
   if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     const telDigits = telefone.replace(/\D/g, '');
 
-    // 1. Recuperar ctwa_clid do Blob (salvo pelo whatsapp.js quando cliente veio de anúncio CTWA)
-    if (!ctwaClid) {
-      try {
-        const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
-        for (const blob of ctwaBlobs.blobs) {
-          if (blob.pathname.includes(telDigits.slice(-8))) {
-            const blobResp = await fetch(blob.url);
-            const data = await blobResp.json();
-            if (data.ctwa_clid) {
-              ctwaClid = data.ctwa_clid;
-              console.log(`[CRM-WEBHOOK] Recovered ctwa_clid from Blob: ${ctwaClid.substring(0, 20)}...`);
-              break;
-            }
+    // 1. Recuperar CTWA data completa do Blob (salvo pelo whatsapp.js).
+    //    Além de ctwa_clid, recuperamos profile_name, ad_metadata e outros campos
+    //    enriquecidos — pra usar em advanced matching + ad attribution nos events
+    //    Lead Quente / Purchase disparados pelo label do Chatwoot.
+    let ctwaData = null;
+    try {
+      const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
+      for (const blob of ctwaBlobs.blobs) {
+        if (blob.pathname.includes(telDigits.slice(-8))) {
+          const blobResp = await fetch(blob.url);
+          const data = await blobResp.json();
+          if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
+            ctwaData = data;
+            if (!ctwaClid && data.ctwa_clid) ctwaClid = data.ctwa_clid;
+            console.log(`[CRM-WEBHOOK] Recovered CTWA data from Blob: clid=${!!data.ctwa_clid} profile=${!!data.profile_name} ad_meta=${!!data.ad_metadata}`);
+            break;
           }
         }
-      } catch (e) {
-        console.warn('[CRM-WEBHOOK] CTWA Blob recovery failed:', e.message);
       }
+    } catch (e) {
+      console.warn('[CRM-WEBHOOK] CTWA Blob recovery failed:', e.message);
     }
 
     // 2. Leitura de leads/ para fbp/fbc E originalLeadData
@@ -414,11 +417,41 @@ export default async function handler(req, res) {
     userData.whatsapp_business_account_id = WABA_ID;
   }
 
+  // ENRIQUECIMENTO CTWA — se Blob tem profile_name do WhatsApp E nome do
+  // Chatwoot veio vazio, injetar fn/ln/f5first/fi derivados do profile_name.
+  // Isso permite matching high-EMQ em users que nunca preencheram form (só CTWA).
+  if (ctwaData && ctwaData.profile_name && !userData.fn) {
+    try {
+      const profileParts = String(ctwaData.profile_name).trim().split(/\s+/);
+      const profileFirst = profileParts[0] || null;
+      const profileLast = profileParts.length > 1 ? profileParts[profileParts.length - 1] : null;
+      if (profileFirst) {
+        const enriched = await buildUserData({
+          first_name: profileFirst,
+          last_name: profileLast || undefined,
+        });
+        if (enriched.fn) userData.fn = enriched.fn;
+        if (enriched.ln) userData.ln = enriched.ln;
+        if (enriched.fi) userData.fi = enriched.fi;
+        if (enriched.f5first) userData.f5first = enriched.f5first;
+        if (enriched.f5last) userData.f5last = enriched.f5last;
+        console.log(`[CRM-WEBHOOK] Enriquecido user_data com profile_name do CTWA (${maskName(ctwaData.profile_name)})`);
+      }
+    } catch (e) {
+      console.warn('[CRM-WEBHOOK] profile_name enrichment failed:', e.message);
+    }
+  }
+
   // Tenta recuperar URL da LP original salva nos atributos; fallback para domínio canônico
   const eventSourceUrl = customAttrs.landing_url
     || customAttrs.event_source_url
     || customAttrs.lp_url
     || 'https://icelasers.com.br/';
+
+  // Ad metadata do CTWA (via Meta Graph lookup salvo no Blob) — propagar
+  // campaign_id/adset_id/ad_id pra custom_data de TODOS os events CRM.
+  // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
+  const ctwaAdMeta = ctwaData && ctwaData.ad_metadata ? ctwaData.ad_metadata : null;
 
   const baseEvent = {
     event_source_url: eventSourceUrl,
@@ -429,6 +462,13 @@ export default async function handler(req, res) {
   // custom_data base para todos os eventos CRM (conforme guia Meta Conversion Leads)
   const crmBase = {
     event_source: 'crm',         // obrigatório para Conversion Leads
+    // Attribution CTWA (via Meta Graph API lookup em whatsapp.js):
+    ...(ctwaAdMeta?.ad_id ? { ad_id: ctwaAdMeta.ad_id } : {}),
+    ...(ctwaAdMeta?.ad_name ? { ad_name: ctwaAdMeta.ad_name } : {}),
+    ...(ctwaAdMeta?.adset_id ? { adset_id: ctwaAdMeta.adset_id } : {}),
+    ...(ctwaAdMeta?.adset_name ? { adset_name: ctwaAdMeta.adset_name } : {}),
+    ...(ctwaAdMeta?.campaign_id ? { campaign_id: ctwaAdMeta.campaign_id } : {}),
+    ...(ctwaAdMeta?.campaign_name ? { campaign_name: ctwaAdMeta.campaign_name } : {}),
     lead_event_source: 'Chatwoot', // nome do CRM
   };
 

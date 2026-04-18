@@ -116,34 +116,91 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
   }
 }
 
+/**
+ * Lookup Meta Graph API pra obter campaign_id/adset_id/ad_name a partir do ad_id.
+ * ad_id vem em referral.source_id quando usuário clica em CTWA ad.
+ * Retorna { campaign_id, adset_id, ad_name, name } ou null.
+ *
+ * Uma chamada extra (~200ms) mas enriquece o CAPI LeadSubmitted com full
+ * attribution — útil em campanhas Advantage+ onde Meta Ads Manager UTM
+ * tags não propagam pro WhatsApp link.
+ */
+async function lookupAdMetadata(adId) {
+  if (!adId || !META_TOKEN) return null;
+  try {
+    const fields = 'campaign_id,adset_id,name,adset_name,campaign_name';
+    const r = await fetch(`${GRAPH_BASE}/${adId}?fields=${fields}`, {
+      headers: { 'Authorization': `Bearer ${META_TOKEN}` },
+    });
+    const data = await r.json();
+    if (data.error) {
+      console.warn(`[CTWA AD-LOOKUP] ${adId}: ${data.error.message}`);
+      return null;
+    }
+    return {
+      ad_id: adId,
+      ad_name: data.name || null,
+      adset_id: data.adset_id || null,
+      adset_name: data.adset_name || null,
+      campaign_id: data.campaign_id || null,
+      campaign_name: data.campaign_name || null,
+    };
+  } catch (e) {
+    console.warn(`[CTWA AD-LOOKUP] exception: ${e.message}`);
+    return null;
+  }
+}
+
 // ── PROCESSA MENSAGEM CTWA + SALVA NO BLOB ───────────────────────────────────
-async function processarCTWA(from, message, referral) {
+async function processarCTWA(from, message, referral, profileName) {
   const clid = referral?.ctwa_clid;
   const sourceUrl = referral?.source_url || '';
   const sourceType = referral?.source_type || '';
+  const sourceId = referral?.source_id || '';
   const headlineText = referral?.headline || '';
   const bodyText = referral?.body || '';
-  console.log(`[CTWA] from=${maskPhone(from)} clid=${(clid||'').slice(0,12)}... source=${sourceType} url=${sourceUrl}`);
+  const mediaType = referral?.media_type || '';
+  const imageUrl = referral?.image_url || '';
+  const videoUrl = referral?.video_url || '';
+  const thumbnailUrl = referral?.thumbnail_url || '';
 
-  // Salvar ctwa_clid no Blob vinculado ao telefone — será recuperado pelo crm-webhook
+  // Lookup Meta Graph API pra enriquecer com metadata da campanha/adset/ad.
+  // Paralelo com Blob save pra não atrasar o handler.
+  const adMetadataPromise = lookupAdMetadata(sourceId);
+
+  console.log(`[CTWA] from=${maskPhone(from)} profile=${profileName ? maskName(profileName) : '?'} clid=${(clid||'').slice(0,12)}... source_id=${sourceId} type=${sourceType}`);
+
+  // Primeira msg do user (se texto) — intent signal útil pra segmentação.
+  const firstMsgType = message?.type || '';
+  const firstMsgText = (message?.type === 'text' ? message.text?.body : '') || '';
+
+  // Salvar ctwa_clid + enriched data no Blob — será recuperado pelo crm-webhook
+  // pra enriquecer Lead Quente / Purchase eventos com advanced matching.
+  const adMetadata = await adMetadataPromise;
   if (clid && from && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
       const ts = new Date().toISOString();
-      // Sanitiza from (phone) pra evitar path traversal no pathname Blob
       const safeFrom = String(from).replace(/[^0-9]/g, '').slice(0, 20);
       if (!safeFrom) throw new Error('invalid phone');
-      // @vercel/blob 2.x requer allowOverwrite quando pathname já existe
-      // (ex: cliente já clicou em CTWA ad antes → path já tem arquivo).
       await put(`ctwa/${safeFrom}.json`, JSON.stringify({
         ctwa_clid: clid,
         phone: safeFrom,
+        profile_name: profileName || null,
         source_url: sourceUrl,
         source_type: sourceType,
+        source_id: sourceId,
         headline: headlineText,
         body: bodyText,
+        media_type: mediaType,
+        image_url: imageUrl,
+        video_url: videoUrl,
+        thumbnail_url: thumbnailUrl,
+        first_msg_type: firstMsgType,
+        first_msg_text: firstMsgText.slice(0, 500),  // truncate por segurança
+        ad_metadata: adMetadata,  // {ad_id, ad_name, adset_id, campaign_id, ...} ou null
         timestamp: ts,
       }), { access: 'public', contentType: 'application/json', allowOverwrite: true });
-      console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}.json`);
+      console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}.json (profile=${!!profileName}, ad_meta=${!!adMetadata})`);
     } catch (e) {
       console.warn('[CTWA] Blob save failed:', e.message);
     }
@@ -174,14 +231,26 @@ async function processarCTWA(from, message, referral) {
       // creationTime_ms usa msgTs*1000 quando disponível (retry = mesmo fbc).
       const fbcTsMs = Number.isFinite(msgTs) && msgTs > 0 ? msgTs * 1000 : Date.now();
       const fbc = `fb.2.${fbcTsMs}.${clid}`;
-      // user_data via SDK oficial Meta: normaliza (phone strip non-digits + leading zeros)
-      // + hasheia SHA-256 + deriva partial matching. `from` já é phone number WA (digits only).
+      // user_data via SDK oficial Meta: normaliza + hasheia SHA-256 + deriva
+      // partial matching keys (f5first, f5last, fi) automaticamente.
+      // profile_name (do WhatsApp contact) vira first_name/last_name.
+      // CRÍTICO pra EMQ: sem profile_name, LeadSubmitted CTWA só tinha ph+geo
+      // como matching → EMQ ~4-5. Com fn/ln + f5first/fi → EMQ 6-7.
+      let firstName = null, lastName = null;
+      if (profileName) {
+        const parts = profileName.trim().split(/\s+/);
+        firstName = parts[0];
+        if (parts.length > 1) lastName = parts[parts.length - 1];
+      }
       const userData = await buildUserData({
         phone: from,
+        first_name: firstName || undefined,
+        last_name: lastName || undefined,
         gender: 'f',
         city: 'recife',
         state: 'pe',
         country: 'br',
+        external_id: from,  // phone como external_id — identidade estável do lead
       });
       userData.fbc = fbc;
       userData.ctwa_clid = clid;
@@ -212,10 +281,19 @@ async function processarCTWA(from, message, referral) {
                 lead_event_source: 'WhatsApp CTWA',
                 source_url: sourceUrl,
                 content_name: 'CTWA Contact Started - WhatsApp',
-                // Primeiro contato CTWA = novo relacionamento com o negócio.
-                // Oficial Meta enum customer_segmentation (9 valores): aqui é new_customer_to_business.
+                content_category: 'depilacao_laser',
                 customer_segmentation: 'new_customer_to_business',
-                // Não setamos value aqui — ainda não há sinal de qualificação.
+                // Enriquecimento: ad metadata do Meta Graph API lookup (source_id → adset/campaign).
+                // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
+                ...(adMetadata && adMetadata.ad_id ? { ad_id: adMetadata.ad_id } : {}),
+                ...(adMetadata && adMetadata.ad_name ? { ad_name: adMetadata.ad_name } : {}),
+                ...(adMetadata && adMetadata.adset_id ? { adset_id: adMetadata.adset_id } : {}),
+                ...(adMetadata && adMetadata.adset_name ? { adset_name: adMetadata.adset_name } : {}),
+                ...(adMetadata && adMetadata.campaign_id ? { campaign_id: adMetadata.campaign_id } : {}),
+                ...(adMetadata && adMetadata.campaign_name ? { campaign_name: adMetadata.campaign_name } : {}),
+                // Intent signal: tipo da 1ª msg + preview (se texto). Útil pra segmentação.
+                ...(firstMsgType ? { first_message_type: firstMsgType } : {}),
+                // NÃO incluímos text completo por privacidade (já salvamos truncado no Blob).
                 // Valor real vem depois no Lead qualificado (crm-webhook) e Purchase.
               },
             }],
@@ -553,9 +631,22 @@ export default async function handler(req, res) {
           const from = msg.from;
           let ctwaClid = null;
 
+          // Profile name do WhatsApp (display name que user configurou) —
+          // encontrado em value.contacts[0].profile.name quando wa_id == msg.from.
+          // CRÍTICO pra matching quality: Meta CAPI LeadSubmitted CTWA envia só
+          // ph+geo se não temos nome. Com profile.name podemos enviar fn/ln e
+          // advanced matching partials (f5first, fi) → EMQ +0.3 a +0.5.
+          let profileName = null;
+          if (value.contacts && Array.isArray(value.contacts)) {
+            const contact = value.contacts.find(c => c.wa_id === from);
+            if (contact && contact.profile && contact.profile.name) {
+              profileName = String(contact.profile.name).trim();
+            }
+          }
+
           // CTWA — veio de anúncio
           if (msg.referral?.ctwa_clid) {
-            ctwaClid = await processarCTWA(from, msg, msg.referral);
+            ctwaClid = await processarCTWA(from, msg, msg.referral, profileName);
           }
 
           // Lead via Flow (nfm_reply)
