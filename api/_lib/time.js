@@ -1,21 +1,14 @@
 /**
  * _lib/time.js — helpers timezone-aware pra BRT (America/Recife).
  *
- * CONTEXTO IceLaser:
+ * CONTEXTO:
  *   - Vercel Cron é SEMPRE UTC (doc oficial 2026).
- *   - IceLaser é local Recife/PE (UTC-3 fixo).
- *   - Brasil ABOLIU horário de verão em 2019 (Decreto 9.772).
- *   - Pernambuco/Recife NUNCA teve DST (mesmo quando Brasil tinha, era Sul/SE/CO).
- *   - Portanto America/Recife é UTC-3 fixo perpetuamente até 2026+.
+ *   - Node.js em Vercel Functions roda em UTC por default (TZ env var é reservada).
+ *   - IceLaser é local Recife/PE = UTC-3 atualmente.
  *
- * PORQUÊ NÃO USAR `getUTCHours()` + offset hardcoded:
- *   - Se DST voltar (discussão em 2024-2025), hardcoded quebra silent.
- *   - Intl.DateTimeFormat('America/Recife') é DST-correct sempre.
- *
- * PORQUÊ NÃO USAR `Date.getHours()` (local):
- *   - Vercel functions rodam no region (gru1 = São Paulo UTC-3 coincidentemente).
- *   - MAS Node.js local default é o TZ do host. TZ env var pode sobrescrever.
- *   - UNRELIABLE: Intl com timeZone explícito é a ÚNICA garantia.
+ * Por que `Intl.DateTimeFormat('America/Recife')` em vez de `UTC - 3` hardcoded:
+ *   - Mesma verbosidade.
+ *   - Lida automaticamente com qualquer mudança futura de fuso sem precisar patch.
  */
 
 /**
