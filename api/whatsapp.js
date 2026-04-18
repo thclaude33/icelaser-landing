@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put } from '@vercel/blob';
 import { PIXEL_ID, WABA_ID, GRAPH_BASE } from './_lib/config.js';
-import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml } from './_lib/security.js';
+import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml, sanitizeHeader } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 
@@ -54,7 +54,13 @@ async function enviarEmail(assunto, html) {
       service: 'gmail',
       auth: { user: EMAIL_FROM, pass: EMAIL_PASS },
     });
-    await t.sendMail({ from: `"IceLaser Bot" <${EMAIL_FROM}>`, to: EMAIL_TO.join(','), subject: assunto, html });
+    // sanitizeHeader defense-in-depth: subject nunca deve ter CRLF (SMTP injection).
+    await t.sendMail({
+      from: `"IceLaser Bot" <${EMAIL_FROM}>`,
+      to: EMAIL_TO.join(','),
+      subject: sanitizeHeader(assunto, 200),
+      html,
+    });
     return true;
   } catch (e) {
     console.error('[EMAIL]', e.message);

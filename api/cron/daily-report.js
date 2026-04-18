@@ -9,6 +9,7 @@
  */
 
 import { list } from '@vercel/blob';
+import { sanitizeHeader } from '../_lib/security.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -79,10 +80,12 @@ async function sendReport(pending, converted, period, totals = {}) {
     </div>
   </div>`;
 
+  // sanitizeHeader defense-in-depth — period é interno ('Manhã'/'Noite'),
+  // converted é number, mas pattern consistente previne future regressions.
   await t.sendMail({
     from: `"IceLaser Bot" <${EMAIL_FROM}>`,
     to: EMAIL_TO.join(','),
-    subject: `📊 Relatório ${period} — ${converted} conversões 24h | IceLaser`,
+    subject: sanitizeHeader(`📊 Relatório ${period} — ${converted} conversões 24h | IceLaser`, 200),
     html,
   });
 }

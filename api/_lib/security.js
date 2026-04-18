@@ -172,3 +172,43 @@ export function escapeHtml(str) {
     .replace(/'/g, '&#39;')
     .replace(/\//g, '&#x2F;');
 }
+
+/**
+ * Sanitiza header SMTP — remove CR/LF pra prevenir header injection (CRLF).
+ * Uso obrigatório em subject, from name, to, replyTo, cc, bcc quando
+ * o valor pode conter user input.
+ *
+ * Nodemailer recente (pós 6.6.1) valida address object, mas NÃO valida
+ * subject nem name do from. Envelope.size + transport.name vulneráveis
+ * em 8.0.4 (CVE-2026). Defesa em profundidade: sanitizar SEMPRE.
+ *
+ * @param {string} str - valor do header
+ * @param {number} maxLen - tamanho máximo (subject ≤ 998 chars RFC 5322; na prática ≤ 100)
+ */
+export function sanitizeHeader(str, maxLen = 200) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/[\r\n\t\v\f\0]/g, ' ')  // todos whitespace ctl chars viram espaço
+    .replace(/\s+/g, ' ')              // colapsa múltiplos espaços
+    .trim()
+    .slice(0, maxLen);
+}
+
+/**
+ * Valida URL pra uso em href= em email HTML — só permite http(s): e mailto:.
+ * javascript:, data:, vbscript: são vetores XSS clássicos em clients HTML
+ * (Gmail bloqueia a maioria mas defesa em profundidade).
+ *
+ * @param {string} url
+ * @returns {string} URL safe ou string vazia (href="" renderiza sem link)
+ */
+export function sanitizeUrl(url) {
+  if (!url) return '';
+  const trimmed = String(url).trim();
+  // Matches protocolo válido: http://, https://, mailto:, tel:, whatsapp://
+  // case-insensitive + trim prevent newlines/tabs bypass
+  if (/^(https?:|mailto:|tel:|whatsapp:)/i.test(trimmed)) {
+    return trimmed.replace(/[\r\n\t]/g, '');  // strip ctrl chars mesmo em URL válida
+  }
+  return '';
+}

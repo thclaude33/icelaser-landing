@@ -14,6 +14,7 @@
 
 import crypto from 'crypto';
 import { put } from '@vercel/blob';
+import { escapeHtml, sanitizeHeader, sanitizeUrl } from './_lib/security.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -34,7 +35,15 @@ async function sendEmail(subject, html) {
   if (!EMAIL_PASS) { console.warn('[EMAIL] EMAIL_PASS não configurado — email ignorado'); return; }
   const nodemailer = (await import('nodemailer')).default;
   const t = nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_FROM, pass: EMAIL_PASS } });
-  await t.sendMail({ from: `"IceLaser Bot" <${EMAIL_FROM}>`, to: EMAIL_TO.join(','), subject, html });
+  // sanitizeHeader obrigatório em subject — CVE-2026-32178 e CVE-2021-23400
+  // mostram que CRLF em subject permite SMTP command injection (adicionar Bcc:,
+  // RCPT TO:, etc). nodemailer valida address mas NÃO subject.
+  await t.sendMail({
+    from: `"IceLaser Bot" <${EMAIL_FROM}>`,
+    to: EMAIL_TO.join(','),
+    subject: sanitizeHeader(subject, 200),
+    html,
+  });
 }
 
 function agora() {
@@ -85,14 +94,19 @@ async function handleEvent(event) {
 
     case 'deployment.error': {
       const failedId  = payload?.deployment?.id;
-      const deployUrl = payload?.links?.deployment || '#';
-      const name      = payload?.deployment?.name || 'icelaser-landing';
+      // sanitizeUrl restringe href a http(s)/mailto/tel/whatsapp (previne
+      // javascript:/data: XSS se Vercel payload fosse comprometido).
+      const deployUrl = sanitizeUrl(payload?.links?.deployment) || '#';
+      // escapeHtml + sanitizeHeader pra name (usado em body HTML + subject).
+      const name      = escapeHtml(payload?.deployment?.name || 'icelaser-landing');
+      const nameHeader = sanitizeHeader(payload?.deployment?.name || 'icelaser-landing', 100);
+      const target    = escapeHtml(payload?.target || 'production');
 
       // Não faz rollback se o próprio deploy falho foi um rollback (evita loop infinito)
       const isRollback = payload?.deployment?.meta?.rollback === true;
       if (isRollback) {
         await sendEmail(
-          `🚨 Rollback FALHOU — ${name}`,
+          `🚨 Rollback FALHOU — ${nameHeader}`,
           `${base}
             <h2 style="color:#e94560">🚨 O rollback automático também falhou</h2>
             <p>Intervenção manual necessária.</p>
@@ -109,18 +123,21 @@ async function handleEvent(event) {
         const good = await findLastGoodDeployment(failedId);
         if (good) {
           await executeRollback(good.uid);
-          rollbackMsg = `✅ Rollback automático iniciado para o deploy anterior (<code>${good.uid.slice(0, 12)}…</code> de ${new Date(good.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Recife' })}).`;
+          // good.uid é alphanumérico Vercel-controlled, seguro; escapeHtml defesa extra.
+          const goodUidShort = escapeHtml(String(good.uid).slice(0, 12));
+          const goodDate = escapeHtml(new Date(good.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Recife' }));
+          rollbackMsg = `✅ Rollback automático iniciado para o deploy anterior (<code>${goodUidShort}…</code> de ${goodDate}).`;
           rollbackOk  = true;
         }
       } catch (e) {
-        rollbackMsg = `⚠️ Rollback automático falhou: ${e.message}`;
+        rollbackMsg = `⚠️ Rollback automático falhou: ${escapeHtml(e.message)}`;
       }
 
       await sendEmail(
-        `🚨 Deploy FALHOU — ${name}${rollbackOk ? ' (rollback iniciado)' : ''}`,
+        `🚨 Deploy FALHOU — ${nameHeader}${rollbackOk ? ' (rollback iniciado)' : ''}`,
         `${base}
           <h2 style="color:#e94560">🚨 Deploy falhou — ${name}</h2>
-          <p><strong>Ambiente:</strong> ${payload?.target || 'production'}</p>
+          <p><strong>Ambiente:</strong> ${target}</p>
           <p><strong>Hora:</strong> ${ts}</p>
           <hr style="border:none;border-top:1px solid #eee;margin:16px 0">
           <p>${rollbackMsg}</p>
@@ -131,15 +148,16 @@ async function handleEvent(event) {
     }
 
     case 'deployment.rollback': {
-      const from = payload?.fromDeploymentId || '?';
-      const to   = payload?.toDeploymentId   || '?';
+      // slice(0,12) + escapeHtml: double-layer defesa contra payloads anômalos.
+      const fromShort = escapeHtml(String(payload?.fromDeploymentId || '?').slice(0, 12));
+      const toShort   = escapeHtml(String(payload?.toDeploymentId   || '?').slice(0, 12));
       await sendEmail(
         `↩️ Rollback concluído — icelaser-landing`,
         `${base}
           <h2 style="color:#25D366">↩️ Site restaurado com sucesso</h2>
           <p>O rollback automático foi concluído. O site voltou ao deploy anterior.</p>
-          <p><strong>De:</strong> <code>${from.slice(0, 12)}…</code></p>
-          <p><strong>Para:</strong> <code>${to.slice(0, 12)}…</code></p>
+          <p><strong>De:</strong> <code>${fromShort}…</code></p>
+          <p><strong>Para:</strong> <code>${toShort}…</code></p>
           <p><strong>Hora:</strong> ${ts}</p>
         ${footer}`
       );
@@ -147,9 +165,10 @@ async function handleEvent(event) {
     }
 
     case 'firewall.attack': {
-      const proj = payload?.projectSlug || 'icelaser-landing';
+      const proj = escapeHtml(payload?.projectSlug || 'icelaser-landing');
+      const projHeader = sanitizeHeader(payload?.projectSlug || 'icelaser-landing', 100);
       await sendEmail(
-        `🔴 ATAQUE DETECTADO — ${proj}`,
+        `🔴 ATAQUE DETECTADO — ${projHeader}`,
         `${base}
           <h2 style="color:#e94560">🔴 Ataque detectado e mitigado pelo Vercel WAF</h2>
           <p><strong>Projeto:</strong> ${proj}</p>
@@ -163,20 +182,23 @@ async function handleEvent(event) {
 
     case 'alerts.triggered': {
       const alerts  = payload?.alerts || [];
-      const dashUrl = payload?.links?.observability || 'https://vercel.com/thclaude33s-projects/icelaser-landing/observability';
+      // sanitizeUrl + fallback: previne javascript: href se payload comprometido.
+      const dashUrl = sanitizeUrl(payload?.links?.observability)
+        || 'https://vercel.com/thclaude33s-projects/icelaser-landing/observability';
+      const proj    = escapeHtml(payload?.projectSlug || 'icelaser-landing');
       const linhas  = alerts.map(a =>
         `<tr>
-          <td style="padding:8px;border-bottom:1px solid #eee">${a.title || a.type}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee">${a.metric || '—'}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;color:#e94560">${a.zscore != null ? a.zscore.toFixed(1) + 'σ' : '—'}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee">${a.count || '—'}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(a.title || a.type || '—')}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(a.metric || '—')}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;color:#e94560">${a.zscore != null ? escapeHtml(a.zscore.toFixed(1)) + 'σ' : '—'}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(String(a.count ?? '—'))}</td>
         </tr>`
       ).join('');
       await sendEmail(
         `⚠️ Alerta de performance — IceLaser`,
         `${base}
           <h2 style="color:#f59e0b">⚠️ Anomalia detectada</h2>
-          <p><strong>Projeto:</strong> ${payload?.projectSlug || 'icelaser-landing'}</p>
+          <p><strong>Projeto:</strong> ${proj}</p>
           <table style="width:100%;border-collapse:collapse;margin-top:12px">
             <thead>
               <tr style="background:#1a1a2e;color:#fff">
@@ -241,10 +263,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid JSON' });
   }
 
-  // Loga no Blob (assíncrono, não bloqueia a resposta)
+  // Loga no Blob (assíncrono, não bloqueia a resposta).
+  // access:'private' — webhooks contêm deploymentId, urls, projeto (não super sensível
+  // mas não precisa ser público); seguindo mesmo pattern da 19ª pass (log-drain).
+  // cacheControlMaxAge:0 — webhook logs não precisam CDN cache.
   const ts       = new Date().toISOString().replace(/[:.]/g, '-');
-  const fileName = `webhooks/${event.type || 'unknown'}/${ts}.json`;
-  put(fileName, rawBody, { access: 'public', contentType: 'application/json', addRandomSuffix: true }).catch(() => {});
+  // event.type pode conter caracteres exóticos se payload corrompido — sanitize pathname.
+  const safeType = String(event.type || 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+  const fileName = `webhooks/${safeType}/${ts}.json`;
+  put(fileName, rawBody, {
+    access: 'private',
+    contentType: 'application/json',
+    addRandomSuffix: true,
+    cacheControlMaxAge: 0,
+  }).catch(() => {});
 
   // Processa o evento
   handleEvent(event).catch(err => console.error('[WEBHOOK]', event?.type, err.message));

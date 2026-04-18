@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
-import { sha256, normalizePhoneBR, escapeHtml } from './_lib/security.js';
+import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 
@@ -200,10 +200,17 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
         </div>
       </div>
     </div>`;
+    // sanitizeHeader aplicado global no subject — plataforma vem de utm_source
+    // controlado por atacante (URL query param). CRLF em utm_source poderia
+    // injetar Bcc: attacker@evil via subject (CVE-class).
+    const subject = sanitizeHeader(
+      `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${nome} | ${lpNome}`,
+      200
+    );
     await t.sendMail({
       from: `"IceLaser Bot" <${EMAIL_FROM}>`,
       to: EMAIL_TO.join(','),
-      subject: `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${nome.replace(/[\r\n]/g, ' ').slice(0, 100)} | ${lpNome}`,
+      subject,
       html,
     });
   } catch (e) {

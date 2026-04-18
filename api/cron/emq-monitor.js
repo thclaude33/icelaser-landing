@@ -7,7 +7,7 @@
  */
 
 import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
-import { escapeHtml } from '../_lib/security.js';
+import { escapeHtml, sanitizeHeader } from '../_lib/security.js';
 
 const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS = process.env.EMAIL_PASS;
@@ -39,7 +39,7 @@ async function enviarEmail(assunto, html) {
     await t.sendMail({
       from: `"IceLaser EMQ Monitor" <${EMAIL_FROM}>`,
       to: EMAIL_TO.join(','),
-      subject: assunto,
+      subject: sanitizeHeader(assunto, 200),
       html,
     });
     return true;
