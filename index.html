@@ -259,11 +259,26 @@
     })();
   </script>
 
-  <!-- Fonts: Fraunces (display serif variable) + DM Sans (body)
-       Fraunces: range 400-600 cobre uso real (display 400, section titles 500, strong 600) -->
+  <!-- Performance: preconnect + dns-prefetch pros hosts usados.
+       fonts.googleapis.com + fonts.gstatic.com: Google Fonts (crítico render)
+       unpkg.com: Meta ParamBuilder SDK (async, não crítico render)
+       api64.ipify.org: IP capture (async pós-load) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&display=swap" rel="stylesheet">
+  <link rel="dns-prefetch" href="https://unpkg.com">
+  <link rel="dns-prefetch" href="https://api64.ipify.org">
+  <link rel="dns-prefetch" href="https://connect.facebook.net">
+
+  <!-- Fonts: DM Sans body + Fraunces display (ambas variable).
+       FCP optimization: `rel=preload as=style` com onload convertendo pra
+       stylesheet. Browser baixa CSS em paralelo com HTML parse em vez de
+       render-blocking sequential. Redução típica FCP: 300-800ms.
+       DM Sans: só weights usados (400/500/600) — 700 era usado 1x, removido.
+       Fraunces: 400..600 ambos normal+italic cobre uso real. -->
+  <link rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&display=swap"
+    onload="this.rel='stylesheet'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&display=swap" rel="stylesheet"></noscript>
 
   <style>
     /* ═══════════════════════════════════════════════════
@@ -434,7 +449,7 @@
     }
     .urgency-bar .red {
       color: var(--accent);
-      font-weight: 700;
+      font-weight: 600;
       font-family: 'Fraunces', serif;
       font-size: 14px;
       font-variation-settings: "opsz" 144;
