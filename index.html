@@ -2055,12 +2055,24 @@
     });
   });
 
-  /* VERCEL FEATURE FLAG — A/B test desativado (variantes idênticas)
-     Quando reativar: definir 3 labels diferentes em CTA_VARIANTS e descomentar o loadFlag.
-     Mantemos o dataset.ctaVariant default pra não quebrar o Vercel Analytics event. */
+  /* VERCEL FEATURE FLAG — consome /api/flags?flag=cta-variant
+     Backend valores: 'avaliar' | 'axila_gratis' | 'whatsapp'
+     Hoje variantes têm label idêntico no CTA (não troca texto) — flag fica
+     ativa no sistema pra validar toolbar override funciona. Quando quisermos
+     A/B real, adicionar switch no CTA_LABELS. */
   (function() {
     const btn = document.getElementById('btn-submit');
-    if (btn) btn.dataset.ctaVariant = 'avaliar';
+    if (!btn) return;
+    btn.dataset.ctaVariant = 'avaliar';  // default enquanto flag não carrega
+    fetch('/api/flags?flag=cta-variant&fallback=avaliar', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (d && d.value) {
+          btn.dataset.ctaVariant = String(d.value);
+          // Se quiser A/B real, trocar label/texto aqui baseado em d.value.
+        }
+      })
+      .catch(function() { /* network error — default 'avaliar' mantém */ });
   })();
 
   /* VERCEL EDGE CONFIG — urgência dinâmica (XSS-safe via text nodes) */

@@ -27,8 +27,28 @@ export default async function handler(req, res) {
   const flagName = String(req.query.flag || 'cta-variant');
   const fallback = String(req.query.fallback || 'avaliar');
 
+  // Helper: seta `x-flags-values` header pro Flags Explorer (Vercel Toolbar)
+  // reconhecer o valor atual do flag. Quando FLAGS_SECRET disponível, usa
+  // encryptFlagValues pra não vazar valor na rede; senão base64 simples.
+  async function setFlagValuesHeader(name, value) {
+    try {
+      if (process.env.FLAGS_SECRET) {
+        const { encryptFlagValues } = await import('flags');
+        const encrypted = await encryptFlagValues({ [name]: value });
+        res.setHeader('x-flags-values', encrypted);
+      } else {
+        // Sem FLAGS_SECRET: Vercel Toolbar espera base64 JSON como legado.
+        res.setHeader(
+          'x-flags-values',
+          Buffer.from(JSON.stringify({ [name]: value })).toString('base64'),
+        );
+      }
+    } catch (e) {
+      console.warn('[FLAGS] setFlagValuesHeader failed:', e.message);
+    }
+  }
+
   // 1. Toolbar override (se FLAGS_SECRET configurado e cookie presente).
-  // Usa package `flags` v4 (tem decryptOverrides). @vercel/flags v3 não expõe.
   const overrideCookie = (req.headers['cookie'] || '')
     .match(/(?:^|;\s*)vercel-flag-overrides=([^;]+)/)?.[1];
   if (overrideCookie && process.env.FLAGS_SECRET) {
@@ -36,8 +56,10 @@ export default async function handler(req, res) {
       const { decryptOverrides } = await import('flags');
       const overrides = await decryptOverrides(decodeURIComponent(overrideCookie));
       if (overrides && flagName in overrides) {
-        console.log(`[FLAGS] ${flagName} overridden by Toolbar: ${overrides[flagName]}`);
-        return res.status(200).json({ value: overrides[flagName] });
+        const val = overrides[flagName];
+        console.log(`[FLAGS] ${flagName} overridden by Toolbar: ${val}`);
+        await setFlagValuesHeader(flagName, val);
+        return res.status(200).json({ value: val, source: 'toolbar-override' });
       }
     } catch (e) {
       console.warn('[FLAGS] decryptOverrides failed:', e.message);
@@ -49,17 +71,16 @@ export default async function handler(req, res) {
     const { get } = await import('@vercel/edge-config');
     const keyMap = { 'cta-variant': 'cta_variant' };
     const edgeKey = keyMap[flagName] || flagName.replace(/-/g, '_');
-    const value = (await get(edgeKey)) ?? fallback;
-
-    // Reporta valor ao Flags Explorer via header (encoded) pra mostrar o atual
-    res.setHeader(
-      'x-flags-values',
-      Buffer.from(JSON.stringify({ [flagName]: value })).toString('base64')
-    );
-
-    return res.status(200).json({ value });
+    const edgeValue = await get(edgeKey);
+    const value = edgeValue ?? fallback;
+    await setFlagValuesHeader(flagName, value);
+    return res.status(200).json({
+      value,
+      source: edgeValue !== undefined ? 'edge-config' : 'fallback',
+    });
   } catch (e) {
     console.warn('[FLAGS] Edge Config fallback:', e.message);
-    return res.status(200).json({ value: fallback });
+    await setFlagValuesHeader(flagName, fallback);
+    return res.status(200).json({ value: fallback, source: 'error-fallback' });
   }
 }
