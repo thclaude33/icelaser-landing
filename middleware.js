@@ -12,8 +12,20 @@
 
 import { next } from '@vercel/edge';
 
+/**
+ * Matcher exclui paths que NÃO devem passar pelo middleware:
+ *  - api/: serverless handlers próprios
+ *  - .well-known/: protocolo reservado (Vercel Flags Explorer exige resposta
+ *    DIRETA do /.well-known/vercel/flags, não 301 redirect de preview URL →
+ *    icelasers.com.br; senão Flags Explorer retorna INVALID_WELL_KNOWN_FLAGS_BLOCKED).
+ *  - _vercel/: Vercel internal (Analytics, Speed Insights)
+ *  - fonts/, assets/, *.woff2, favicon.ico, robots.txt, sitemap.xml, manifest.json,
+ *    meta.json, apple-touch-icon.png: static assets (não precisam de rewrite fbp/fbc)
+ */
 export const config = {
-  matcher: ['/((?!api/).*)'],
+  matcher: [
+    '/((?!api/|\\.well-known/|_vercel/|fonts/|assets/|.*\\.(?:woff2?|ttf|eot|ico|png|jpg|jpeg|svg|xml|txt|json|webp|avif)$).*)',
+  ],
 };
 
 const FBP_MAX_AGE = 15552000; // 180 dias (bypassa iOS ITP 7d do JS cookie)
