@@ -38,15 +38,30 @@ export default async function handler(req, res) {
   }
   res.setHeader('Cache-Control', 'no-store');
 
+  // HTTP batch via REST API Edge Config (1 request pra 2 keys).
+  // SDK @vercel/edge-config v1.4.3 tem bug upstream em Vercel serverless
+  // (Cannot find module @vercel/edge-config-fs) — HTTP direto contorna.
+  // getAll(['k1','k2']) endpoint: {base}/items?keys=k1&keys=k2 (1 roundtrip).
+  async function fetchBatch(keys) {
+    if (!process.env.EDGE_CONFIG) return {};
+    try {
+      const edgeUrl = new URL(process.env.EDGE_CONFIG);
+      const params = new URLSearchParams(edgeUrl.search);
+      for (const k of keys) params.append('keys', k);
+      const itemsUrl = `${edgeUrl.origin}${edgeUrl.pathname}/items?${params.toString()}`;
+      const r = await fetch(itemsUrl, { cache: 'no-store' });
+      if (r.ok) return await r.json();
+    } catch (e) {
+      console.warn('[CONFIG] batch fetch failed:', e.message);
+    }
+    return {};
+  }
+
   try {
-    const { get } = await import('@vercel/edge-config');
-    const [vagas, data] = await Promise.all([
-      get('urgencia_vagas').catch(() => null),
-      get('urgencia_data').catch(() => null),
-    ]);
+    const items = await fetchBatch(['urgencia_vagas', 'urgencia_data']);
     return res.status(200).json({
-      urgencia_vagas: vagas ?? '3',
-      urgencia_data: data ?? proximoDomingo(),
+      urgencia_vagas: items.urgencia_vagas ?? '3',
+      urgencia_data: items.urgencia_data ?? proximoDomingo(),
     });
   } catch {
     return res.status(200).json({

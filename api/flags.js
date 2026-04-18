@@ -52,6 +52,34 @@ export default async function handler(req, res) {
   }
   res.setHeader('Cache-Control', 'no-store');
 
+  // Health check: ?health=1 retorna status do Edge Config + Flags setup
+  // sem consumir dados reais. Útil pra dashboard monitoring/alerting.
+  if (req.query.health === '1') {
+    const checks = {
+      hasEdgeConfig: !!process.env.EDGE_CONFIG,
+      hasFlagsSecret: !!process.env.FLAGS_SECRET,
+      edgeConfigReachable: false,
+      sdkWorks: false,
+    };
+    // Test HTTP direto
+    if (process.env.EDGE_CONFIG) {
+      try {
+        const edgeUrl = new URL(process.env.EDGE_CONFIG);
+        const digestUrl = `${edgeUrl.origin}${edgeUrl.pathname}/digest${edgeUrl.search}`;
+        const r = await fetch(digestUrl, { cache: 'no-store' });
+        checks.edgeConfigReachable = r.ok;
+      } catch {}
+    }
+    // Test SDK
+    try {
+      const { digest } = await import('@vercel/edge-config');
+      await digest();
+      checks.sdkWorks = true;
+    } catch {}
+    const allOk = checks.hasEdgeConfig && checks.edgeConfigReachable;
+    return res.status(allOk ? 200 : 503).json({ ok: allOk, checks });
+  }
+
   // Sanitização: req.query pode vir como array se URL tem ?flag=a&flag=b.
   // Stringify defensively pra evitar `.replace is not a function` em array.
   const flagName = String(req.query.flag || 'cta-variant');
