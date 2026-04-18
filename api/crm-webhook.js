@@ -318,7 +318,15 @@ export default async function handler(req, res) {
 
   // Recuperar fbp/fbc/ctwa_clid/originalLeadData do Blob — CONSOLIDADO em 1 leitura por bucket
   // BUG FIX #3: antes eram 2 leituras de leads/ separadas (fbp/fbc + originalLeadData)
+  //
+  // BUG FIX #4 (25ª passada, 18/04/2026): `ctwaData` precisa ser declarado no
+  // escopo SUPERIOR pois é referenciado em linhas 423+ (profile_name enrichment)
+  // e 454+ (ad_metadata → crmBase). Antes era `let ctwaData = null` dentro do
+  // if (telefone && BLOB_READ_WRITE_TOKEN) — causava ReferenceError em
+  // requests com telefone vazio ou BLOB_READ_WRITE_TOKEN ausente.
+  // Era o root cause dos 35× 500s em conversation_created/updated.
   let originalLeadData = null;
+  let ctwaData = null;
   if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     const telDigits = telefone.replace(/\D/g, '');
 
@@ -326,7 +334,6 @@ export default async function handler(req, res) {
     //    Além de ctwa_clid, recuperamos profile_name, ad_metadata e outros campos
     //    enriquecidos — pra usar em advanced matching + ad attribution nos events
     //    Lead Quente / Purchase disparados pelo label do Chatwoot.
-    let ctwaData = null;
     try {
       const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
       for (const blob of ctwaBlobs.blobs) {
