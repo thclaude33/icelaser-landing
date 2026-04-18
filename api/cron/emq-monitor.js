@@ -7,13 +7,25 @@
  */
 
 import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
+import { escapeHtml } from '../_lib/security.js';
 
 const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS = process.env.EMAIL_PASS;
 const EMAIL_TO = (process.env.EMAIL_TO || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
 
-// Thresholds de alerta
-const EMQ_MIN = 5.0;        // Alerta se EMQ < 5
+// Thresholds de alerta por evento (Meta oficial benchmarks 2026).
+// Purchase EMQ >= 8.8, Lead >= 7.5, CompleteRegistration >= 7.0, PageView/VC 6.5-7.5.
+// Threshold global é fallback pra eventos custom.
+const EMQ_THRESHOLDS = {
+  Purchase: 8.0,
+  Lead: 7.0,
+  LeadSubmitted: 7.0,
+  CompleteRegistration: 7.0,
+  InitiateCheckout: 6.5,
+  ViewContent: 6.0,
+  PageView: 5.5,
+};
+const EMQ_MIN_DEFAULT = 5.0;
 const COVERAGE_MIN = 50;    // Alerta se cobertura < 50%
 
 async function enviarEmail(assunto, html) {
@@ -103,9 +115,10 @@ export default async function handler(req, res) {
         diagnostics: diagnostics.map(d => d.description || d.message || JSON.stringify(d)).join('; '),
       });
 
-      // Alertas
-      if (emq < EMQ_MIN) {
-        alertas.push(`🔴 ${nome}: EMQ ${emq}/10 (mínimo: ${EMQ_MIN})`);
+      // Alertas com threshold específico por evento (Meta benchmarks 2026).
+      const threshold = EMQ_THRESHOLDS[nome] ?? EMQ_MIN_DEFAULT;
+      if (emq < threshold) {
+        alertas.push(`🔴 ${nome}: EMQ ${emq}/10 (mínimo: ${threshold})`);
       }
       if (coverage < COVERAGE_MIN && coverage > 0) {
         alertas.push(`🔴 ${nome}: Cobertura ${coverage}% (mínimo: ${COVERAGE_MIN}%)`);
@@ -115,23 +128,24 @@ export default async function handler(req, res) {
       }
     }
 
-    // Montar tabela HTML
+    // Montar tabela HTML — escapeHtml em tudo que vem da Meta API
+    // (defense-in-depth: event_name e diagnostics podem ter chars especiais).
     const rows = resumo.map(e => `
       <tr>
-        <td style="padding:8px;border:1px solid #ddd;font-weight:bold">${e.nome}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center">${e.emqStatus} ${e.emq}/10</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center">${e.covStatus} ${e.coverage}%</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center">${e.freshness}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center">${e.acr}%</td>
-        <td style="padding:8px;border:1px solid #ddd;font-size:11px">${e.matchKeys || '—'}</td>
-        <td style="padding:8px;border:1px solid #ddd;font-size:11px;color:#c0392b">${e.diagnostics || '✅ OK'}</td>
+        <td style="padding:8px;border:1px solid #ddd;font-weight:bold">${escapeHtml(e.nome)}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:center">${e.emqStatus} ${escapeHtml(String(e.emq))}/10</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:center">${e.covStatus} ${escapeHtml(String(e.coverage))}%</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:center">${escapeHtml(String(e.freshness))}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:center">${escapeHtml(String(e.acr))}%</td>
+        <td style="padding:8px;border:1px solid #ddd;font-size:11px">${escapeHtml(e.matchKeys || '—')}</td>
+        <td style="padding:8px;border:1px solid #ddd;font-size:11px;color:#c0392b">${escapeHtml(e.diagnostics || '✅ OK')}</td>
       </tr>
     `).join('');
 
     const alertaHtml = alertas.length > 0
       ? `<div style="background:#fff5f5;border:2px solid #c0392b;border-radius:8px;padding:16px;margin-bottom:16px">
            <h3 style="color:#c0392b;margin:0 0 8px">⚠️ ALERTAS (${alertas.length})</h3>
-           <ul style="margin:0;padding-left:20px">${alertas.map(a => `<li>${a}</li>`).join('')}</ul>
+           <ul style="margin:0;padding-left:20px">${alertas.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
          </div>`
       : `<div style="background:#e8f5e9;border:2px solid #4CAF50;border-radius:8px;padding:16px;margin-bottom:16px">
            <h3 style="color:#4CAF50;margin:0">✅ Tudo OK — sem alertas</h3>

@@ -74,6 +74,21 @@
       "memory": 256,
       "maxDuration": 30,
       "regions": ["gru1"]
+    },
+    "api/crm-webhook.js": {
+      "memory": 512,
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/pixel.js": {
+      "memory": 128,
+      "maxDuration": 10,
+      "regions": ["gru1"]
+    },
+    "api/health.js": {
+      "memory": 128,
+      "maxDuration": 5,
+      "regions": ["gru1"]
     }
   },
 
@@ -96,11 +111,10 @@
       "source": "/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(self), payment=()" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" }
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://connect.facebook.net https://www.googletagmanager.com https://unpkg.com https://www.google-analytics.com; connect-src 'self' https://graph.facebook.com https://www.facebook.com https://api64.ipify.org https://blob.vercel-storage.com https://*.public.blob.vercel-storage.com https://www.google-analytics.com; img-src 'self' data: https: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; frame-src https://www.facebook.com https://web.facebook.com; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://api.whatsapp.com https://wa.me" }
       ]
     },
     {

@@ -68,6 +68,13 @@ export async function sendCapiEvents(events, token, options = {}) {
   const maxRetries = options.maxRetries ?? 2;
   const payload = { data: events, partner_agent: PARTNER_AGENT };
 
+  // test_event_code: quando process.env.TEST_EVENT_CODE setado, anexa ao payload.
+  // Meta Events Manager → aba "Teste de Eventos" exibe em real-time pra validação
+  // (equivalente programático ao Payload Helper). Remover em prod de alto volume
+  // — events com test_event_code não contam pra attribution/optimization.
+  const testCode = options.testEventCode ?? process.env.TEST_EVENT_CODE;
+  if (testCode) payload.test_event_code = testCode;
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const res = await fetch(`${GRAPH_BASE}/${pixelId}/events`, {
       method: 'POST',
