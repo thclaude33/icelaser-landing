@@ -230,6 +230,7 @@ export default async function handler(req, res) {
   const {
     event_name = 'Lead',
     event_id,
+    event_time: bodyEventTime,  // opcional: pixel browser envia pra sync com CAPI server
     nome,
     telefone,
     email,
@@ -361,10 +362,19 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Insufficient user_data for matching (need em/ph/fn+ln/external_id/fbp/fbc)' });
   }
 
+  // event_time: se browser mandou e é válido (dentro da janela 7d Meta), usa ele.
+  // Senão, now. Isso sincroniza pixel.eventTime ↔ CAPI.eventTime — melhor pra attribution.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const minValidTime = nowSec - 7 * 24 * 3600 + 600;  // 7d window com margem
+  const parsedBodyTime = Number(bodyEventTime);
+  const eventTime = Number.isFinite(parsedBodyTime) && parsedBodyTime >= minValidTime && parsedBodyTime <= nowSec
+    ? parsedBodyTime
+    : nowSec;
+
   const payload = {
     data: [{
       event_name,
-      event_time: Math.floor(Date.now() / 1000),
+      event_time: eventTime,
       event_id,
       event_source_url: event_source_url || 'https://icelasers.com.br/',
       action_source: 'website',

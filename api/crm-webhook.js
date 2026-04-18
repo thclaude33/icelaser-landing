@@ -191,6 +191,8 @@ export default async function handler(req, res) {
               // Sanitiza pra evitar path traversal no pathname Blob
               const telDigits = String(phone).replace(/\D/g, '').slice(0, 20);
               if (!telDigits) throw new Error('invalid phone');
+              // @vercel/blob 2.x: `allowOverwrite: true` é obrigatório quando path existir.
+              // Sem isso, se user já veio de outro CTWA ad antes, put() falha com 409.
               await put(`ctwa/${telDigits}.json`, JSON.stringify({
                 ctwa_clid: ctwaClid,
                 phone: telDigits,
@@ -200,7 +202,7 @@ export default async function handler(req, res) {
                 source_type: msgData.referral.source_type || '',
                 timestamp: new Date().toISOString(),
                 wamid: sourceId,
-              }), { access: 'public', contentType: 'application/json' });
+              }), { access: 'public', contentType: 'application/json', allowOverwrite: true });
               console.log(`[CRM-WEBHOOK] ✅ ctwa_clid salvo no Blob: ctwa/${telDigits}.json`);
             } catch (e) {
               console.warn(`[CRM-WEBHOOK] Blob save ctwa failed: ${e.message}`);
@@ -420,16 +422,26 @@ export default async function handler(req, res) {
   const eventId = `crm_${contactKey}_${now}_${jitter}`;
   const orderId = `order_${contactKey}_${now}`;
 
-  // BUG FIX #2: customerSeg baseado em labels ANTERIORES, não nas atuais
-  // Se compra_realizada já estava antes desta atualização → existing_customer
-  // Se está sendo adicionada agora (não estava em previousLabels) → new_customer
-  const wasAlreadyPurchased = previousLabels.includes('compra_realizada') || previousLabels.includes('💰 Compra Realizada');
+  // customerSeg: 3 sinais combinados pra detectar existing customer
+  //   1. previousLabels tinha compra_realizada (label já estava)
+  //   2. customAttrs.has_purchased === true (flag custom)
+  //   3. Lead original no Blob tem `converted: true` (achado acima via leads/converted/)
+  // Gap #3 antigo: se user teve compra em CONV ANTERIOR (outro contact_id), antes ficava
+  // sempre new_customer. Agora o lookup em leads/converted/ resolve.
+  const wasAlreadyPurchased =
+    previousLabels.includes('compra_realizada') ||
+    previousLabels.includes('💰 Compra Realizada') ||
+    customAttrs.has_purchased === true ||
+    customAttrs.has_purchased === 'true' ||
+    // originalLeadData recuperado de leads/converted/ → já tinha purchase antes
+    (originalLeadData && originalLeadData.event_id && originalLeadData.event_id.startsWith('purchase_'));
   const customerSeg = wasAlreadyPurchased ? 'existing_customer_to_business' : 'new_customer_to_business';
 
   // helper: verifica se algum label está presente (case-insensitive, suporta variações)
   const hasLabel = (...variants) => labels.some(l => variants.includes(l) || variants.includes(l.toLowerCase()));
 
   // ❌ DESQUALIFICADO
+  // Meta Andromeda 2026: predicted_ltv=0 sinaliza pro algoritmo EVITAR perfis similares.
   if (hasLabel('desqualificado', '❌ Desqualificado', '❌_desqualificado', 'disqualified', 'unqualified')) {
     events.push({
       ...baseEvent,
@@ -443,12 +455,15 @@ export default async function handler(req, res) {
         status: 'disqualified',
         quality: 'unqualified',
         disqualification_reason: 'fora_do_publico_alvo',
-        customer_segmentation: 'new_customer_to_business',
+        currency: 'BRL',
+        value: 0,                       // sinal negativo explícito
+        predicted_ltv: 0,               // "EVITE este perfil"
+        customer_segmentation: customerSeg,
       },
     });
   }
 
-  // 🧊 LEAD FRIO
+  // 🧊 LEAD FRIO — sinal fraco (lead vai reagir mas não converter alto)
   if (hasLabel('lead_frio', '🧊 Lead Frio', '🧊_lead_frio', 'cold_lead', 'lead frio', 'frio')) {
     events.push({
       ...baseEvent,
@@ -460,12 +475,15 @@ export default async function handler(req, res) {
         content_name: 'Lead Frio - CRM',
         lead_type: 'cold_lead',
         status: 'unqualified',
+        currency: 'BRL',
+        value: 50,                      // sinal fraco mas não zero
+        predicted_ltv: 200,             // LTV baixo esperado
         customer_segmentation: customerSeg,
       },
     });
   }
 
-  // 🔥 LEAD QUENTE
+  // 🔥 LEAD QUENTE — sinal forte (mais provável converter em Purchase)
   if (hasLabel('lead_quente', '🔥 Lead Quente', '🔥_lead_quente', 'hot_lead', 'lead quente', 'quente')) {
     events.push(
       {
@@ -473,21 +491,44 @@ export default async function handler(req, res) {
         event_name: 'Lead',
         event_time: now - 3600,
         event_id: `${eventId}_hot_lead`,
-        custom_data: { ...crmBase, content_name: 'Lead Quente - CRM', lead_type: 'hot_lead', customer_segmentation: customerSeg },
+        custom_data: {
+          ...crmBase,
+          content_name: 'Lead Quente - CRM',
+          lead_type: 'hot_lead',
+          currency: 'BRL',
+          value: 300,                                 // sinal forte
+          predicted_ltv: DEFAULT_PREDICTED_LTV,       // LTV esperado (~980)
+          customer_segmentation: customerSeg,
+        },
       },
       {
         ...baseEvent,
         event_name: 'CompleteRegistration',
         event_time: now,
         event_id: `${eventId}_hot_cr`,
-        custom_data: { ...crmBase, content_name: 'Lead Quente - CRM', status: 'converted', currency: 'BRL', value: 150.00, customer_segmentation: customerSeg },
+        custom_data: {
+          ...crmBase,
+          content_name: 'Lead Quente - CRM',
+          status: 'converted',
+          currency: 'BRL',
+          value: 300,                                 // alinhado com Lead event
+          predicted_ltv: DEFAULT_PREDICTED_LTV,
+          customer_segmentation: customerSeg,
+        },
       }
     );
   }
 
+  // Helper: parse seguro. `parseFloat(0) || DEFAULT` cai no DEFAULT — bug.
+  // Usar Number.isFinite + >0 pra detectar zero-by-error de real 0.
+  const safeValorParse = (raw) => {
+    const n = parseFloat(raw);
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_PURCHASE_VALUE;
+  };
+
   // 💳 LINK DE PAGAMENTO (atendente enviou link / cliente vai pagar)
   if (hasLabel('link_pagamento', '💳 Link Pagamento', '💳_link_pagamento', 'link pagamento', 'pagamento', 'checkout')) {
-    const valor = parseFloat(customAttrs.purchase_value) || DEFAULT_PURCHASE_VALUE;
+    const valor = safeValorParse(customAttrs.purchase_value);
     events.push({
       ...baseEvent,
       event_name: 'InitiateCheckout',
@@ -499,7 +540,7 @@ export default async function handler(req, res) {
 
   // 💰 COMPRA REALIZADA
   if (hasLabel('compra_realizada', '💰 Compra Realizada', '💰_compra_realizada', 'purchase', 'compra realizada', 'comprou', 'vendido', 'sold')) {
-    const valor = parseFloat(customAttrs.purchase_value) || DEFAULT_PURCHASE_VALUE;
+    const valor = safeValorParse(customAttrs.purchase_value);
     events.push(
       {
         ...baseEvent,

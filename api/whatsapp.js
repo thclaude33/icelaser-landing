@@ -130,6 +130,8 @@ async function processarCTWA(from, message, referral) {
       // Sanitiza from (phone) pra evitar path traversal no pathname Blob
       const safeFrom = String(from).replace(/[^0-9]/g, '').slice(0, 20);
       if (!safeFrom) throw new Error('invalid phone');
+      // @vercel/blob 2.x requer allowOverwrite quando pathname já existe
+      // (ex: cliente já clicou em CTWA ad antes → path já tem arquivo).
       await put(`ctwa/${safeFrom}.json`, JSON.stringify({
         ctwa_clid: clid,
         phone: safeFrom,
@@ -138,7 +140,7 @@ async function processarCTWA(from, message, referral) {
         headline: headlineText,
         body: bodyText,
         timestamp: ts,
-      }), { access: 'public', contentType: 'application/json' });
+      }), { access: 'public', contentType: 'application/json', allowOverwrite: true });
       console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}.json`);
     } catch (e) {
       console.warn('[CTWA] Blob save failed:', e.message);

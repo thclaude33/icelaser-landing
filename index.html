@@ -113,8 +113,9 @@
     onload="window._paramBuilderReady=true;try{clientParamBuilder.processAndCollectAllParams();}catch(e){}"
     onerror="window._paramBuilderReady=false;"></script>
 
-  <!-- fbp early generation (fallback manual) — garante _fbp se ParamBuilder ainda não carregou -->
-  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.1.'+Date.now()+'.'+Math.floor(Math.random()*1e15);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax';}}catch(e){}}());</script>
+  <!-- fbp early generation (fallback manual) — garante _fbp se middleware/ParamBuilder ainda não rodou
+       Usa 1e16 (alinhado com middleware.js pra formato consistente entre server e client) -->
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.1.'+Date.now()+'.'+Math.floor(Math.random()*1e16);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax;Secure';}}catch(e){}}());</script>
   <!-- IPv6 capture — IP residencial raramente muda em 24h -->
   <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=7200;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
 
@@ -2001,23 +2002,41 @@
 
   // btn-wa-hero Lead tracking coberto pelo interceptor global (tag LP3)
 
-  // COUNTDOWN TIMER — expira à meia-noite do dia
+  // COUNTDOWN TIMER — expira à meia-noite BRT (America/Recife), não timezone do user
+  // Bug anterior: `end.setHours(23,59,59)` usava timezone do browser. User em outro fuso
+  // (ex: turista em BRT→UTC) via countdown errado. Como clínica é local Recife,
+  // meia-noite deve ser sempre BRT.
   (function() {
     const timerEl = document.getElementById('countdown-timer');
     if (!timerEl) return;
+    let intervalId;
     function update() {
-      const now = new Date();
-      const end = new Date(now);
-      end.setHours(23, 59, 59, 999);
-      const diff = end - now;
-      if (diff <= 0) { timerEl.textContent = '00:00:00'; return; }
-      const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
-      const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
-      const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+      // Hora atual em BRT via Intl (DST-safe, funciona em qq fuso do browser)
+      const nowBRT = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Recife', hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      }).formatToParts(new Date()).reduce((acc, p) => {
+        if (p.type !== 'literal') acc[p.type] = p.value;
+        return acc;
+      }, {});
+      const hh = parseInt(nowBRT.hour, 10);
+      const mm = parseInt(nowBRT.minute, 10);
+      const ss = parseInt(nowBRT.second, 10);
+      const totalSec = hh * 3600 + mm * 60 + ss;
+      const secToMidnight = 86400 - totalSec;
+      if (secToMidnight <= 0) {
+        timerEl.textContent = '00:00:00';
+        if (intervalId) { clearInterval(intervalId); intervalId = null; }
+        return;
+      }
+      const h = String(Math.floor(secToMidnight / 3600)).padStart(2, '0');
+      const m = String(Math.floor((secToMidnight % 3600) / 60)).padStart(2, '0');
+      const s = String(secToMidnight % 60).padStart(2, '0');
       timerEl.textContent = h + ':' + m + ':' + s;
     }
     update();
-    setInterval(update, 1000);
+    intervalId = setInterval(update, 1000);
   })();
 
   // Rastreia clique no FAB (Vercel Analytics event — Lead CAPI já é coberto pelo interceptor global LP5)
