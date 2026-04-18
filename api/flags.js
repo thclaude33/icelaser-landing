@@ -79,25 +79,55 @@ export default async function handler(req, res) {
   }
 
   // 2. Edge Config. Query `?debug=1` retorna info diagnóstico (não vaza valores).
+  //
+  // Estratégia dupla: tenta SDK primeiro (@vercel/edge-config), mas em bundles
+  // serverless Vercel o SDK às vezes falha por não achar peer dep
+  // @vercel/edge-config-fs (confirmado bug prod 18/04/2026).
+  // Fallback: HTTP direto na Edge Config API — EDGE_CONFIG env var contém
+  // URL+token:  https://edge-config.vercel.com/ecfg_XXX?token=YYY
+  // Item endpoint: {EDGE_CONFIG_BASE}/item/{key} (reuse query string pro auth).
   const debug = String(req.query.debug || '') === '1';
+  let edgeValue, edgeError;
+  const keyMap = { 'cta-variant': 'cta_variant' };
+  const edgeKey = keyMap[flagName] || flagName.replace(/-/g, '_');
+
   try {
     const { get } = await import('@vercel/edge-config');
-    const keyMap = { 'cta-variant': 'cta_variant' };
-    const edgeKey = keyMap[flagName] || flagName.replace(/-/g, '_');
-    const edgeValue = await get(edgeKey);
-    const value = edgeValue ?? fallback;
-    await setFlagValuesHeader(flagName, value);
-    const body = {
-      value,
-      source: edgeValue !== undefined ? 'edge-config' : 'fallback',
-    };
-    if (debug) body.debug = { headerStatus, edgeKey, hasFlagsSecret: !!process.env.FLAGS_SECRET, hasEdgeConfig: !!process.env.EDGE_CONFIG };
-    return res.status(200).json(body);
-  } catch (e) {
-    console.warn('[FLAGS] Edge Config fallback:', e.message);
-    await setFlagValuesHeader(flagName, fallback);
-    const body = { value: fallback, source: 'error-fallback' };
-    if (debug) body.debug = { headerStatus, error: e.message, hasFlagsSecret: !!process.env.FLAGS_SECRET, hasEdgeConfig: !!process.env.EDGE_CONFIG };
-    return res.status(200).json(body);
+    edgeValue = await get(edgeKey);
+  } catch (sdkErr) {
+    edgeError = `sdk:${sdkErr.message}`;
+    // Fallback HTTP direto na Edge Config API.
+    if (process.env.EDGE_CONFIG) {
+      try {
+        const edgeUrl = new URL(process.env.EDGE_CONFIG);
+        const itemUrl = `${edgeUrl.origin}${edgeUrl.pathname}/item/${encodeURIComponent(edgeKey)}${edgeUrl.search}`;
+        const r = await fetch(itemUrl, { cache: 'no-store' });
+        if (r.ok) {
+          edgeValue = await r.json();
+        } else if (r.status !== 404) {
+          edgeError += ` | http:${r.status}`;
+        }
+        // 404 = key ausente = normal, edgeValue fica undefined → cai pra fallback value
+      } catch (httpErr) {
+        edgeError += ` | http-exception:${httpErr.message}`;
+      }
+    }
   }
+
+  const value = edgeValue ?? fallback;
+  await setFlagValuesHeader(flagName, value);
+  const body = {
+    value,
+    source: edgeValue !== undefined ? 'edge-config' : (edgeError ? 'error-fallback' : 'fallback'),
+  };
+  if (debug) {
+    body.debug = {
+      headerStatus,
+      edgeKey,
+      edgeError: edgeError || null,
+      hasFlagsSecret: !!process.env.FLAGS_SECRET,
+      hasEdgeConfig: !!process.env.EDGE_CONFIG,
+    };
+  }
+  return res.status(200).json(body);
 }
