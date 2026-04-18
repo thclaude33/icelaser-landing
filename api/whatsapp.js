@@ -139,15 +139,17 @@ async function processarCTWA(from, message, referral) {
     }
   }
 
-  // Disparar CAPI Lead com telefone + fbc derivado do ctwa_clid
-  // Melhora cobertura de phone (28%→+) e fbc (64%→+) no Events Manager
+  // Disparar CAPI LeadSubmitted (ContactStarted) com telefone + fbc derivado do ctwa_clid
+  // Meta oficial (2026): business_messaging aceita SÓ 13 eventos; "Lead" NÃO está — "LeadSubmitted" é o correto.
+  // Também OBRIGATÓRIO: messaging_channel = "whatsapp" (sem ele, erro 2804063).
+  // Este evento representa o 1º contato do lead via CTWA ad — atribuição do click.
+  // (Lead qualificado real é disparado depois pelo crm-webhook via label lead_quente.)
   if (clid && from && META_TOKEN) {
     try {
       const eventTime = Math.floor(Date.now() / 1000);
-      // fbc = fb.1.{creationTime_ms}.{ctwa_clid} — formato oficial Meta usa MILISSEGUNDOS
-      // (era segundos aqui — inconsistente com crm-webhook.js que usa ms; afeta matching)
+      // fbc = fb.1.{creationTime_ms}.{ctwa_clid} — formato oficial Meta (MILISSEGUNDOS)
       const fbc = `fb.1.${Date.now()}.${clid}`;
-      await fetch(
+      const r = await fetch(
         `${GRAPH_BASE}/${PIXEL_ID}/events`,
         {
           method: 'POST',
@@ -157,10 +159,17 @@ async function processarCTWA(from, message, referral) {
           },
           body: JSON.stringify({
             data: [{
-              event_name: 'Lead',
+              // Oficial Meta 2026: Lista eventos válidos pra business_messaging =
+              // [Purchase, LeadSubmitted, InitiateCheckout, AddToCart, ViewContent,
+              //  OrderCreated/Shipped/Delivered/Canceled/Returned, CartAbandoned,
+              //  QualifiedLead, RatingProvided, ReviewProvided].
+              // "Lead" NÃO está — gerava rejeição silenciosa antes.
+              event_name: 'LeadSubmitted',
               event_time: eventTime,
               event_id: `ctwa_wa_${from}_${eventTime}`,
               action_source: 'business_messaging',
+              // OBRIGATÓRIO em business_messaging. Sem isto, Meta retorna 2804063.
+              messaging_channel: 'whatsapp',
               user_data: {
                 ph: [sha256(from)],
                 ge: [sha256('f')],
@@ -168,24 +177,29 @@ async function processarCTWA(from, message, referral) {
                 st: [sha256('pe')],
                 ct: [sha256('recife')],
                 fbc,
-                // ctwa_clid em user_data — posição oficial Meta para CTWA
-                // (não é lead_id numérico, que só existe em Lead Gen Forms)
                 ctwa_clid: clid,
                 whatsapp_business_account_id: WABA_ID,
               },
               custom_data: {
-                event_source: 'crm',
-                lead_event_source: 'WhatsApp',
+                lead_event_source: 'WhatsApp CTWA',
                 source_url: sourceUrl,
-                content_name: 'CTWA Lead - WhatsApp',
+                content_name: 'CTWA Contact Started - WhatsApp',
+                // Não setamos value aqui — ainda não há sinal de qualificação.
+                // Valor real vem depois no Lead qualificado (crm-webhook) e Purchase.
               },
             }],
           }),
         }
       );
-      console.log(`[CTWA] ✅ CAPI Lead fired: ph=${from.slice(-4)} fbc=${fbc.slice(0,20)}...`);
+      // Log da resposta pra detectar rejeições silenciosas no futuro
+      const respBody = await r.json();
+      if (respBody.error) {
+        console.warn(`[CTWA] ⚠️  CAPI rejected: code=${respBody.error.code} sub=${respBody.error.error_subcode} ${respBody.error.message}`);
+      } else {
+        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${from.slice(-4)} received=${respBody.events_received}`);
+      }
     } catch (e) {
-      console.warn('[CTWA] CAPI Lead failed:', e.message);
+      console.warn('[CTWA] CAPI LeadSubmitted failed:', e.message);
     }
   }
 

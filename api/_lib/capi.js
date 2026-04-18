@@ -93,10 +93,16 @@ export async function sendCapiEvents(events, token, options = {}) {
 }
 
 /**
- * Valida eventos antes de enviar. Remove inválidos e loga.
+ * Valida e normaliza eventos antes de enviar. Remove inválidos e loga.
  * Meta rejeita o batch INTEIRO se 1 evento for inválido.
+ *
+ * Normalizações automáticas aplicadas:
+ *  - event_time clamped ao intervalo [now-7d+margin, now] (evita 2804003 + futuro)
+ *  - business_messaging sem messaging_channel → inválido (evita 2804063)
  */
 export function filterValidEvents(events) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const minSec = nowSec - 7 * 24 * 3600 + 600;  // 7d window menos margem 10min
   return events.filter((evt) => {
     if (!evt.event_name || !evt.event_time || !evt.action_source) {
       console.warn(`[CAPI INVALID] missing required: ${evt.event_name || '?'}`);
@@ -105,6 +111,19 @@ export function filterValidEvents(events) {
     if (!evt.user_data || Object.keys(evt.user_data).length === 0) {
       console.warn(`[CAPI INVALID] empty user_data: ${evt.event_name}`);
       return false;
+    }
+    // Business messaging requer messaging_channel (Meta oficial 2026).
+    if (evt.action_source === 'business_messaging' && !evt.messaging_channel) {
+      console.warn(`[CAPI INVALID] business_messaging sem messaging_channel: ${evt.event_name}`);
+      return false;
+    }
+    // Clamp event_time se > now (futuro — não aceita) ou < now-7d (rejeita 2804003).
+    if (evt.event_time > nowSec) {
+      console.warn(`[CAPI CLAMP] event_time futuro (${evt.event_time} > ${nowSec}) → ajustado`);
+      evt.event_time = nowSec;
+    } else if (evt.event_time < minSec) {
+      console.warn(`[CAPI CLAMP] event_time muito antigo (${evt.event_time} < ${minSec}) → ajustado pra borda da janela`);
+      evt.event_time = minSec;
     }
     return true;
   });

@@ -317,29 +317,43 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Leitura ÚNICA de leads/ para fbp/fbc E originalLeadData
+    // 2. Leitura paginada de leads/ para fbp/fbc E originalLeadData
+    // Bug anterior: limit:100 perdia leads antigos → fbp recovery = 2.1% no EMQ.
+    // Fix: paginar (~500 leads total coberto) + short-circuit quando achar match.
     if (!fbp || !fbc || !originalLeadData) {
       try {
-        const leadBlobs = await list({ prefix: 'leads/', limit: 100 });
-        for (const blob of leadBlobs.blobs) {
-          if (blob.size > 200) {
-            const blobResp = await fetch(blob.url);
-            const data = await blobResp.json();
-            const blobTel = (data.telefone || '').replace(/\D/g, '');
-            if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
-              if (!fbp && data.fbp) fbp = data.fbp;
-              if (!fbc && data.fbc) fbc = data.fbc;
-              if (!originalLeadData && data.event_id) {
-                originalLeadData = {
-                  event_name: 'Lead',
-                  event_time: Math.floor(new Date(data.timestamp).getTime() / 1000),
-                  event_id: data.event_id,
-                };
-                console.log(`[CRM-WEBHOOK] Found original Lead: event_id=${data.event_id}`);
+        let cursor;
+        let pages = 0;
+        outer: while (pages < 5) {  // até 5 páginas × 1000 = 5000 leads máx
+          const leadBlobs = await list({ prefix: 'leads/', limit: 1000, ...(cursor && { cursor }) });
+          for (const blob of leadBlobs.blobs) {
+            if (blob.size > 200) {
+              const blobResp = await fetch(blob.url);
+              const data = await blobResp.json();
+              const blobTel = (data.telefone || '').replace(/\D/g, '');
+              if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
+                if (!fbp && data.fbp) fbp = data.fbp;
+                if (!fbc && data.fbc) fbc = data.fbc;
+                if (!originalLeadData && data.event_id) {
+                  // Clamp event_time dentro da janela 7d (Meta rejeita > 7d)
+                  const originalTs = Math.floor(new Date(data.timestamp).getTime() / 1000);
+                  const nowTs = Math.floor(Date.now() / 1000);
+                  const minValid = nowTs - 6 * 24 * 3600;  // safety margin (6d)
+                  const clampedTs = Math.max(originalTs, minValid);
+                  originalLeadData = {
+                    event_name: 'Lead',
+                    event_time: clampedTs,
+                    event_id: data.event_id,
+                  };
+                  console.log(`[CRM-WEBHOOK] Found original Lead: event_id=${data.event_id} clamped=${clampedTs !== originalTs}`);
+                }
+                if (fbp && fbc && originalLeadData) break outer;
               }
-              if (fbp && fbc && originalLeadData) break;
             }
           }
+          cursor = leadBlobs.hasMore ? leadBlobs.cursor : undefined;
+          if (!cursor) break;
+          pages += 1;
         }
       } catch (e) {
         console.warn('[CRM-WEBHOOK] Blob leads recovery failed:', e.message);
