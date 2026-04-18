@@ -58,6 +58,10 @@
       "maxDuration": 30,
       "regions": ["gru1"]
     },
+    "api/cron/emq-realtime.js": {
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
     "api/og.js": {
       "maxDuration": 10
     },
