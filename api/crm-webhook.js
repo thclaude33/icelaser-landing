@@ -317,19 +317,28 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Leitura paginada de leads/ para fbp/fbc E originalLeadData
+    // 2. Leitura de leads/ para fbp/fbc E originalLeadData
     // Bug anterior: limit:100 perdia leads antigos → fbp recovery = 2.1% no EMQ.
-    // Fix: paginar (~500 leads total coberto) + short-circuit quando achar match.
+    // Fix: busca em leads/pending/ primeiro (match mais provável nos recentes),
+    //      depois leads/converted/ se não achou. Fetch PARALELO em batches de 10
+    //      pra caber no timeout 30s da função mesmo com 500 leads.
     if (!fbp || !fbc || !originalLeadData) {
-      try {
-        let cursor;
-        let pages = 0;
-        outer: while (pages < 5) {  // até 5 páginas × 1000 = 5000 leads máx
-          const leadBlobs = await list({ prefix: 'leads/', limit: 1000, ...(cursor && { cursor }) });
-          for (const blob of leadBlobs.blobs) {
-            if (blob.size > 200) {
-              const blobResp = await fetch(blob.url);
-              const data = await blobResp.json();
+      const searchPrefixes = ['leads/pending/', 'leads/converted/'];
+      outerSearch: for (const prefix of searchPrefixes) {
+        try {
+          const leadBlobs = await list({ prefix, limit: 500 });
+          const candidates = leadBlobs.blobs.filter(b => b.size > 200);
+          // Batches de 10 fetches paralelos (não bloqueante vs 500 sequenciais)
+          for (let i = 0; i < candidates.length; i += 10) {
+            const batch = candidates.slice(i, i + 10);
+            const datas = await Promise.all(
+              batch.map(async (blob) => {
+                try { return await (await fetch(blob.url)).json(); }
+                catch { return null; }
+              })
+            );
+            for (const data of datas) {
+              if (!data) continue;
               const blobTel = (data.telefone || '').replace(/\D/g, '');
               if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
                 if (!fbp && data.fbp) fbp = data.fbp;
@@ -338,7 +347,7 @@ export default async function handler(req, res) {
                   // Clamp event_time dentro da janela 7d (Meta rejeita > 7d)
                   const originalTs = Math.floor(new Date(data.timestamp).getTime() / 1000);
                   const nowTs = Math.floor(Date.now() / 1000);
-                  const minValid = nowTs - 6 * 24 * 3600;  // safety margin (6d)
+                  const minValid = nowTs - 6 * 24 * 3600;
                   const clampedTs = Math.max(originalTs, minValid);
                   originalLeadData = {
                     event_name: 'Lead',
@@ -347,16 +356,13 @@ export default async function handler(req, res) {
                   };
                   console.log(`[CRM-WEBHOOK] Found original Lead: event_id=${data.event_id} clamped=${clampedTs !== originalTs}`);
                 }
-                if (fbp && fbc && originalLeadData) break outer;
+                if (fbp && fbc && originalLeadData) break outerSearch;
               }
             }
           }
-          cursor = leadBlobs.hasMore ? leadBlobs.cursor : undefined;
-          if (!cursor) break;
-          pages += 1;
+        } catch (e) {
+          console.warn(`[CRM-WEBHOOK] Blob ${prefix} recovery failed: ${e.message}`);
         }
-      } catch (e) {
-        console.warn('[CRM-WEBHOOK] Blob leads recovery failed:', e.message);
       }
     }
 
