@@ -9,7 +9,7 @@
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put } from '@vercel/blob';
-import { PIXEL_ID, WABA_ID, GRAPH_BASE } from './_lib/config.js';
+import { PIXEL_ID, GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml, sanitizeHeader } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
@@ -340,7 +340,11 @@ async function processarCTWA(from, message, referral, profileName) {
       });
       userData.fbc = fbc;
       userData.ctwa_clid = clid;
-      userData.whatsapp_business_account_id = WABA_ID;
+      // whatsapp_business_account_id REMOVIDO — Meta API v25 rejeita este campo
+      // em user_data com `OAuthException code=1 "An unknown error has occurred"`
+      // quando presente junto com ctwa_clid. Descoberto via reprodução direta
+      // Graph API (4 testes isolados) em 18/04/2026. Mesma fix aplicado em
+      // crm-webhook.js. Ver: feedback_meta_capi_waba_id_rejected.md
       // page_id: Meta Java SDK oficial lista como user_data key válida.
       // Para CTWA ads, page_id é o Facebook Page que hospeda o ad → melhora
       // attribution cross-device.
