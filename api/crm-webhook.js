@@ -9,7 +9,7 @@
  */
 
 import { put, list } from '@vercel/blob';
-import { PIXEL_ID, WABA_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
+import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 import { buildUserData, hashPII } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
@@ -427,7 +427,17 @@ export default async function handler(req, res) {
   if (fbc) userData.fbc = fbc;
   if (ctwaClid) {
     userData.ctwa_clid = ctwaClid; // user_data — posição oficial Meta para CTWA
-    userData.whatsapp_business_account_id = WABA_ID;
+    // NOTA: `whatsapp_business_account_id` REMOVIDO em 25ª passada (18/04/2026).
+    // Meta API v25 rejeita esse campo em user_data OU original_event_data com
+    // `OAuthException code=1 "An unknown error has occurred"` quando presente
+    // junto com ctwa_clid. Descoberto via reprodução direta Graph API em 4 testes:
+    //   T1: só ctwa_clid → 200 events_received:1 ✅
+    //   T2: só waba_id → erro code=1 ❌
+    //   T3: ambos em user_data → erro code=1 ❌
+    //   T5: waba em original_event_data → erro code=1 ❌
+    // Causou 3 event_received missing na recovery dos 14 labels.
+    // Se Meta re-habilitar: re-adicionar em original_event_data junto
+    // com action_source=business_messaging + messaging_channel=whatsapp.
   }
 
   // ENRIQUECIMENTO CTWA — se Blob tem profile_name do WhatsApp E nome do
