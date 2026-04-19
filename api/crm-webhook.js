@@ -425,6 +425,16 @@ export default async function handler(req, res) {
 
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
+
+  // lead_id: highest-priority user_data field para Conversion Leads (Meta spec)
+  // https://developers.facebook.com/docs/marketing-api/conversions-api/conversion-leads-integration/payload-specification
+  // Chatwoot contact.id é identidade estável entre conversations do mesmo user →
+  // dedupe perfeito + Conversion Leads stage progression tracking funcional.
+  // NÃO hasheado (é identifier, não PII).
+  if (contact.id) {
+    userData.lead_id = String(contact.id);
+  }
+
   if (ctwaClid) {
     userData.ctwa_clid = ctwaClid; // user_data — posição oficial Meta para CTWA
     // NOTA: `whatsapp_business_account_id` REMOVIDO em 25ª passada (18/04/2026).
@@ -525,27 +535,47 @@ export default async function handler(req, res) {
   // helper: verifica se algum label está presente (case-insensitive, suporta variações)
   const hasLabel = (...variants) => labels.some(l => variants.includes(l) || variants.includes(l.toLowerCase()));
 
-  // ❌ DESQUALIFICADO
-  // Meta Andromeda 2026: predicted_ltv=0 sinaliza pro algoritmo EVITAR perfis similares.
+  // ❌ DESQUALIFICADO — Hybrid approach (Meta best practice 2026):
+  //   1. Standard `Lead` event (mantém EMQ calculation + predicted_ltv=0 signal
+  //      pra Andromeda AI evitar lookalikes de perfis similares)
+  //   2. Custom `LeadDesqualificado` event (permite criar Audience "Lead Desqualificado"
+  //      no Events Manager → usar como EXCLUSION list em targeting de campanhas)
+  //
+  // Conversion Leads spec (official Meta 2026): event_name é free-form pra stages CRM.
+  // Meta recomenda STANDARD EVENT pra optimization + CUSTOM pra audience features.
+  // https://developers.facebook.com/docs/marketing-api/conversions-api/conversion-leads-integration/payload-specification
   if (hasLabel('desqualificado', '❌ Desqualificado', '❌_desqualificado', 'disqualified', 'unqualified')) {
-    events.push({
-      ...baseEvent,
-      event_name: 'Lead',
-      event_time: now,
-      event_id: `${eventId}_disqualified`,
-      custom_data: {
-        ...crmBase,
-        content_name: 'Lead Desqualificado - CRM',
-        lead_type: 'disqualified',
-        status: 'disqualified',
-        quality: 'unqualified',
-        disqualification_reason: 'fora_do_publico_alvo',
-        currency: 'BRL',
-        value: 0,                       // sinal negativo explícito
-        predicted_ltv: 0,               // "EVITE este perfil"
-        customer_segmentation: customerSeg,
+    const disqCustomData = {
+      ...crmBase,
+      content_name: 'Lead Desqualificado - CRM',
+      lead_type: 'disqualified',
+      status: 'disqualified',
+      quality: 'unqualified',
+      disqualification_reason: 'fora_do_publico_alvo',
+      currency: 'BRL',
+      value: 0,                       // sinal negativo explícito
+      predicted_ltv: 0,               // "EVITE este perfil" — Andromeda signal
+      customer_segmentation: customerSeg,
+    };
+    events.push(
+      // 1) Standard Lead event — otimização (EMQ calculado, predicted_ltv=0 signal)
+      {
+        ...baseEvent,
+        event_name: 'Lead',
+        event_time: now,
+        event_id: `${eventId}_disqualified`,
+        custom_data: disqCustomData,
       },
-    });
+      // 2) Custom LeadDesqualificado event — audience creation (exclude list)
+      //    event_id diferente pra Meta NÃO deduplicar (são sinais distintos).
+      {
+        ...baseEvent,
+        event_name: 'LeadDesqualificado',
+        event_time: now,
+        event_id: `${eventId}_disqualified_audience`,
+        custom_data: disqCustomData,
+      },
+    );
   }
 
   // 🧊 LEAD FRIO — sinal fraco (lead vai reagir mas não converter alto)
