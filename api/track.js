@@ -400,8 +400,10 @@ export default async function handler(req, res) {
     partner_agent: PARTNER_AGENT,
   };
 
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) return res.status(500).json({ error: 'META_ACCESS_TOKEN not configured' });
+  // Prefer dataset-scoped CAPI_DATASET_TOKEN (Events Manager > API de Conversões token)
+  // Escopo reduzido ao pixel. Fallback pro META_ACCESS_TOKEN broad scope.
+  const token = process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN;
+  if (!token) return res.status(500).json({ error: 'meta_token_not_configured' });
 
   try {
     // Roda email + CAPI em paralelo — ambos aguardados antes de responder

@@ -127,8 +127,11 @@ async function sendCAPI(events, token, retryCount = 0) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const token = process.env.META_ACCESS_TOKEN;
-  if (!token) return res.status(500).json({ error: 'META_ACCESS_TOKEN not configured' });
+  // Prefer dataset-scoped token (CAPI_DATASET_TOKEN) — gerado no Events Manager > API de
+  // Conversões. Escopo reduzido: só consegue postar events no pixel. Fallback pro
+  // META_ACCESS_TOKEN (System User broad scope) se ainda não setado.
+  const token = process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN;
+  if (!token) return res.status(500).json({ error: 'meta_token_not_configured' });
 
   // Ler raw body (bodyParser:false) — necessário pra HMAC validar byte-por-byte
   let rawBody;

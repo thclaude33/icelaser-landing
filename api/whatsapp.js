@@ -19,7 +19,8 @@ const APP_SECRET      = process.env.META_APP_SECRET;
 const EMAIL_FROM      = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS      = process.env.EMAIL_PASS;
 const EMAIL_TO        = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
-const META_TOKEN      = process.env.META_ACCESS_TOKEN;
+const META_TOKEN      = process.env.META_ACCESS_TOKEN;       // broad scope — Graph API lookups (ad_id, profile_name, message media)
+const CAPI_TOKEN      = process.env.CAPI_DATASET_TOKEN || META_TOKEN;  // dataset-scoped — POST /events CAPI (LeadSubmitted)
 const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID;
 
 // ── CORPO RAW (necessário para validar assinatura HMAC) ───────────────────────
@@ -350,7 +351,7 @@ async function processarCTWA(from, message, referral, profileName) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${META_TOKEN}`,
+            'Authorization': `Bearer ${CAPI_TOKEN}`,   // dataset-scoped — só POST events
           },
           body: JSON.stringify({
             data: [{
