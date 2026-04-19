@@ -330,6 +330,12 @@ export default async function handler(req, res) {
   // Era o root cause dos 35× 500s em conversation_created/updated.
   let originalLeadData = null;
   let ctwaData = null;
+  // EMQ fix (19/04/2026): ip/UA ausentes em 86% dos Leads CRM → EMQ caiu 8.3→6.5.
+  // Causa: CRM-webhook não recuperava client_ip_address / client_user_agent do Blob.
+  // /api/track.js salva ambos em leads/pending quando user preenche form LP.
+  // Agora recupera aqui pra enriquecer Lead CAPI server-side → EMQ sobe.
+  let clientIp = null;
+  let clientUa = null;
   if (telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     const telDigits = telefone.replace(/\D/g, '');
 
@@ -381,6 +387,9 @@ export default async function handler(req, res) {
               if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
                 if (!fbp && data.fbp) fbp = data.fbp;
                 if (!fbc && data.fbc) fbc = data.fbc;
+                // EMQ fix: recuperar client_ip + client_user_agent do form submit LP
+                if (!clientIp && data.client_ip_address) clientIp = data.client_ip_address;
+                if (!clientUa && data.client_user_agent) clientUa = data.client_user_agent;
                 if (!originalLeadData && data.event_id) {
                   // Clamp event_time dentro da janela 7d (Meta rejeita > 7d)
                   const originalTs = Math.floor(new Date(data.timestamp).getTime() / 1000);
@@ -428,6 +437,12 @@ export default async function handler(req, res) {
 
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
+
+  // EMQ fix: client_ip_address + client_user_agent recuperados do Blob lead original.
+  // Meta docs: ip e UA são high-priority matching keys. Sem eles EMQ Lead ficava em 6.5
+  // (86% sem IP/UA). Com recovery via Blob, sobe pra ~8.0+ quando user veio via LP form.
+  if (clientIp) userData.client_ip_address = clientIp;
+  if (clientUa) userData.client_user_agent = clientUa;
 
   // lead_id: highest-priority user_data field para Conversion Leads (Meta spec)
   // https://developers.facebook.com/docs/marketing-api/conversions-api/conversion-leads-integration/payload-specification
