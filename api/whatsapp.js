@@ -296,7 +296,10 @@ async function processarCTWA(from, message, referral, profileName) {
   // Também OBRIGATÓRIO: messaging_channel = "whatsapp" (sem ele, erro 2804063).
   // Este evento representa o 1º contato do lead via CTWA ad — atribuição do click.
   // (Lead qualificado real é disparado depois pelo crm-webhook via label lead_quente.)
-  if (clid && from && META_TOKEN) {
+  // Fix HIGH AI review 19/04/2026: usar CAPI_TOKEN (dataset-scoped + fallback
+  // META_TOKEN). Antes checava só META_TOKEN — se só CAPI_DATASET_TOKEN estava
+  // setado, LeadSubmitted CTWA não disparava (lead perdia attribution Meta).
+  if (clid && from && CAPI_TOKEN) {
     try {
       // event_time: prefere timestamp do WA webhook (message.timestamp, unix seconds).
       // Se Meta retentar o webhook, event_time ainda é consistente com 1ª entrega.
@@ -822,15 +825,23 @@ export default async function handler(req, res) {
     // ── PROXY: Forward pro Evolution API (processa mídia) → Chatwoot ───────────
     // Evolution API recebe o webhook, processa mídia nativamente, e encaminha pro Chatwoot
     // Se Evolution API falhar, fallback direto pro Chatwoot com conversão de mídia
-    const EVOLUTION_WEBHOOK = process.env.EVOLUTION_WEBHOOK_URL
-      || 'https://evolution-api-production-ad1f.up.railway.app/webhook/meta';
-    const CHATWOOT_WA_WEBHOOK = process.env.CHATWOOT_WEBHOOK_URL
-      || 'https://chatwoot-production-af5f.up.railway.app/webhooks/whatsapp/+558195749947';
+    //
+    // Fix HIGH AI review 19/04/2026: URLs Railway removidas do fallback hardcoded
+    // (expõe infra interna). Agora lê SOMENTE de env vars. Se não configurado, skip forward
+    // (graceful degradation) + backup Blob preserva payload pra recovery manual.
+    const EVOLUTION_WEBHOOK = process.env.EVOLUTION_WEBHOOK_URL;
+    const CHATWOOT_WA_WEBHOOK = process.env.CHATWOOT_WEBHOOK_URL;
+    if (!CHATWOOT_WA_WEBHOOK) {
+      console.warn('[WEBHOOK] ⚠️ CHATWOOT_WEBHOOK_URL not configured — skipping forward');
+    }
 
     const MEDIA_TYPES = ['audio', 'video', 'image', 'document', 'sticker'];
     const MEDIA_LABELS = { audio: '🎤 Áudio', video: '🎬 Vídeo', image: '📷 Imagem', document: '📄 Documento', sticker: '🏷️ Sticker' };
 
     const forwardToEvolution = async () => {
+      if (!EVOLUTION_WEBHOOK) {
+        return false;  // env var não setada — skip silencioso (feature opcional)
+      }
       try {
         const r = await fetch(EVOLUTION_WEBHOOK, {
           method: 'POST',
@@ -846,6 +857,10 @@ export default async function handler(req, res) {
     };
 
     const sendToChat = async (payload, label = 'original') => {
+      if (!CHATWOOT_WA_WEBHOOK) {
+        console.warn(`[CHATWOOT] ${label}: skip (CHATWOOT_WEBHOOK_URL not configured)`);
+        return { ok: false, status: 503 };
+      }
       const headers = { 'Content-Type': 'application/json' };
       // Só assina se APP_SECRET configurado (evita crypto throw)
       if (APP_SECRET) {

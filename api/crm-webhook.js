@@ -373,7 +373,10 @@ export default async function handler(req, res) {
       const searchPrefixes = ['leads/pending/', 'leads/converted/'];
       outerSearch: for (const prefix of searchPrefixes) {
         try {
-          const leadBlobs = await list({ prefix, limit: 500 });
+          // Limit 100 (era 500) — priorizando leads recentes (Blob API desc uploadedAt).
+          // Fix HIGH AI review 19/04/2026: list+fetch 500 blobs podia estourar timeout 30s.
+          // Trade-off aceitável: leads de >48h raramente mudam label no Chatwoot depois.
+          const leadBlobs = await list({ prefix, limit: 100 });
           const candidates = leadBlobs.blobs.filter(b => b.size > 200);
           // Batches de 10 fetches paralelos (não bloqueante vs 500 sequenciais)
           for (let i = 0; i < candidates.length; i += 10) {
@@ -408,7 +411,9 @@ export default async function handler(req, res) {
                   };
                   console.log(`[CRM-WEBHOOK] Found original Lead: event_id=${data.event_id} clamped=${clampedTs !== originalTs}`);
                 }
-                if (fbp && fbc && originalLeadData) break outerSearch;
+                // Short-circuit: para quando TODOS os campos foram recuperados (inc. IP/UA).
+                // Fix HIGH AI review 19/04/2026.
+                if (fbp && fbc && originalLeadData && clientIp && clientUa) break outerSearch;
               }
             }
           }
@@ -767,6 +772,8 @@ export default async function handler(req, res) {
       has_labels: !!(body?.conversation?.labels || body?.changed_attributes),
     };
     console.error(`[CRM-WEBHOOK][500]`, JSON.stringify(ctx));
-    return res.status(500).json({ error: err.message });
+    // Fix HIGH AI review 19/04/2026: não expor err.message (pode leak stack path,
+    // connection strings, token secrets). ctx completo já loggado via console.error.
+    return res.status(500).json({ error: 'internal_error' });
   }
 }
