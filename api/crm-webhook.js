@@ -432,7 +432,12 @@ export default async function handler(req, res) {
         // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
         // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
         // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
-        if (blob.pathname.includes(telDigits.slice(-11))) {
+        // Fix CRITICAL: usar startsWith() com delimitador '.' ao invés de includes()
+        // para evitar false positives. Ex: '8133331234' em includes() também match
+        // 'ctwa/prefix8133331234suffix.json' (errado). startsWith('ctwa/8133331234.')
+        // garante match estruturado apenas no padrão correto.
+        const phonePattern = `ctwa/${telDigits.slice(-11)}.`;
+        if (blob.pathname.startsWith(phonePattern)) {
           const blobResp = await fetch(blob.url);
           const data = await blobResp.json();
           if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
@@ -475,7 +480,12 @@ export default async function handler(req, res) {
               const blobTel = (data.telefone || '').replace(/\D/g, '');
               // Match 11-digit + guard blobTel.length >= 10 previne false positives em leads antigos.
               // Phone BR: cel=11, fixo=10 chars. slice(-11) num fixo 10 retorna string inteira.
-              if (blobTel && blobTel.length >= 10 && telDigits.endsWith(blobTel.slice(-11))) {
+              // Fix: normalize leading zeros before matching to handle cases where:
+              //  - telDigits has country code (55) but blobTel doesn't
+              //  - either number has stray leading zeros from data quality issues
+              const telDigitsNorm = telDigits.replace(/^0+/, '') || telDigits;
+              const blobTelNorm = blobTel.replace(/^0+/, '') || blobTel;
+              if (blobTel && blobTel.length >= 10 && telDigitsNorm.endsWith(blobTelNorm)) {
                 if (!fbp && data.fbp) fbp = data.fbp;
                 if (!fbc && data.fbc) fbc = data.fbc;
                 // EMQ fix: recuperar client_ip + client_user_agent do form submit LP
@@ -611,7 +621,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // Ad metadata do CTWA (via Meta Graph lookup salvo no Blob) — propagar
+  // Ad metadata do CTWA (via Meta Graph lookup salvo no Blob) �� propagar
   // campaign_id/adset_id/ad_id pra custom_data de TODOS os events CRM.
   // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
   const ctwaAdMeta = ctwaData && ctwaData.ad_metadata ? ctwaData.ad_metadata : null;
@@ -851,7 +861,7 @@ export default async function handler(req, res) {
   // (se 1 evento inválido no batch, a Meta rejeita o batch INTEIRO)
   const validEvents = events.filter(evt => {
     if (!evt.event_name || !evt.event_time || !evt.action_source) {
-      console.warn(`[CRM-WEBHOOK] Evento inválido removido: ${JSON.stringify(evt).substring(0, 100)}`);
+      console.warn(`[CRM-WEBHOOK] Evento inválido removido: event_name=${evt.event_name} event_time=${evt.event_time} action_source=${evt.action_source} event_id=${evt.event_id}`);
       return false;
     }
     if (!evt.user_data || Object.keys(evt.user_data).length === 0) {

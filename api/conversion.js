@@ -207,7 +207,15 @@ export default async function handler(req, res) {
         purchase_value: parsedValue,
         purchase_event_id: eventId,
       };
-      const newPath = lead.blob.pathname.replace('leads/pending/', 'leads/converted/');
+      // Defensive path transformation: validate that pathname starts with expected prefix
+      const pathname = lead.blob.pathname;
+      if (!pathname.startsWith('leads/pending/')) {
+        console.error('[CONVERSION] Lead blob pathname missing expected prefix', { pathname });
+        return res.status(500).json({ error: 'blob_pathname_invalid' });
+      }
+      // Extract filename after prefix and construct new path explicitly (not .replace)
+      const filename = pathname.slice('leads/pending/'.length);
+      const newPath = `leads/converted/${filename}`;
       // Fix HIGH AI deep review v2 (b3 conversion.js:181): addRandomSuffix evita
       // enumeration de path PII. access:'public' mantido (store Vercel Blob é public-only).
       await put(newPath, JSON.stringify(convertedData), {
