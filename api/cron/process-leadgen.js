@@ -70,6 +70,31 @@ export default async function handler(req, res) {
         const payloadResp = await fetch(blob.url);
         const payload = await payloadResp.json();
 
+        // Fix MEDIUM #4 AI review 20/04: retry_count + failed/ bucket pra evitar
+        // retry infinito em leads com erro permanente (malformed, etc).
+        // Blob original salvo em whatsapp.js leadgen handler não tem retry_count —
+        // primeiro cron run inicia em 1. Após 10 tentativas → mover pra failed/.
+        const retryCount = (payload.retry_count || 0) + 1;
+        const MAX_RETRIES = 10;
+        if (retryCount > MAX_RETRIES) {
+          console.error(`[DLQ-CRON] lead ${leadId} excedeu ${MAX_RETRIES} retries — movendo pra failed/`);
+          await put(`leadgen/failed/${leadId}.json`, JSON.stringify({
+            ...payload,
+            moved_at: new Date().toISOString(),
+            final_retry_count: retryCount,
+            reason: 'max_retries_exceeded',
+          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          // Também marca processed pra não reprocessar
+          await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
+            leadgen_id: leadId,
+            note: 'moved_to_failed',
+            processed_at: new Date().toISOString(),
+          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          report.failed++;
+          report.items.push({ leadId, error: 'max_retries_exceeded' });
+          continue;
+        }
+
         // 3. Fetch lead data via Graph API
         if (!META_TOKEN) {
           report.failed++;
@@ -229,22 +254,32 @@ export default async function handler(req, res) {
             } catch { /* CAPI falha não bloqueia DLQ success */ }
           }
 
-          // Mark processed
+          // Mark processed + delete pending (fix MEDIUM #5)
           await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
             leadgen_id: leadId,
             contact_id: contactId,
             processed_at: new Date().toISOString(),
             processed_by: 'dlq_cron',
+            retry_count: retryCount,
           }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          try { await del(blob.url); } catch { /* swallow */ }
           report.processed++;
-          report.items.push({ leadId, contactId, status: 'ok' });
+          report.items.push({ leadId, contactId, status: 'ok', retries: retryCount });
         } else {
           throw new Error('chatwoot_no_contact_id');
         }
       } catch (itemErr) {
+        // Fix MEDIUM #4 AI review: persist retry_count no blob pending pra próxima iteração
+        try {
+          await put(blob.pathname, JSON.stringify({
+            ...payload,
+            retry_count: retryCount,
+            last_error: itemErr.message,
+            last_attempt_at: new Date().toISOString(),
+          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+        } catch { /* swallow */ }
         report.failed++;
-        report.items.push({ leadId, error: itemErr.message });
-        // Não deletar blob pending — próxima iteração retry
+        report.items.push({ leadId, error: itemErr.message, retries: retryCount });
       }
     }
   } catch (listErr) {
