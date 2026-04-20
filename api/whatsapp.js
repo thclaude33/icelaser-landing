@@ -893,6 +893,77 @@ export default async function handler(req, res) {
                     </div>
                   </div>`
                 );
+                // Fix CRITICAL 20/04/2026: disparar CAPI Lead event quando lead nativo
+                // Meta Lead Ads entra via webhook leadgen. Antes: só enviava email.
+                // Agora: CAPI event com lead_id 15-17 digits REAL (conforme Meta spec).
+                // Isso completa o funil Conversion Leads: Lead → CompleteRegistration (CRM
+                // quando stage avança) → Purchase (CRM compra).
+                if (CAPI_TOKEN && leadId) {
+                  try {
+                    const telDigits = String(tel || '').replace(/\D/g, '');
+                    let leadFirstName = null, leadLastName = null;
+                    if (nome && nome !== '?') {
+                      const parts = String(nome).trim().split(/\s+/);
+                      leadFirstName = parts[0];
+                      if (parts.length > 1) leadLastName = parts[parts.length - 1];
+                    }
+                    const leadUserData = await buildUserData({
+                      email: email && email.includes('@') ? email : undefined,
+                      phone: telDigits || undefined,
+                      first_name: leadFirstName || undefined,
+                      last_name: leadLastName || undefined,
+                      city: 'recife',
+                      state: 'pe',
+                      country: 'br',
+                      external_id: email || telDigits || undefined,
+                    });
+                    // lead_id: Meta-generated 15-17 digit (validar formato defensivo)
+                    if (/^\d{15,17}$/.test(String(leadId))) {
+                      leadUserData.lead_id = String(leadId);
+                    }
+                    if (process.env.META_PAGE_ID) leadUserData.page_id = process.env.META_PAGE_ID;
+                    const leadPayload = {
+                      data: [{
+                        event_name: 'Lead',
+                        event_time: Math.floor(Date.now() / 1000),
+                        event_id: `leadgen_${leadId}`,
+                        action_source: 'system_generated',
+                        user_data: leadUserData,
+                        custom_data: {
+                          event_source: 'crm',
+                          lead_event_source: 'Chatwoot',
+                          leadgen_form_id: String(formId || ''),
+                          ...(adId ? { ad_id: String(adId) } : {}),
+                          content_name: 'Meta Lead Ad Form Submission',
+                          content_category: 'depilacao_laser',
+                          currency: 'BRL',
+                          value: 0,
+                          customer_segmentation: 'new_customer_to_business',
+                        },
+                      }],
+                      partner_agent: PARTNER_AGENT,
+                    };
+                    const leadResp = await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${CAPI_TOKEN}`,
+                      },
+                      body: JSON.stringify(leadPayload),
+                    });
+                    const leadJson = await leadResp.json();
+                    if (leadJson.error) {
+                      console.error(`[LEADGEN CAPI] ⚠️ Rejected: code=${leadJson.error.code} msg=${leadJson.error.message}`);
+                    } else {
+                      if (Array.isArray(leadJson.messages) && leadJson.messages.length > 0) {
+                        console.warn(`[CAPI WARN LEADGEN] received=${leadJson.events_received} messages=${JSON.stringify(leadJson.messages)} fbtrace=${leadJson.fbtrace_id}`);
+                      }
+                      console.log(`[LEADGEN CAPI] ✅ Lead event fired: lead_id=${leadId} received=${leadJson.events_received}`);
+                    }
+                  } catch (capiErr) {
+                    console.error('[LEADGEN CAPI] exception:', capiErr.message);
+                  }
+                }
               } catch (e) {
                 console.error(`[LEADGEN] Erro ao buscar lead ${leadId}: ${e.message}`);
               }
