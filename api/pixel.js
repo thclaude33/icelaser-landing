@@ -48,11 +48,19 @@ export default async function handler(req, res) {
     if (!cachedScript || Date.now() - cacheTime > CACHE_TTL) {
       // Single-flight: se já há refresh em andamento, aguarda ele.
       if (!refreshPromise) {
-        refreshPromise = refreshCache(req.headers['user-agent']).finally(() => {
-          refreshPromise = null;
-        });
+        refreshPromise = refreshCache(req.headers['user-agent']);
       }
       await refreshPromise;
+      // Only clear the promise AFTER we've awaited it. This ensures all concurrent
+      // requests that entered the outer if-block will see the same promise.
+      // If the promise rejects, the rejection will propagate above, and we'll hit
+      // the outer catch block without clearing refreshPromise. The next request cycle
+      // will then reuse the rejected promise (which will be rejected again) or
+      // redirects to Meta. On success, we clear here so future TTL expirations
+      // will trigger a new refresh.
+      if (cachedScript && Date.now() - cacheTime <= CACHE_TTL) {
+        refreshPromise = null;
+      }
     }
 
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
