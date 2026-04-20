@@ -887,6 +887,7 @@ export default async function handler(req, res) {
   // de business_messaging → mapear action_source para WAM.
   let wamReceived = 0;
   let wamSkipped = 0;
+  let wamErrors = 0;
   if (ctwaClid) {
     const wamCompatibleEvents = validEvents.filter(e =>
       ['Purchase', 'LeadSubmitted', 'Lead', 'CompleteRegistration', 'Subscribe', 'InitiateCheckout', 'AddPaymentInfo'].includes(e.event_name)
@@ -899,11 +900,18 @@ export default async function handler(req, res) {
         user_data: { ...evt.user_data },
         custom_data: evt.custom_data,
       });
-      if (wamResp?.skipped) wamSkipped++;
-      else if (wamResp?.events_received >= 1) wamReceived++;
+      if (wamResp?.skipped) {
+        wamSkipped++;
+      } else if (wamResp?.events_received >= 1) {
+        wamReceived++;
+      } else if (wamResp?.error) {
+        // Handle error case: network failures (wam_exception) or Meta rejections (error codes)
+        // Error already logged in sendWAMEvent; count it separately to distinguish from skips
+        wamErrors++;
+      }
     }
   }
-  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM: ${wamReceived} received / ${wamSkipped} skipped | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM: ${wamReceived} received / ${wamSkipped} skipped / ${wamErrors} errors | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
   return res.status(200).json({
     ok: true,
     // Fix LOW AI review 20/04/2026 (L1): mask PII na response (pode vazar em
@@ -914,6 +922,7 @@ export default async function handler(req, res) {
     events_received: eventsReceived,
     wam_received: wamReceived,
     wam_skipped: wamSkipped,
+    wam_errors: wamErrors,
     ctwa_clid: !!ctwaClid,
     customer_segmentation: customerSeg,
   });
