@@ -432,7 +432,12 @@ export default async function handler(req, res) {
         // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
         // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
         // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
-        if (blob.pathname.includes(telDigits.slice(-11))) {
+        // Fix CRITICAL: usar startsWith() com delimitador '.' ao invés de includes()
+        // para evitar false positives. Ex: '8133331234' em includes() também match
+        // 'ctwa/prefix8133331234suffix.json' (errado). startsWith('ctwa/8133331234.')
+        // garante match estruturado apenas no padrão correto.
+        const phonePattern = `ctwa/${telDigits.slice(-11)}.`;
+        if (blob.pathname.startsWith(phonePattern)) {
           const blobResp = await fetch(blob.url);
           const data = await blobResp.json();
           if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
