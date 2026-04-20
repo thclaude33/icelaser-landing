@@ -75,7 +75,12 @@ export async function sendCapiEvents(events, token, options = {}) {
   const testCode = options.testEventCode ?? process.env.TEST_EVENT_CODE;
   if (testCode) payload.test_event_code = testCode;
 
+  // Fix MEDIUM AI deep v3 (capi.js:99): sendCapiEvents retornava undefined quando
+  // todas retries esgotadas com is_transient=true. Agora: inicializa lastResult e
+  // garante return com shape consistente. Callers podem confiar em result.error.
+  let lastResult = null;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Fix INFO AI deep v3 (capi.js:89): defensive JSON parse + check response.ok.
     const res = await fetch(`${GRAPH_BASE}/${pixelId}/events`, {
       method: 'POST',
       headers: {
@@ -86,7 +91,15 @@ export async function sendCapiEvents(events, token, options = {}) {
     });
 
     monitorRateLimit(res);
-    const result = await res.json();
+    let result;
+    const rawText = await res.text();
+    try {
+      result = JSON.parse(rawText);
+    } catch {
+      console.error(`[CAPI] Non-JSON response (${res.status}): ${rawText.substring(0,200)}`);
+      result = { error: { message: 'non-json response', code: res.status, is_transient: true } };
+    }
+    lastResult = result;
 
     if (!result.error) return result;
 
@@ -101,6 +114,8 @@ export async function sendCapiEvents(events, token, options = {}) {
     const delay = (attempt + 1) * 1000;
     await new Promise((r) => setTimeout(r, delay));
   }
+  // Safety net: se loop sair sem return (impossível com maxRetries>=0 mas defensive).
+  return lastResult || { error: { message: 'all retries exhausted', is_transient: true } };
 }
 
 /**
@@ -114,30 +129,47 @@ export async function sendCapiEvents(events, token, options = {}) {
 export function filterValidEvents(events) {
   const nowSec = Math.floor(Date.now() / 1000);
   const minSec = nowSec - 7 * 24 * 3600 + 600;  // 7d window menos margem 10min
-  return events.filter((evt) => {
+  // Fix MEDIUM AI deep v3 (capi.js:114): não mutar caller's events.
+  // Antes: evt.event_time = nowSec dentro do filter mutava objetos originais.
+  // Agora: retorna novos objetos com event_time clamped (immutable pattern).
+  const out = [];
+  for (const evt of events) {
     if (!evt.event_name || !evt.event_time || !evt.action_source) {
       console.warn(`[CAPI INVALID] missing required: ${evt.event_name || '?'}`);
-      return false;
+      continue;
     }
     if (!evt.user_data || Object.keys(evt.user_data).length === 0) {
       console.warn(`[CAPI INVALID] empty user_data: ${evt.event_name}`);
-      return false;
+      continue;
     }
-    // Business messaging requer messaging_channel (Meta oficial 2026).
     if (evt.action_source === 'business_messaging' && !evt.messaging_channel) {
       console.warn(`[CAPI INVALID] business_messaging sem messaging_channel: ${evt.event_name}`);
-      return false;
+      continue;
     }
     // Clamp event_time se > now (futuro — não aceita) ou < now-7d (rejeita 2804003).
-    if (evt.event_time > nowSec) {
-      console.warn(`[CAPI CLAMP] event_time futuro (${evt.event_time} > ${nowSec}) → ajustado`);
-      evt.event_time = nowSec;
-    } else if (evt.event_time < minSec) {
-      console.warn(`[CAPI CLAMP] event_time muito antigo (${evt.event_time} < ${minSec}) → ajustado pra borda da janela`);
-      evt.event_time = minSec;
+    let clampedTime = evt.event_time;
+    if (clampedTime > nowSec) {
+      console.warn(`[CAPI CLAMP] event_time futuro (${clampedTime} > ${nowSec}) → ajustado`);
+      clampedTime = nowSec;
+    } else if (clampedTime < minSec) {
+      console.warn(`[CAPI CLAMP] event_time muito antigo (${clampedTime} < ${minSec}) → ajustado pra borda da janela`);
+      clampedTime = minSec;
     }
-    return true;
-  });
+    // Fix AI sanity v3: deep-copy user_data/custom_data quando clamping muda event_time.
+    // Spread raso mantém referências — caller poderia mutar user_data depois do filter
+    // e afetar o payload CAPI. Isolamento total previne race condition.
+    if (clampedTime === evt.event_time) {
+      out.push(evt);
+    } else {
+      out.push({
+        ...evt,
+        event_time: clampedTime,
+        user_data: evt.user_data ? { ...evt.user_data } : evt.user_data,
+        custom_data: evt.custom_data ? { ...evt.custom_data } : evt.custom_data,
+      });
+    }
+  }
+  return out;
 }
 
 /**

@@ -56,6 +56,11 @@ export default async function handler(req, res) {
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Cache-Control', 'no-store');
+  // Fix LOW AI deep v3 (flags.js:53): suporte OPTIONS preflight pra browsers
+  // que enviam preflight em fetch() com headers customizados.
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(204).end();
 
   // Health check: ?health=1 retorna status do Edge Config + Flags setup
   // sem consumir dados reais. Útil pra dashboard monitoring/alerting.

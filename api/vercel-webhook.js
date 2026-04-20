@@ -60,6 +60,12 @@ async function findLastGoodDeployment(failedDeployId) {
 
   const url = `https://api.vercel.com/v6/deployments?projectId=${PROJECT_ID}&teamId=${TEAM_ID}&target=production&state=READY&limit=10`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  // Fix MEDIUM AI deep v3 (vercel-webhook.js:63): checar res.ok antes json().
+  // Vercel API 4xx/5xx pode retornar HTML — crash aqui quebrava rollback silent.
+  if (!res.ok) {
+    console.error(`[VERCEL-WEBHOOK] list deployments HTTP ${res.status}`);
+    return null;
+  }
   const data = await res.json();
 
   const deployments = data.deployments || [];
@@ -78,7 +84,11 @@ async function executeRollback(targetDeployId) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   });
   if (!res.ok) {
-    const err = await res.json();
+    // Fix MEDIUM AI deep v3 (vercel-webhook.js:81): defensive JSON parse — Vercel
+    // pode retornar HTML em erro 5xx. Antes: crash com SyntaxError mascarava motivo.
+    const txt = (await res.text()).substring(0, 300);
+    let err;
+    try { err = JSON.parse(txt); } catch { err = { error: { message: `HTTP ${res.status}: ${txt.substring(0,100)}` } }; }
     throw new Error(err?.error?.message || `HTTP ${res.status}`);
   }
   return await res.json();
@@ -278,8 +288,12 @@ export default async function handler(req, res) {
     cacheControlMaxAge: 0,
   }).catch(() => {});
 
-  // Processa o evento
-  handleEvent(event).catch(err => console.error('[WEBHOOK]', event?.type, err.message));
+  // Fix MEDIUM AI deep v3 (vercel-webhook.js:282): logar errors com stack + type.
+  // Antes: só err.message, stack perdido. Debug de rollback falho difícil sem stack.
+  handleEvent(event).catch(err => {
+    const stack = (err?.stack || '').split('\n').slice(0, 4).join(' | ');
+    console.error(`[WEBHOOK] handler error ${event?.type || '?'}: ${err?.message || err} | ${stack}`);
+  });
 
   // Responde imediatamente (processamento é assíncrono)
   return res.status(200).json({ ok: true });

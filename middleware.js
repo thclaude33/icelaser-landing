@@ -62,8 +62,16 @@ function computeSubdomainIndex(host) {
 
 function generateFbp(host) {
   // Formato oficial Meta: fb.{subdomainIndex}.{timestamp_ms}.{random}
+  // Fix LOW AI deep v3 (middleware.js:66): Math.random() edge runtime = xorshift128+
+  // determinístico por isolate. crypto.getRandomValues é CSPRNG disponível em Edge.
+  // Evita collisions teóricas em cold start + múltiplos users mesmo ms.
   const idx = computeSubdomainIndex(host);
-  return `fb.${idx}.${Date.now()}.${Math.floor(Math.random() * 1e16)}`;
+  const arr = new Uint8Array(8);
+  crypto.getRandomValues(arr);
+  // Convert bytes to decimal número representável em JS (16 dígitos ~= 53 bits).
+  let rand = 0;
+  for (const b of arr) rand = (rand * 256 + b) % 1e16;
+  return `fb.${idx}.${Date.now()}.${Math.floor(rand)}`;
 }
 
 function buildFbcFromClid(fbclid, host) {
@@ -168,15 +176,21 @@ export default function middleware(request) {
     }
   }
 
+  // Fix MEDIUM AI deep v3 (middleware.js:174): Domain=.icelasers.com.br pra
+  // cookies funcionarem cross-subdomain (www/api). Sem Domain= cookies são
+  // host-only e divergem do Set-Cookie de /api/track (que agora usa Domain=).
+  // Se host não é icelasers.com.br (ex: vercel.app preview), omite Domain.
+  const isProdHost = typeof host === 'string' && host.endsWith('icelasers.com.br');
+  const domainAttr = isProdHost ? '; Domain=.icelasers.com.br' : '';
   const cookiesToSet = [];
   if (!hasFbp) {
     cookiesToSet.push(
-      `_fbp=${generateFbp(host)}; Path=/; Max-Age=${FBP_MAX_AGE}; SameSite=Lax; Secure`
+      `_fbp=${generateFbp(host)}; Path=/${domainAttr}; Max-Age=${FBP_MAX_AGE}; SameSite=Lax; Secure`
     );
   }
   if (shouldSetFbc) {
     cookiesToSet.push(
-      `_fbc=${buildFbcFromClid(fbclid, host)}; Path=/; Max-Age=${FBC_MAX_AGE}; SameSite=Lax; Secure`
+      `_fbc=${buildFbcFromClid(fbclid, host)}; Path=/${domainAttr}; Max-Age=${FBC_MAX_AGE}; SameSite=Lax; Secure`
     );
   }
 

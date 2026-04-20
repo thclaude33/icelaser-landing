@@ -405,6 +405,11 @@ async function processarCTWA(from, message, referral, profileName) {
       // event_id diferente (com Date.now()), CAPI dedup não funciona → evento
       // contado múltiplas vezes. Usa message.id (wamid.XXX, único por msg) ou
       // fallback ctwa_clid (único por click) pra garantir estabilidade.
+      // AI sanity deep v3 REVERT: manter `ctwa_${stableSeed}` pra preservar dedup
+      // histórico com events já enviados. Meta retenta webhooks 7 dias — mudança
+      // de formato geraria event_id diferente em retries → duplicatas no Meta.
+      // Collision com futuros tipos (LeadPurchase etc) é problema hipotético
+      // que pode ser resolvido quando/se precisar via namespace explícito.
       const stableSeed = message?.id || clid;
       const eventId = `ctwa_${stableSeed}`;
       // fbc = fb.{subdomainIndex}.{creationTime_ms}.{ctwa_clid}
@@ -692,6 +697,12 @@ export default async function handler(req, res) {
     // Fallback em memória mantido pra casos onde Blob falha ou não está configurado.
     const memSet = new Set();
     const hasBlob = !!process.env.BLOB_READ_WRITE_TOKEN;
+    // AI sanity deep v3 REVERT: manter "return false (new)" em TODO erro do head().
+    // Reasoning: se Blob infra down, original retornava false → processa evento
+    // + tenta put() depois. Se tudo falhar, pior caso é duplicata ocasional
+    // (recuperável via deduplicação Meta event_id). Alternativa "return true"
+    // silenciosamente perderia eventos novos em infra outage → UNRECOVERABLE.
+    // Event_id dedup Meta já protege contra duplicatas na camada CAPI.
     const dedupCheck = async (key) => {
       if (memSet.has(key)) return true;
       if (!hasBlob) return false;
@@ -699,7 +710,7 @@ export default async function handler(req, res) {
         await head(`dedup/wa/${key}.json`);
         return true; // existe → já processado
       } catch {
-        return false; // 404 → novo
+        return false; // 404 ou infra error → processa (event_id dedup protege).
       }
     };
     const dedupMark = async (key) => {

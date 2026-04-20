@@ -9,6 +9,14 @@ export function sha256(value) {
 }
 
 /**
+ * Fix MEDIUM AI deep v3 (security.js:8): sha256 case-preserving pra external_id
+ * e outros valores case-sensitive (IDs, tokens). Meta spec external_id: preserve case.
+ */
+export function sha256Preserve(value) {
+  return crypto.createHash('sha256').update(String(value).trim()).digest('hex');
+}
+
+/**
  * Valida assinatura HMAC-SHA256 simples (sem timestamp).
  * Compatível com Meta WhatsApp (X-Hub-Signature-256): HMAC(secret, body).
  * @param {Buffer|string} rawBody - body cru (antes do JSON.parse)
@@ -73,13 +81,23 @@ export function verifyChatwootSignature(rawBody, signature, timestamp, secret, m
 
 /**
  * Comparação timing-safe de strings (verify_token, etc).
+ *
+ * Fix LOW AI deep v3 (security.js:77): SEMPRE faz comparação constant-time mesmo
+ * quando lengths diferem. Antes: early return revelava length via timing diff.
+ * Agora: pad buffers ao max length, comparação sempre igual + flag separada.
  */
 export function timingSafeStringEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
+  const maxLen = Math.max(ab.length, bb.length, 1);
+  const pa = Buffer.alloc(maxLen);
+  const pb = Buffer.alloc(maxLen);
+  ab.copy(pa);
+  bb.copy(pb);
+  const sameLength = ab.length === bb.length;
+  const constantTimeMatch = crypto.timingSafeEqual(pa, pb);
+  return sameLength && constantTimeMatch;
 }
 
 /**
@@ -145,13 +163,29 @@ export function getRawBody(req) {
  */
 export function normalizePhoneBR(phone) {
   let digits = String(phone).replace(/\D/g, '').replace(/^0+/, '');
+  // Fix INFO AI deep v3 (security.js:146): handle "55 0081 99999..." edge case.
+  // Input assim vira "550081999...". Strip zeros após 55 quando DDD inválido.
+  if (digits.startsWith('55') && digits.length > 12) {
+    // Rechecar: se após "55" vem "00..." strip os zeros do DDD (padding DDI errado).
+    const afterPrefix = digits.slice(2).replace(/^0+/, '');
+    digits = `55${afterPrefix}`;
+  }
   // Se já tem prefixo 55 + DDD válido (11-99) — mantém.
-  // DDD brasileiro é 2º e 3º dígitos depois de 55. Valid range: 11-99 (exclui 00,01-10).
   if (digits.startsWith('55') && digits.length >= 12 && digits.length <= 13) {
     const ddd = parseInt(digits.slice(2, 4), 10);
-    if (ddd >= 11 && ddd <= 99) return digits;
+    if (ddd >= 11 && ddd <= 99) {
+      // Fix LOW AI deep v3 (security.js:147): validar min length após normalização.
+      // BR fixo = 12 chars (55+DDD+8), cel = 13 chars (55+DDD+9). < 12 = inválido.
+      return digits;
+    }
   }
-  return `55${digits}`;
+  const result = `55${digits.replace(/^55/, '')}`; // evita 5555... se re-normalizar
+  // Validação final: resultado precisa ter 12 ou 13 chars. Menos = input inválido.
+  if (result.length < 12 || result.length > 13) {
+    // Input não contém dígitos válidos — retorna null em vez de string inválida
+    return null;
+  }
+  return result;
 }
 
 /**

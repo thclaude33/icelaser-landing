@@ -178,6 +178,8 @@ export default async function handler(req, res) {
     // Best-effort: loga erro pra Vercel Runtime Logs (self-observable) mas
     // retorna 200 pra não disparar drain-errored (>80% failures / 1h).
     console.error('[LOG-DRAIN] blob_error', { msg: err.message, bytes: rawBody.length, logs: logCount });
-    return res.status(200).json({ ok: true, logs: logCount, stored: false, error: err.message });
+    // Fix LOW AI deep v3 (log-drain.js:181): não vazar err.message (pode conter
+    // stack path, connection strings) na response. Genérico 'storage_error'.
+    return res.status(200).json({ ok: true, logs: logCount, stored: false, error: 'storage_error' });
   }
 }
