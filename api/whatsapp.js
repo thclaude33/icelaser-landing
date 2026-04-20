@@ -894,58 +894,112 @@ export default async function handler(req, res) {
                   </div>`
                 );
 
-                // Fix CRITICAL 20/04/2026 (wizard CRM setup): CRIAR contato no Chatwoot
-                // quando lead nativo Meta chega. Meta wizard "Etapa 2: confirme se o lead
-                // de verificação está no seu CRM" exige que lead entregue automaticamente
-                // no CRM. Sem isso, wizard nunca avança de step 2 pra step 3.
+                // Fix CRITICAL 20/04/2026 (wizard CRM setup): CRIAR contato + conversa no
+                // Chatwoot quando lead nativo Meta chega. Meta wizard "Etapa 2: confirme se
+                // o lead de verificação está no seu CRM" exige que lead entregue
+                // automaticamente no CRM como CONVERSA (não só contato).
                 //
-                // Chatwoot API: POST /api/v1/accounts/{id}/contacts
-                // https://www.chatwoot.com/developers/api/
+                // Pipeline (20/04/2026 15:10 BRT):
+                //  1. Dedup: procurar contato existente por identifier=leadgen_{id}
+                //  2. Se não existe: criar contato com name/phone/email/custom_attributes
+                //  3. Associar contato ao inbox API "Meta Lead Ads" (id=8)
+                //  4. Criar conversa com mensagem inicial contendo dados do lead
                 //
-                // Sem inbox_id pra evitar Channel::FacebookPage 500 error (inbox 5 falha).
-                // Contato fica criado sem vínculo — quando user contatar WhatsApp/Email,
-                // Chatwoot unifica pelo phone_number/email automaticamente.
+                // Fix race condition: dedup previne duplicatas se Meta webhook retry.
                 const CHATWOOT_API_TOKEN = process.env.CHATWOOT_API_TOKEN;
                 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL;
                 const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
+                const CHATWOOT_LEADS_INBOX_ID = process.env.CHATWOOT_LEADS_INBOX_ID || '8';
+                const cwHeaders = {
+                  'Content-Type': 'application/json',
+                  'api_access_token': CHATWOOT_API_TOKEN,
+                };
                 if (CHATWOOT_API_TOKEN && CHATWOOT_BASE_URL && leadId) {
                   try {
-                    // Normalizar phone pra E.164 (+55...) — Chatwoot spec
-                    const digits = String(tel || '').replace(/\D/g, '');
-                    const e164 = digits
-                      ? (digits.startsWith('55') ? `+${digits}` : `+55${digits}`)
-                      : null;
-                    const contactBody = {
-                      name: String(nome || 'Lead Meta').slice(0, 100),
-                      identifier: `leadgen_${leadId}`,  // unique lead Meta → evita duplicação
-                      ...(e164 ? { phone_number: e164 } : {}),
-                      ...(email && email.includes('@') ? { email } : {}),
-                      custom_attributes: {
-                        leadgen_id: String(leadId),
-                        leadgen_form_id: String(formId || ''),
-                        leadgen_ad_id: String(adId || ''),
-                        lead_source: 'Meta Lead Ad',
-                        created_at_meta: new Date().toISOString(),
-                      },
-                    };
-                    const cwResp = await fetch(
-                      `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts`,
-                      {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'api_access_token': CHATWOOT_API_TOKEN,
-                        },
-                        body: JSON.stringify(contactBody),
-                      }
+                    const identifier = `leadgen_${leadId}`;
+                    // 1. DEDUP: buscar contato existente por identifier
+                    //    Chatwoot /contacts/search usa q= full-text; usar /contacts/filter pra exact match.
+                    const filterResp = await fetch(
+                      `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(identifier)}`,
+                      { headers: cwHeaders }
                     );
-                    const cwJson = await cwResp.json();
-                    if (cwJson?.payload?.contact?.id) {
-                      console.log(`[LEADGEN→CHATWOOT] ✅ Contato criado id=${cwJson.payload.contact.id} lead_id=${leadId}`);
-                    } else if (cwJson?.message && String(cwJson.message).includes('taken')) {
-                      console.log(`[LEADGEN→CHATWOOT] ℹ️ Contato já existe pra lead_id=${leadId}`);
+                    const filterJson = await filterResp.json();
+                    let contactId = null;
+                    if (filterJson?.payload?.length > 0) {
+                      const match = filterJson.payload.find(c => c.identifier === identifier);
+                      if (match) contactId = match.id;
+                    }
+
+                    if (!contactId) {
+                      // 2. Criar contato novo
+                      const digits = String(tel || '').replace(/\D/g, '');
+                      const e164 = digits ? (digits.startsWith('55') ? `+${digits}` : `+55${digits}`) : null;
+                      const contactBody = {
+                        inbox_id: Number(CHATWOOT_LEADS_INBOX_ID),
+                        name: String(nome || 'Lead Meta').slice(0, 100),
+                        identifier,
+                        ...(e164 ? { phone_number: e164 } : {}),
+                        ...(email && email.includes('@') ? { email } : {}),
+                        custom_attributes: {
+                          leadgen_id: String(leadId),
+                          leadgen_form_id: String(formId || ''),
+                          leadgen_ad_id: String(adId || ''),
+                          lead_source: 'Meta Lead Ad',
+                          created_at_meta: new Date().toISOString(),
+                        },
+                      };
+                      const createResp = await fetch(
+                        `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts`,
+                        { method: 'POST', headers: cwHeaders, body: JSON.stringify(contactBody) }
+                      );
+                      const createJson = await createResp.json();
+                      contactId = createJson?.payload?.contact?.id;
+                      if (contactId) {
+                        console.log(`[LEADGEN→CHATWOOT] ✅ Contato criado id=${contactId} lead_id=${leadId}`);
+                      } else {
+                        console.warn(`[LEADGEN→CHATWOOT] ⚠️ createContact resp=${JSON.stringify(createJson).slice(0, 250)}`);
+                      }
                     } else {
-                      console.warn(`[LEADGEN→CHATWOOT] ⚠️ resp=${JSON.stringify(cwJson).slice(0, 200)}`);
+                      console.log(`[LEADGEN→CHATWOOT] ℹ️ Contato existente id=${contactId} lead_id=${leadId}`);
+                      // Garantir que contato está vinculado ao inbox Lead Ads
+                      await fetch(
+                        `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`,
+                        { method: 'POST', headers: cwHeaders, body: JSON.stringify({ inbox_id: Number(CHATWOOT_LEADS_INBOX_ID) }) }
+                      ).catch(() => {});
+                    }
+
+                    // 3. Criar CONVERSA pra o lead aparecer no inbox
+                    if (contactId) {
+                      const msg = [
+                        '🎯 Novo Lead Meta Ads',
+                        '',
+                        `Nome: ${nome}`,
+                        email ? `Email: ${email}` : null,
+                        tel ? `Telefone: ${tel}` : null,
+                        '',
+                        `Lead ID: ${leadId}`,
+                        `Form: ${formId || '-'}`,
+                        adId ? `Ad ID: ${adId}` : null,
+                        `Origem: Meta Lead Ad`,
+                        `Recebido: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })}`,
+                      ].filter(Boolean).join('\n');
+                      const convBody = {
+                        source_id: identifier,
+                        inbox_id: Number(CHATWOOT_LEADS_INBOX_ID),
+                        contact_id: contactId,
+                        status: 'open',
+                        message: { content: msg, message_type: 'incoming' },
+                      };
+                      const convResp = await fetch(
+                        `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations`,
+                        { method: 'POST', headers: cwHeaders, body: JSON.stringify(convBody) }
+                      );
+                      const convJson = await convResp.json();
+                      if (convJson?.id) {
+                        console.log(`[LEADGEN→CHATWOOT] ✅ Conversa criada id=${convJson.id} contact=${contactId}`);
+                      } else {
+                        console.warn(`[LEADGEN→CHATWOOT] ⚠️ createConversation resp=${JSON.stringify(convJson).slice(0, 250)}`);
+                      }
                     }
                   } catch (chatwootErr) {
                     console.error(`[LEADGEN→CHATWOOT] exception: ${chatwootErr.message}`);
