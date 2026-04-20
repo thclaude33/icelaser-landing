@@ -914,9 +914,11 @@ export default async function handler(req, res) {
                   'Content-Type': 'application/json',
                   'api_access_token': CHATWOOT_API_TOKEN,
                 };
+                console.error(`[LEADGEN→CHATWOOT-DEBUG] ENTRY leadId=${leadId} envsSet=${!!CHATWOOT_API_TOKEN && !!CHATWOOT_BASE_URL} base=${CHATWOOT_BASE_URL?.slice(0,40)}`);
                 if (CHATWOOT_API_TOKEN && CHATWOOT_BASE_URL && leadId) {
                   try {
                     const identifier = `leadgen_${leadId}`;
+                    console.error(`[LEADGEN→CHATWOOT-DEBUG] STEP1 searching identifier=${identifier}`);
                     // 1. DEDUP: buscar contato existente por identifier
                     //    Chatwoot /contacts/search usa q= full-text; usar /contacts/filter pra exact match.
                     const filterResp = await fetch(
@@ -924,11 +926,13 @@ export default async function handler(req, res) {
                       { headers: cwHeaders }
                     );
                     const filterJson = await filterResp.json();
+                    console.error(`[LEADGEN→CHATWOOT-DEBUG] STEP2 search status=${filterResp.status} count=${filterJson?.meta?.count ?? '?'} payload_len=${filterJson?.payload?.length ?? 0}`);
                     let contactId = null;
                     if (filterJson?.payload?.length > 0) {
                       const match = filterJson.payload.find(c => c.identifier === identifier);
                       if (match) contactId = match.id;
                     }
+                    console.error(`[LEADGEN→CHATWOOT-DEBUG] STEP3 contactId=${contactId} willCreate=${!contactId}`);
 
                     if (!contactId) {
                       // 2. Criar contato novo
