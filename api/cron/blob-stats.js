@@ -30,7 +30,7 @@ const KNOWN_PREFIXES = [
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-async function statsForPrefix(prefix, details = false) {
+async function statsForPrefix(prefix, details = false, deadlineMs = 0) {
   const now = Date.now();
   const cutoff24h = now - DAY_MS;
   const cutoff7d = now - 7 * DAY_MS;
@@ -48,11 +48,19 @@ async function statsForPrefix(prefix, details = false) {
     oldest: null,
     newest: null,
     samples: [],
+    truncated: false,
   };
 
   let cursor;
   const allBlobs = [];
   do {
+    // Fix Investigation #2 (Vercel Observability 20/04/2026): abort cedo se
+    // deadline próximo (5 timeouts 504 em 48h antes do fix). Prefixes grandes
+    // como webhooks/wa/ podiam paginar por minutos com list() limit 1000.
+    if (deadlineMs && Date.now() > deadlineMs) {
+      stats.truncated = true;
+      break;
+    }
     const result = await list({ prefix, cursor, limit: 1000 });
     for (const blob of result.blobs) {
       stats.total++;
@@ -108,19 +116,29 @@ export default async function handler(req, res) {
   const prefixes = singlePrefix ? [String(singlePrefix)] : KNOWN_PREFIXES;
 
   const startMs = Date.now();
+  // Fix Investigation #2: deadline 25s (dentro do timeout 30s Vercel) permite
+  // retornar parcial. Paralelizar prefixes via Promise.allSettled. Antes:
+  // 8 prefixes sequenciais × pagination → 5 timeouts 504 em 48h.
+  const deadlineMs = startMs + 25000;
   const results = {};
 
-  for (const prefix of prefixes) {
-    try {
-      results[prefix] = await statsForPrefix(prefix, details);
-    } catch (e) {
-      results[prefix] = { error: e.message };
+  const pairs = await Promise.allSettled(
+    prefixes.map(async (prefix) => [prefix, await statsForPrefix(prefix, details, deadlineMs)])
+  );
+  for (let i = 0; i < pairs.length; i++) {
+    const prefix = prefixes[i];
+    const outcome = pairs[i];
+    if (outcome.status === 'fulfilled') {
+      results[prefix] = outcome.value[1];
+    } else {
+      results[prefix] = { error: outcome.reason?.message || 'unknown' };
     }
   }
 
   return res.status(200).json({
     ok: true,
     duration_ms: Date.now() - startMs,
+    deadline_hit: Date.now() > deadlineMs,
     now_iso: new Date().toISOString(),
     prefixes: results,
   });
