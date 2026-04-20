@@ -134,6 +134,81 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
   if (META_TOKEN && from !== '—') {
     enviarTemplateConfirmacao(from, nome, servico).catch(e => console.error('[TEMPLATE]', e.message));
   }
+
+  // Fix HIGH AI deep review v2 B2 (whatsapp.js:833) — Opção B:
+  // Flow lead (nfm_reply) SEMPRE dispara CAPI LeadSubmitted, mesmo sem CTWA.
+  // Flow submitted = signal forte de Lead qualificado (nome + phone + serviço).
+  // Sem CTWA → lead orgânico (Andromeda ainda usa pra optimization signals).
+  // Com CTWA → segundo event (event_id distinto) com dados completos do form.
+  // Meta v25 Conversion Leads spec: LeadSubmitted = dentro business_messaging flow.
+  if (CAPI_TOKEN && from && from !== '—') {
+    try {
+      const telNorm = String(telefone || from).replace(/\D/g, '');
+      let firstName = null, lastName = null;
+      if (nome && nome !== from) {
+        const parts = String(nome).trim().split(/\s+/);
+        firstName = parts[0];
+        if (parts.length > 1) lastName = parts[parts.length - 1];
+      }
+      const inferredState = stateFromPhone(from);
+      const userData = await buildUserData({
+        phone: telNorm || from,
+        first_name: firstName || undefined,
+        last_name: lastName || undefined,
+        city: 'recife',
+        state: inferredState,
+        country: 'br',
+        external_id: from, // phone como identidade estável
+      });
+      if (ctwaClid) userData.ctwa_clid = ctwaClid;
+      if (process.env.META_PAGE_ID) userData.page_id = process.env.META_PAGE_ID;
+
+      // event_id idempotente: baseado em wamid (nfm_reply.response_json fica na msg)
+      // + tipo 'flow' pra não colidir com CTWA LeadSubmitted (event_id: `ctwa_${wamid}`).
+      const eventTime = Math.floor(Date.now() / 1000);
+      const eventId = `flow_${telNorm || from}_${eventTime}`;
+
+      const payload = {
+        data: [{
+          event_name: 'LeadSubmitted',
+          event_time: eventTime,
+          event_id: eventId,
+          action_source: 'business_messaging',
+          messaging_channel: 'whatsapp',
+          user_data: userData,
+          custom_data: {
+            content_name: String(servico || 'Depilacao Laser').slice(0, 100),
+            content_category: 'depilacao_laser',
+            currency: 'BRL',
+            value: 0,
+            lead_event_source: 'WhatsApp Flow',
+            customer_segmentation: 'new_customer_to_business',
+            ...(ctwaClid ? { attribution: 'ctwa' } : { attribution: 'organic' }),
+          },
+        }],
+        partner_agent: PARTNER_AGENT,
+      };
+
+      const r = await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CAPI_TOKEN}` },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const txt = (await r.text()).substring(0, 200);
+        console.error(`[FLOW LeadSubmitted] Meta API ${r.status}: ${txt}`);
+      } else {
+        const respBody = await r.json();
+        if (respBody?.error) {
+          console.error('[FLOW LeadSubmitted] CAPI error:', respBody.error.message);
+        } else {
+          console.log(`[FLOW LeadSubmitted] ✅ ph=${maskPhone(from)} ctwa=${!!ctwaClid} received=${respBody.events_received}`);
+        }
+      }
+    } catch (e) {
+      console.error('[FLOW LeadSubmitted] exception:', e.message);
+    }
+  }
 }
 
 /**
