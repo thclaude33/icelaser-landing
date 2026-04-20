@@ -272,24 +272,66 @@
       window._WAM_DATASET_ID = '967048725669499';
       try { fbq('init', window._WAM_DATASET_ID, initParams); } catch(_e) {}
     })();
-    // fbc fallback: algoritmo IDÊNTICO ao Meta capi-param-builder oficial.
-    // urlUtil.js da SDK: regex [?#&]fbclid(=([^&#]*)|&|#|$) + replace '+' por ' '
-    // + decodeURIComponent. Consistente server-side (middleware) ↔ client-side.
-    // ParamBuilder (onload) sobrescreve com formato fb.2.{time}.{fbclid}.{appendix}
-    // subdomainIndex=2 pro apex icelasers.com.br (verificado via SDK nodejs v1.2.1).
+    // fbc capture + persistência dupla (cookie 90d + localStorage 365d).
+    // Meta Events Manager reportou EMQ fbc baixo (4.4/10) sugerindo Parameter
+    // Configurator. Fix: captura EXPANDIDA — URL fbclid + localStorage fallback
+    // (sobrevive iOS ITP 24h expiry + cookie expirou) + CTWA ctwa_clid fallback.
+    //
+    // Prioridade: 1) URL fbclid (fresh clique)  2) cookie _fbc existente
+    //             3) localStorage ice_fbclid    4) ctwa_clid (derivado)
+    //
+    // Fonte: Meta capi-param-builder-nodejs v1.2.1 (SDK oficial).
     (function(){try{
       if(window._paramBuilderReady) return;
+      var LS_FBCLID = 'ice_fbclid', LS_FBC = 'ice_fbc', LS_CTWA = 'ice_ctwa_clid';
+      var now = Date.now();
+      var cookieFbc = (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1] || '';
+      var cookieCtwa = (document.cookie.match(/(?:^|;\s*)_ctwa_clid=([^;]*)/)||[])[1] || '';
+
+      // 1. URL fbclid (fresh clique Meta ad)
       var regex=/[?#&]fbclid(=([^&#]*)|&|#|$)/;
       var m=window.location.search.match(regex);
-      if(!m||!m[2])return;
-      var cl;
-      try{cl=decodeURIComponent(m[2].replace(/\+/g,' '));}catch(e){cl=m[2];}
-      if(!cl)return;
-      var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
-      var existingFbclid=(existingFbc.split('.')[3])||'';
-      if(!existingFbc || existingFbclid!==cl){
-        var fbc='fb.2.'+Date.now()+'.'+cl;
-        document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax;Secure';
+      var fbclid = '';
+      if (m && m[2]) {
+        try { fbclid = decodeURIComponent(m[2].replace(/\+/g,' ')); } catch(e){ fbclid = m[2]; }
+      }
+
+      // 2. localStorage (sessão anterior, cookie pode ter expirado)
+      if (!fbclid) {
+        try { fbclid = localStorage.getItem(LS_FBCLID) || ''; } catch(e){}
+      }
+
+      // Se tem fbclid (novo ou recuperado), persistir + gerar/atualizar fbc
+      if (fbclid) {
+        try { localStorage.setItem(LS_FBCLID, fbclid); } catch(e){}
+        var existingFbclid = (cookieFbc.split('.')[3]) || '';
+        if (!cookieFbc || existingFbclid !== fbclid) {
+          var fbc = 'fb.2.' + now + '.' + fbclid;
+          document.cookie = '_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax;Secure';
+          try { localStorage.setItem(LS_FBC, fbc); } catch(e){}
+        } else {
+          try { localStorage.setItem(LS_FBC, cookieFbc); } catch(e){}
+        }
+      } else if (!cookieFbc) {
+        // 3. cookie faltando + sem fbclid → tentar restore do localStorage _fbc
+        try {
+          var lsFbc = localStorage.getItem(LS_FBC);
+          if (lsFbc && /^fb\.[0-9]+\.\d+\./.test(lsFbc)) {
+            document.cookie = '_fbc='+lsFbc+';path=/;max-age=7776000;SameSite=Lax;Secure';
+          }
+        } catch(e){}
+
+        // 4. Fallback CTWA: se user veio via CTWA ad e não tem fbclid mas tem
+        // ctwa_clid, derivar fbc em formato Meta-compatible. Melhor que nada
+        // pra EMQ fbc — Meta aceita ctwa_clid como attribution signal.
+        try {
+          var clid = cookieCtwa || localStorage.getItem(LS_CTWA) || '';
+          if (clid && !document.cookie.match(/(?:^|;\s*)_fbc=/)) {
+            var derivedFbc = 'fb.2.' + now + '.' + clid;
+            document.cookie = '_fbc='+derivedFbc+';path=/;max-age=7776000;SameSite=Lax;Secure';
+            localStorage.setItem(LS_FBC, derivedFbc);
+          }
+        } catch(e){}
       }
     }catch(e){}}());
     // Advanced Matching consolidado no initPixel() acima — removido double init.
