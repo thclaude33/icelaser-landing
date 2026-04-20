@@ -11,7 +11,7 @@
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
-import { buildUserData, hashPII } from './_lib/piiBuilder.js';
+import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
@@ -345,16 +345,33 @@ export default async function handler(req, res) {
   // If webhook is retried by Chatwoot, same timestamp ensures identical event_id,
   // enabling Meta's dedup to work correctly (without duplicates from retries).
   // Chatwoot sends timestamp in Unix seconds (already validated in verifyChatwootSignature).
+  //
+  // Fix HIGH 20/04/2026 (H7): clamp chatwootTs a ±5min do server time.
+  // Em WARN-ONLY mode (CHATWOOT_WEBHOOK_ENFORCE !== '1'), atacante pode spoofar
+  // header pra ts arbitrário → event_time no futuro → Meta 2804003 ou bypass
+  // dedup (mesmo wamid mas ts distintos). Window 5min = tolerância realista
+  // de clock drift mas impede manipulação maliciosa.
   const chatwootTs = req.headers['x-chatwoot-timestamp'];
-  const now = chatwootTs 
-    ? parseInt(chatwootTs, 10)
-    : Math.floor(Date.now() / 1000);
+  const parsedTs = chatwootTs ? parseInt(chatwootTs, 10) : null;
+  const serverNow = Math.floor(Date.now() / 1000);
+  const now = (parsedTs && Number.isFinite(parsedTs) && Math.abs(parsedTs - serverNow) < 300)
+    ? parsedTs
+    : serverNow;
+  if (parsedTs && now !== parsedTs) {
+    console.warn(`[CRM-WEBHOOK] chatwootTs drift >5min (ts=${parsedTs} server=${serverNow}) → using serverNow`);
+  }
   let firstName = null, lastName = null;
   if (nome) {
     const parts = nome.trim().split(/\s+/);
     firstName = parts[0];
     if (parts.length > 1) lastName = parts[parts.length - 1];
   }
+  // Fix HIGH 20/04/2026 (H1): external_id passed INTO buildUserData pra
+  // consistência com track.js. Antes crm-webhook fazia hashPII manual após
+  // buildUserData, podendo divergir do path track.js → dedup cross-event falhava.
+  // Agora mesmo input (email > phone > nome) flui pelo mesmo SDK normalizer.
+  const normalizedPhoneForExtId = telefone ? normalizePhone(telefone) : null;
+  const externalIdRaw = email || normalizedPhoneForExtId || nome || null;
   const userData = await buildUserData({
     email: email || undefined,
     phone: telefone ? normalizePhone(telefone) : undefined,
@@ -364,6 +381,7 @@ export default async function handler(req, res) {
     state: 'pe',
     zip_code: '50000',
     country: 'br',
+    external_id: externalIdRaw || undefined,
     // Fix HIGH AI audit 20/04/2026 (crm-webhook.js:349): remover gender:'f' hardcoded
     // pra consistência com M12 aplicado em whatsapp.js. Meta penaliza mismatch mais
     // que ausência — leads masculinos (~5%) estavam degradando EMQ com gender errado.
@@ -499,17 +517,9 @@ export default async function handler(req, res) {
     console.log(`[CRM-WEBHOOK] fbc derivado do ctwa_clid: ${fbc.slice(0, 30)}...`);
   }
 
-  // external_id: identidade estável (email > phone > nome).
-  // NÃO usar fbp como fallback (fbp já é matching key nativa; duplicar infla multi-user-per-IP).
-  // Normalização via SDK oficial Meta: lowercase + strip whitespace_only + sha256.
-  let externalIdRaw = null;
-  if (email) externalIdRaw = email;
-  else if (telefone) externalIdRaw = normalizePhone(telefone);
-  else if (nome) externalIdRaw = nome;
-  if (externalIdRaw) {
-    const extHash = await hashPII(externalIdRaw, 'external_id');
-    if (extHash) userData.external_id = [extHash];
-  }
+  // Fix HIGH 20/04/2026 (H1): external_id agora é passado diretamente ao
+  // buildUserData acima (linha 369) — SDK oficial Meta normaliza + hasheia.
+  // Bloco manual removido pra eliminar divergência com track.js.
 
   if (fbp) userData.fbp = fbp;
   if (fbc) userData.fbc = fbc;
@@ -520,14 +530,23 @@ export default async function handler(req, res) {
   if (clientIp) userData.client_ip_address = clientIp;
   if (clientUa) userData.client_user_agent = clientUa;
 
-  // lead_id: highest-priority user_data field para Conversion Leads (Meta spec)
-  // https://developers.facebook.com/docs/marketing-api/conversions-api/conversion-leads-integration/payload-specification
-  // Chatwoot contact.id é identidade estável entre conversations do mesmo user →
-  // dedupe perfeito + Conversion Leads stage progression tracking funcional.
-  // NÃO hasheado (é identifier, não PII).
-  if (contact.id) {
-    userData.lead_id = String(contact.id);
-  }
+  // Fix CRITICAL 20/04/2026: REMOVIDO lead_id = contact.id.
+  // Meta docs oficiais (https://developers.facebook.com/docs/marketing-api/
+  // conversions-api/conversion-leads-integration/payload-specification):
+  //   "lead_id: The ID generated by Facebook for each lead. It is a 15 to 17
+  //    digit number."
+  // contact.id do Chatwoot é 5-7 dígitos ≠ Meta-generated 15-17 digit. Enviar
+  // formato errado pode causar Meta a REJEITAR o matching ou degradar EMQ.
+  // IceLaser não usa Lead Ads forms nativos (leads vêm de LP + CTWA), logo
+  // NUNCA temos Meta leadgen_id válido → external_id (phone hashed) + em/ph/fn/ln
+  // são o primary matching path. ctwa_clid fornece attribution pra CTWA.
+  //
+  // Se no futuro adotarmos Lead Ads nativos: recuperar leadgen_id via
+  // GET /{form_id}/leads?fields=id&access_token=PAGE_TOKEN e atribuir a userData.lead_id.
+  //
+  // Custom data mantém referência Chatwoot ID pra debug via custom_data.crm_contact_id
+  // (não é matching key, só identificador interno pra investigar no Meta Events Manager).
+  const crmContactId = contact.id ? String(contact.id) : null;
 
   if (ctwaClid) {
     userData.ctwa_clid = ctwaClid; // user_data — posição oficial Meta para CTWA
@@ -569,11 +588,28 @@ export default async function handler(req, res) {
     }
   }
 
-  // Tenta recuperar URL da LP original salva nos atributos; fallback para domínio canônico
-  const eventSourceUrl = customAttrs.landing_url
+  // Fix HIGH 20/04/2026 (H2): validar event_source_url contra domínios verificados.
+  // Meta Conversion Leads spec: event_source_url deve ser do domínio verificado no
+  // Events Manager, senão Meta dropa silenciosamente ou rejeita matching. customAttrs
+  // pode vir do Chatwoot CRM com URL de terceiros (wa.me, chatwoot.com, etc) →
+  // validar hostname antes de usar, fallback pro canonical IceLaser.
+  const VERIFIED_DOMAINS = ['icelasers.com.br', 'www.icelasers.com.br'];
+  let eventSourceUrl = 'https://icelasers.com.br/';
+  const candidateUrl = customAttrs.landing_url
     || customAttrs.event_source_url
-    || customAttrs.lp_url
-    || 'https://icelasers.com.br/';
+    || customAttrs.lp_url;
+  if (candidateUrl) {
+    try {
+      const parsed = new URL(String(candidateUrl));
+      if (VERIFIED_DOMAINS.includes(parsed.hostname) && parsed.protocol === 'https:') {
+        eventSourceUrl = candidateUrl;
+      } else {
+        console.warn(`[CRM-WEBHOOK] event_source_url hostname="${parsed.hostname}" não verificado → fallback canonical`);
+      }
+    } catch {
+      console.warn(`[CRM-WEBHOOK] event_source_url inválido "${String(candidateUrl).slice(0,60)}" → fallback canonical`);
+    }
+  }
 
   // Ad metadata do CTWA (via Meta Graph lookup salvo no Blob) — propagar
   // campaign_id/adset_id/ad_id pra custom_data de TODOS os events CRM.
@@ -610,6 +646,10 @@ export default async function handler(req, res) {
     ...(ctwaAdMeta?.publisher_platforms ? { publisher_platforms: ctwaAdMeta.publisher_platforms } : {}),
     ...(ctwaAdMeta?.campaign_objective ? { campaign_objective: ctwaAdMeta.campaign_objective } : {}),
     lead_event_source: 'Chatwoot', // nome do CRM
+    // Fix 20/04/2026: crm_contact_id em custom_data (não user_data) — referência
+    // interna Chatwoot pra debugging no Events Manager. NÃO é matching key,
+    // NÃO substitui o que seria lead_id válido (15-17 digit Meta-generated).
+    ...(crmContactId ? { crm_contact_id: crmContactId } : {}),
   };
 
   const events = [];

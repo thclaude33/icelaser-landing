@@ -181,11 +181,21 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid) {
           messaging_channel: 'whatsapp',
           user_data: userData,
           custom_data: {
+            // Fix CRITICAL 20/04/2026: event_source: 'crm' é OBRIGATÓRIO per Meta
+            // Conversion Leads Payload Spec. Sem isso, eventos não são classificados
+            // como Conversion Leads → wizard "integração CRM" nunca completa.
+            // https://developers.facebook.com/docs/marketing-api/conversions-api/
+            // conversion-leads-integration/payload-specification/
+            event_source: 'crm',
             content_name: String(servico || 'Depilacao Laser').slice(0, 100),
             content_category: 'depilacao_laser',
             currency: 'BRL',
             value: 0,
-            lead_event_source: 'WhatsApp Flow',
+            // Fix MEDIUM 20/04/2026: lead_event_source consistente = 'Chatwoot'
+            // (CRM tool name canônico). 'WhatsApp Flow' é descritivo mas não
+            // é CRM name — Meta Conversion Leads espera nome do CRM.
+            lead_event_source: 'Chatwoot',
+            flow_source: 'WhatsApp Flow',  // campo custom pra debug interno
             customer_segmentation: 'new_customer_to_business',
             ...(ctwaClid ? { attribution: 'ctwa' } : { attribution: 'organic' }),
           },
@@ -489,7 +499,12 @@ async function processarCTWA(from, message, referral, profileName) {
               messaging_channel: 'whatsapp',
               user_data: userData,
               custom_data: {
-                lead_event_source: 'WhatsApp CTWA',
+                // Fix CRITICAL 20/04/2026: event_source: 'crm' OBRIGATÓRIO per Meta
+                // Conversion Leads spec. IceLaser Chatwoot = CRM → classificação.
+                event_source: 'crm',
+                // Fix MEDIUM 20/04/2026: CRM name canônico 'Chatwoot'
+                lead_event_source: 'Chatwoot',
+                ctwa_source: 'WhatsApp CTWA',  // debug interno
                 source_url: sourceUrl,
                 content_name: 'CTWA Contact Started - WhatsApp',
                 content_category: 'depilacao_laser',
