@@ -2048,6 +2048,24 @@
         var tagMatch = hrefText.match(/\[LP(\d)\]/);
         if (tagMatch) tag = 'LP' + tagMatch[1];
       } catch(ex) {}
+      // Web Analytics event SEMPRE dispara (antes do dedup CAPI) — track TODAS as
+      // interações, mesmo se mesma tag clicou múltiplas vezes. UTMs incluídas pra
+      // segmentação no dashboard Vercel Analytics.
+      // Fix AI recommendation 20/04/2026: cobertura LP1-LP5 uniforme via interceptor.
+      try {
+        var vaPayload = { tag: tag };
+        var vaUtm = {
+          utm_source: getAdData('utm_source'),
+          utm_medium: getAdData('utm_medium'),
+          utm_campaign: getAdData('utm_campaign'),
+          campaign_id: getAdData('campaign_id'),
+          ad_id: getAdData('ad_id'),
+          placement: getAdData('placement'),
+        };
+        for (var k in vaUtm) { if (vaUtm[k]) vaPayload[k] = vaUtm[k]; }
+        trackEvent('whatsapp_click', vaPayload);
+      } catch(ex) {}
+
       // Dispara Lead CAPI com tag do botão (1x por tag por sessão)
       if (!waClickTracked[tag]) {
         waClickTracked[tag] = true;
