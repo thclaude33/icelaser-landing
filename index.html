@@ -207,7 +207,8 @@
       var arr = new Uint8Array(8);
       crypto.getRandomValues(arr);
       rand = 0;
-      for (var i=0;i<arr.length;i++) rand = (rand * 256 + arr[i]) % 1e16;
+      for (var i=0;i<arr.length;i++) rand = rand * 256 + arr[i];
+      rand = rand % 1e16;
     } else {
       rand = Math.floor(Math.random() * 1e16);
     }
