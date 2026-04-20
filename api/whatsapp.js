@@ -893,6 +893,137 @@ export default async function handler(req, res) {
                     </div>
                   </div>`
                 );
+
+                // Fix CRITICAL 20/04/2026 (wizard CRM setup): CRIAR contato no Chatwoot
+                // quando lead nativo Meta chega. Meta wizard "Etapa 2: confirme se o lead
+                // de verificação está no seu CRM" exige que lead entregue automaticamente
+                // no CRM. Sem isso, wizard nunca avança de step 2 pra step 3.
+                //
+                // Chatwoot API: POST /api/v1/accounts/{id}/contacts
+                // https://www.chatwoot.com/developers/api/
+                //
+                // Sem inbox_id pra evitar Channel::FacebookPage 500 error (inbox 5 falha).
+                // Contato fica criado sem vínculo — quando user contatar WhatsApp/Email,
+                // Chatwoot unifica pelo phone_number/email automaticamente.
+                const CHATWOOT_API_TOKEN = process.env.CHATWOOT_API_TOKEN;
+                const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL;
+                const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
+                if (CHATWOOT_API_TOKEN && CHATWOOT_BASE_URL && leadId) {
+                  try {
+                    // Normalizar phone pra E.164 (+55...) — Chatwoot spec
+                    const digits = String(tel || '').replace(/\D/g, '');
+                    const e164 = digits
+                      ? (digits.startsWith('55') ? `+${digits}` : `+55${digits}`)
+                      : null;
+                    const contactBody = {
+                      name: String(nome || 'Lead Meta').slice(0, 100),
+                      identifier: `leadgen_${leadId}`,  // unique lead Meta → evita duplicação
+                      ...(e164 ? { phone_number: e164 } : {}),
+                      ...(email && email.includes('@') ? { email } : {}),
+                      custom_attributes: {
+                        leadgen_id: String(leadId),
+                        leadgen_form_id: String(formId || ''),
+                        leadgen_ad_id: String(adId || ''),
+                        lead_source: 'Meta Lead Ad',
+                        created_at_meta: new Date().toISOString(),
+                      },
+                    };
+                    const cwResp = await fetch(
+                      `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts`,
+                      {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'api_access_token': CHATWOOT_API_TOKEN,
+                        },
+                        body: JSON.stringify(contactBody),
+                      }
+                    );
+                    const cwJson = await cwResp.json();
+                    if (cwJson?.payload?.contact?.id) {
+                      console.log(`[LEADGEN→CHATWOOT] ✅ Contato criado id=${cwJson.payload.contact.id} lead_id=${leadId}`);
+                    } else if (cwJson?.message && String(cwJson.message).includes('taken')) {
+                      console.log(`[LEADGEN→CHATWOOT] ℹ️ Contato já existe pra lead_id=${leadId}`);
+                    } else {
+                      console.warn(`[LEADGEN→CHATWOOT] ⚠️ resp=${JSON.stringify(cwJson).slice(0, 200)}`);
+                    }
+                  } catch (chatwootErr) {
+                    console.error(`[LEADGEN→CHATWOOT] exception: ${chatwootErr.message}`);
+                  }
+                } else {
+                  console.warn(`[LEADGEN→CHATWOOT] skipped: CHATWOOT_API_TOKEN=${!!CHATWOOT_API_TOKEN} CHATWOOT_BASE_URL=${!!CHATWOOT_BASE_URL}`);
+                }
+                // Fix CRITICAL 20/04/2026 (wizard CRM setup): disparar CAPI Lead event quando lead nativo
+                // Meta Lead Ads entra via webhook leadgen. Antes: só enviava email.
+                // Agora: CAPI event com lead_id 15-17 digits REAL (conforme Meta spec).
+                // Isso completa o funil Conversion Leads: Lead → CompleteRegistration (CRM
+                // quando stage avança) → Purchase (CRM compra).
+                if (CAPI_TOKEN && leadId) {
+                  try {
+                    const telDigits = String(tel || '').replace(/\D/g, '');
+                    let leadFirstName = null, leadLastName = null;
+                    if (nome && nome !== '?') {
+                      const parts = String(nome).trim().split(/\s+/);
+                      leadFirstName = parts[0];
+                      if (parts.length > 1) leadLastName = parts[parts.length - 1];
+                    }
+                    const leadUserData = await buildUserData({
+                      email: email && email.includes('@') ? email : undefined,
+                      phone: telDigits || undefined,
+                      first_name: leadFirstName || undefined,
+                      last_name: leadLastName || undefined,
+                      city: 'recife',
+                      state: 'pe',
+                      country: 'br',
+                      external_id: email || telDigits || undefined,
+                    });
+                    // lead_id: Meta-generated 15-17 digit (validar formato defensivo)
+                    if (/^\d{15,17}$/.test(String(leadId))) {
+                      leadUserData.lead_id = String(leadId);
+                    }
+                    if (process.env.META_PAGE_ID) leadUserData.page_id = process.env.META_PAGE_ID;
+                    const leadPayload = {
+                      data: [{
+                        event_name: 'Lead',
+                        event_time: Math.floor(Date.now() / 1000),
+                        event_id: `leadgen_${leadId}`,
+                        action_source: 'system_generated',
+                        user_data: leadUserData,
+                        custom_data: {
+                          event_source: 'crm',
+                          lead_event_source: 'Chatwoot',
+                          leadgen_form_id: String(formId || ''),
+                          ...(adId ? { ad_id: String(adId) } : {}),
+                          content_name: 'Meta Lead Ad Form Submission',
+                          content_category: 'depilacao_laser',
+                          currency: 'BRL',
+                          value: 0,
+                          customer_segmentation: 'new_customer_to_business',
+                        },
+                      }],
+                      partner_agent: PARTNER_AGENT,
+                    };
+                    const leadResp = await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${CAPI_TOKEN}`,
+                      },
+                      body: JSON.stringify(leadPayload),
+                    });
+                    const leadJson = await leadResp.json();
+                    if (leadJson.error) {
+                      console.error(`[LEADGEN CAPI] ⚠️ Rejected: code=${leadJson.error.code} msg=${leadJson.error.message}`);
+                    } else {
+                      if (Array.isArray(leadJson.messages) && leadJson.messages.length > 0) {
+                        console.warn(`[CAPI WARN LEADGEN] received=${leadJson.events_received} messages=${JSON.stringify(leadJson.messages)} fbtrace=${leadJson.fbtrace_id}`);
+                      }
+                      console.log(`[LEADGEN CAPI] ✅ Lead event fired: lead_id=${leadId} received=${leadJson.events_received}`);
+                    }
+                  } catch (capiErr) {
+                    console.error('[LEADGEN CAPI] exception:', capiErr.message);
+                  }
+                }
               } catch (e) {
                 console.error(`[LEADGEN] Erro ao buscar lead ${leadId}: ${e.message}`);
               }
