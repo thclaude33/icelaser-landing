@@ -914,25 +914,29 @@ export default async function handler(req, res) {
                   'Content-Type': 'application/json',
                   'api_access_token': CHATWOOT_API_TOKEN,
                 };
-                console.error(`[LEADGEN→CHATWOOT-DEBUG] ENTRY leadId=${leadId} envsSet=${!!CHATWOOT_API_TOKEN && !!CHATWOOT_BASE_URL} base=${CHATWOOT_BASE_URL?.slice(0,40)}`);
                 if (CHATWOOT_API_TOKEN && CHATWOOT_BASE_URL && leadId) {
                   try {
                     const identifier = `leadgen_${leadId}`;
-                    console.error(`[LEADGEN→CHATWOOT-DEBUG] STEP1 searching identifier=${identifier}`);
+                    // Fix 20/04/2026: AbortController 8s timeout em TODOS fetches
+                    // Railway Chatwoot pode ter cold start >10s → mataria Vercel function.
+                    const fetchCw = (url, opts = {}, timeoutMs = 8000) => {
+                      const ctrl = new AbortController();
+                      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+                      return fetch(url, { ...opts, signal: ctrl.signal })
+                        .finally(() => clearTimeout(timer));
+                    };
                     // 1. DEDUP: buscar contato existente por identifier
                     //    Chatwoot /contacts/search usa q= full-text; usar /contacts/filter pra exact match.
-                    const filterResp = await fetch(
+                    const filterResp = await fetchCw(
                       `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(identifier)}`,
                       { headers: cwHeaders }
                     );
                     const filterJson = await filterResp.json();
-                    console.error(`[LEADGEN→CHATWOOT-DEBUG] STEP2 search status=${filterResp.status} count=${filterJson?.meta?.count ?? '?'} payload_len=${filterJson?.payload?.length ?? 0}`);
                     let contactId = null;
                     if (filterJson?.payload?.length > 0) {
                       const match = filterJson.payload.find(c => c.identifier === identifier);
                       if (match) contactId = match.id;
                     }
-                    console.error(`[LEADGEN→CHATWOOT-DEBUG] STEP3 contactId=${contactId} willCreate=${!contactId}`);
 
                     if (!contactId) {
                       // 2. Criar contato novo
@@ -952,7 +956,7 @@ export default async function handler(req, res) {
                           created_at_meta: new Date().toISOString(),
                         },
                       };
-                      const createResp = await fetch(
+                      const createResp = await fetchCw(
                         `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts`,
                         { method: 'POST', headers: cwHeaders, body: JSON.stringify(contactBody) }
                       );
@@ -966,9 +970,10 @@ export default async function handler(req, res) {
                     } else {
                       console.log(`[LEADGEN→CHATWOOT] ℹ️ Contato existente id=${contactId} lead_id=${leadId}`);
                       // Garantir que contato está vinculado ao inbox Lead Ads
-                      await fetch(
+                      await fetchCw(
                         `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`,
-                        { method: 'POST', headers: cwHeaders, body: JSON.stringify({ inbox_id: Number(CHATWOOT_LEADS_INBOX_ID) }) }
+                        { method: 'POST', headers: cwHeaders, body: JSON.stringify({ inbox_id: Number(CHATWOOT_LEADS_INBOX_ID) }) },
+                        5000
                       ).catch(() => {});
                     }
 
@@ -994,7 +999,7 @@ export default async function handler(req, res) {
                         status: 'open',
                         message: { content: msg, message_type: 'incoming' },
                       };
-                      const convResp = await fetch(
+                      const convResp = await fetchCw(
                         `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations`,
                         { method: 'POST', headers: cwHeaders, body: JSON.stringify(convBody) }
                       );
