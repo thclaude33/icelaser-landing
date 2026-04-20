@@ -480,7 +480,12 @@ export default async function handler(req, res) {
               const blobTel = (data.telefone || '').replace(/\D/g, '');
               // Match 11-digit + guard blobTel.length >= 10 previne false positives em leads antigos.
               // Phone BR: cel=11, fixo=10 chars. slice(-11) num fixo 10 retorna string inteira.
-              if (blobTel && blobTel.length >= 10 && telDigits.endsWith(blobTel.slice(-11))) {
+              // Fix: normalize leading zeros before matching to handle cases where:
+              //  - telDigits has country code (55) but blobTel doesn't
+              //  - either number has stray leading zeros from data quality issues
+              const telDigitsNorm = telDigits.replace(/^0+/, '') || telDigits;
+              const blobTelNorm = blobTel.replace(/^0+/, '') || blobTel;
+              if (blobTel && blobTel.length >= 10 && telDigitsNorm.endsWith(blobTelNorm)) {
                 if (!fbp && data.fbp) fbp = data.fbp;
                 if (!fbc && data.fbc) fbc = data.fbc;
                 // EMQ fix: recuperar client_ip + client_user_agent do form submit LP
@@ -616,7 +621,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // Ad metadata do CTWA (via Meta Graph lookup salvo no Blob) — propagar
+  // Ad metadata do CTWA (via Meta Graph lookup salvo no Blob) �� propagar
   // campaign_id/adset_id/ad_id pra custom_data de TODOS os events CRM.
   // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
   const ctwaAdMeta = ctwaData && ctwaData.ad_metadata ? ctwaData.ad_metadata : null;
