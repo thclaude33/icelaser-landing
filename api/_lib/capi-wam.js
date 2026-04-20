@@ -26,7 +26,7 @@ import { PARTNER_AGENT } from './capi.js';
 import { GRAPH_BASE } from './config.js';
 
 const WAM_DATASET_ID = process.env.WAM_DATASET_ID;
-const WAM_TOKEN = process.env.CAPI_DATASET_TOKEN;
+const WAM_TOKEN = process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN;
 // Fix HIGH (AI review): sem fallback hardcoded — atribuição cruzada em prod é compliance-breaking.
 const PAGE_ID = process.env.META_PAGE_ID;
 const WABA_ID = process.env.META_WABA_ID;
