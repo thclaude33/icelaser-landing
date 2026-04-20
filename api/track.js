@@ -203,8 +203,11 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     // sanitizeHeader aplicado global no subject — plataforma vem de utm_source
     // controlado por atacante (URL query param). CRLF em utm_source poderia
     // injetar Bcc: attacker@evil via subject (CVE-class).
+    // Fix MEDIUM AI review 20/04/2026 (M15): nome raw no subject — sanitizeHeader
+    // strip CRLF, mas caracteres especiais HTML/unicode podem quebrar display em
+    // mail clients. Usar escapeHtml pra consistência com o resto do template.
     const subject = sanitizeHeader(
-      `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${nome} | ${lpNome}`,
+      `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${escapeHtml(nome)} | ${lpNome}`,
       200
     );
     await t.sendMail({
@@ -307,17 +310,24 @@ export default async function handler(req, res) {
   if ((!fbp || !fbc) && telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
       const telDigits = telefone.replace(/\D/g, '');
+      // Fix MEDIUM AI review 20/04/2026 (M13): paralelizar fetches via Promise.allSettled.
+      // Antes: fetch sequencial de até 100 blobs = 2-10s extra no request user-facing.
+      // Agora: 1 list() + N fetches concorrentes, short-circuit assim que achou match.
       const blobs = await list({ prefix: 'leads/', limit: 100 });
-      for (const blob of blobs.blobs) {
-        if (blob.size > 200) {
-          const res = await fetch(blob.url);
-          const data = await res.json();
-          const blobTel = (data.telefone || '').replace(/\D/g, '');
-          if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
-            if (!finalFbp && data.fbp) finalFbp = data.fbp;
-            if (!finalFbc && data.fbc) finalFbc = data.fbc;
-            if (finalFbp && finalFbc) break;
-          }
+      const candidates = blobs.blobs.filter(b => b.size > 200);
+      const datas = await Promise.allSettled(
+        candidates.map(b => fetch(b.url).then(r => r.json()))
+      );
+      for (const result of datas) {
+        if (result.status !== 'fulfilled') continue;
+        const data = result.value;
+        // Fix MEDIUM AI review 20/04/2026 (M14): `const res` shadowava o Vercel
+        // Response do handler — renomeado pra blobData pra evitar armadilha.
+        const blobTel = (data?.telefone || '').replace(/\D/g, '');
+        if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
+          if (!finalFbp && data.fbp) finalFbp = data.fbp;
+          if (!finalFbc && data.fbc) finalFbc = data.fbc;
+          if (finalFbp && finalFbc) break;
         }
       }
       if (finalFbp !== fbp || finalFbc !== fbc) {
@@ -375,6 +385,13 @@ export default async function handler(req, res) {
   );
   if (!hasMatchingKey) {
     return res.status(400).json({ error: 'Insufficient user_data for matching (need em/ph/fn+ln/external_id/fbp/fbc)' });
+  }
+
+  // Fix MEDIUM AI review 20/04/2026 (M17): event_id OBRIGATÓRIO pra dedup
+  // Pixel↔CAPI. Se frontend não enviar (bug JS, race condition), cair pra 400
+  // força fix no client em vez de double-counting silencioso no Events Manager.
+  if (!event_id || typeof event_id !== 'string' || event_id.length < 8) {
+    return res.status(400).json({ error: 'event_id required for dedup (min 8 chars)' });
   }
 
   // event_time: se browser mandou e é válido (dentro da janela 7d Meta), usa ele.
@@ -549,7 +566,11 @@ export default async function handler(req, res) {
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit
     // HTTP Set-Cookie headers persist up to 180 days even in Safari
     // Cookies setados independente de CAPI success (benefit user mesmo se Meta errou)
-    const cookieOpts = 'Path=/; SameSite=Lax; Secure; Max-Age=15552000'; // 180 days
+    // Fix MEDIUM AI review 20/04/2026 (M16): Domain=.icelasers.com.br garante que
+    // cookie é visível em subdomínios (www/api/staging). Sem Domain=, é host-only
+    // → se LP está em www.icelasers.com.br e api em icelasers.com.br, cookies
+    // divergem e Pixel browser+CAPI server geram _fbp diferentes (dedup falha).
+    const cookieOpts = 'Path=/; Domain=.icelasers.com.br; SameSite=Lax; Secure; Max-Age=15552000'; // 180 days
     const setCookies = [];
     if (finalFbp) setCookies.push(`_fbp=${finalFbp}; ${cookieOpts}`);
     if (finalFbc) setCookies.push(`_fbc=${finalFbc}; ${cookieOpts}`);
@@ -567,6 +588,10 @@ export default async function handler(req, res) {
     }
     return res.status(200).json({ ok: true, events_received: finalResult.events_received });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    // Fix MEDIUM AI review 20/04/2026 (M18): não retornar err.message ao cliente.
+    // Pode vazar URLs internas, tokens parciais, stack traces (info disclosure).
+    // Detalhes logados internamente; resposta pública = mensagem genérica.
+    console.error('[TRACK] Unhandled:', err?.message, err?.stack?.split('\n').slice(0, 3).join(' | '));
+    return res.status(500).json({ error: 'internal_error' });
   }
 }

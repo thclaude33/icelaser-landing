@@ -38,7 +38,11 @@ import { brtISO, isVercelCron } from '../_lib/time.js';
 // CHAVES PERIGOSAS (leads/, ctwa/, conversions/) INTENCIONALMENTE AUSENTES.
 const RETENTION_DAYS = {
   'logs/':         30,   // log-drains
-  'webhooks/wa/':  30,   // backup WhatsApp (só fallback se Chatwoot crashar)
+  // Fix MEDIUM AI review 20/04/2026 (M9): webhooks/wa/ contém PII (telefone,
+  // nome, mensagem WA). Retenção 30d era excessiva pro uso (fallback Chatwoot
+  // crash) e aumentava superfície LGPD. 7 dias cobre janela realista (se
+  // Chatwoot cair e msg não chegar, reprocessing manual é em <1 semana).
+  'webhooks/wa/':   7,
   'webhooks/':     60,   // vercel webhook events (deploys, firewall, alerts)
   'media/':         7,   // media WA baixada da Meta pro Chatwoot
   'dedup/wa/':      7,   // dedup keys persistentes (alinha com Meta webhook retry window)

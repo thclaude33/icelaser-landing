@@ -48,13 +48,23 @@ function validarAssinatura(rawBody, sig) {
 }
 
 // ── EMAIL via SMTP nativo (sem lib externa) ───────────────────────────────────
-async function enviarEmail(assunto, html) {
-  if (!EMAIL_PASS) { console.warn('[EMAIL] EMAIL_PASS não configurado — email ignorado'); return false; }
-  try {
-    const t = nodemailer.createTransport({
+// Fix MEDIUM AI review 20/04/2026 (M11): transporter como module-level singleton.
+// Antes criava um transporter novo por email (TLS handshake ~200-500ms). Vercel
+// reusa o módulo entre invocações warm → singleton amortiza o custo de conexão.
+let _mailTransport = null;
+function getTransport() {
+  if (!_mailTransport && EMAIL_PASS) {
+    _mailTransport = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: EMAIL_FROM, pass: EMAIL_PASS },
     });
+  }
+  return _mailTransport;
+}
+async function enviarEmail(assunto, html) {
+  if (!EMAIL_PASS) { console.warn('[EMAIL] EMAIL_PASS não configurado — email ignorado'); return false; }
+  try {
+    const t = getTransport();
     // sanitizeHeader defense-in-depth: subject nunca deve ter CRLF (SMTP injection).
     await t.sendMail({
       from: `"IceLaser Bot" <${EMAIL_FROM}>`,
@@ -284,8 +294,14 @@ async function processarCTWA(from, message, referral, profileName) {
         first_msg_text: firstMsgText.slice(0, 500),
         ad_metadata: adMetadata,
         timestamp: ts,
-      }), { access: 'public', contentType: 'application/json', allowOverwrite: true });
-      console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}.json (profile=${!!profileName}, ad_meta=${!!adMetadata})`);
+        // Fix MEDIUM AI review 20/04/2026 (M10): addRandomSuffix:true cria path
+        // único por click CTWA. Antes ctwa/{phone}.json + allowOverwrite:true
+        // sobrescrevia clicks anteriores — se user clicava em 2 ads CTWA, o 2º
+        // apagava a attribution do 1º. Agora mantém histórico. Bônus M5-like:
+        // previne enumeration do pathname. Recovery em crm-webhook.js usa
+        // list({prefix:'ctwa/'})+iterate, funciona com suffix random.
+      }), { access: 'public', addRandomSuffix: true, contentType: 'application/json' });
+      console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}-*.json (profile=${!!profileName}, ad_meta=${!!adMetadata})`);
     } catch (e) {
       console.warn('[CTWA] Blob save failed:', e.message);
     }
@@ -331,11 +347,14 @@ async function processarCTWA(from, message, referral, profileName) {
         if (parts.length > 1) lastName = parts[parts.length - 1];
       }
       const inferredState = stateFromPhone(from);
+      // Fix MEDIUM AI review 20/04/2026 (M12): remover gender:'f' hardcoded.
+      // Target IceLaser é 95%+ mulheres, mas homens podem clicar CTWA (parceiros,
+      // gift, curiosos). Enviar gender errado degrada EMQ (Meta falha match com
+      // perfil feminino). Meta prefere ausência de dado a dado incorreto.
       const userData = await buildUserData({
         phone: from,
         first_name: firstName || undefined,
         last_name: lastName || undefined,
-        gender: 'f',
         city: 'recife',
         state: inferredState,         // inferido pelo DDD (antes hardcoded 'pe')
         country: 'br',
@@ -458,6 +477,11 @@ async function processarAlertaTemplate(ev) {
 
 // ── ENVIA TEMPLATE DE CONFIRMAÇÃO ─────────────────────────────────────────────
 async function enviarTemplateConfirmacao(to, nome, servico) {
+  // Fix MEDIUM AI review 20/04/2026 (M8): sanitizar params do template.
+  //  - nome pode ser null/undefined (TypeError em .split)
+  //  - Meta limita params a 1024 chars — truncar pra evitar rejeição
+  const primeiroNome = String(nome || '').trim().split(/\s+/)[0].slice(0, 60) || 'Cliente';
+  const servicoSafe = String(servico || 'Depilação Laser').slice(0, 100);
   const r = await fetch(`https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${META_TOKEN}` },
@@ -469,8 +493,8 @@ async function enviarTemplateConfirmacao(to, nome, servico) {
         name: 'confirmacao_lead_icelaser',
         language: { code: 'pt_BR' },
         components: [{ type: 'body', parameters: [
-          { type: 'text', text: nome.split(' ')[0] },
-          { type: 'text', text: servico },
+          { type: 'text', text: primeiroNome },
+          { type: 'text', text: servicoSafe },
         ]}],
       },
     }),
@@ -918,23 +942,35 @@ export default async function handler(req, res) {
     const fallbackToChatwoot = async () => {
       try {
         if (hasMedia()) {
-          // Converter mídia pra texto + Blob URL
+          // Fix MEDIUM AI review 20/04/2026 (M7): paralelizar downloadMediaToBlob.
+          // Antes fazia N*3 fetches sequenciais (Graph metadata + download + put)
+          // dentro do for loop. Com 3 imagens = 9 ops sequenciais. Em payload com
+          // vídeos grandes, facilmente estourava timeout 30s Vercel Function.
+          // Promise.allSettled: se 1 mídia falhar, outras ainda são entregues.
           const payload = JSON.parse(JSON.stringify(body));
+          const mediaJobs = [];
           for (const entry of payload.entry || []) {
             for (const change of entry.changes || []) {
               const msgs = change.value?.messages || [];
               for (let i = 0; i < msgs.length; i++) {
                 const msg = msgs[i];
                 if (MEDIA_TYPES.includes(msg.type)) {
-                  const blobUrl = await downloadMediaToBlob(msg);
-                  const label = MEDIA_LABELS[msg.type] || msg.type;
-                  const caption = msg[msg.type]?.caption || '';
-                  const blobLink = blobUrl ? `\n🔗 ${blobUrl}` : '';
-                  msgs[i] = { from: msg.from, id: msg.id, timestamp: msg.timestamp, type: 'text',
-                    text: { body: `${label} recebido${caption ? ': ' + caption : ''}${blobLink}` } };
+                  mediaJobs.push({ msgs, i, msg });
                 }
               }
             }
+          }
+          const blobUrls = await Promise.allSettled(
+            mediaJobs.map(job => downloadMediaToBlob(job.msg))
+          );
+          for (let j = 0; j < mediaJobs.length; j++) {
+            const { msgs, i, msg } = mediaJobs[j];
+            const blobUrl = blobUrls[j].status === 'fulfilled' ? blobUrls[j].value : null;
+            const label = MEDIA_LABELS[msg.type] || msg.type;
+            const caption = msg[msg.type]?.caption || '';
+            const blobLink = blobUrl ? `\n🔗 ${blobUrl}` : '';
+            msgs[i] = { from: msg.from, id: msg.id, timestamp: msg.timestamp, type: 'text',
+              text: { body: `${label} recebido${caption ? ': ' + caption : ''}${blobLink}` } };
           }
           const r = await sendToChat(JSON.stringify(payload), 'fallback-media');
           return r.ok;

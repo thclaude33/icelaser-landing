@@ -216,8 +216,11 @@ export default async function handler(req, res) {
                 source_type: msgData.referral.source_type || '',
                 timestamp: new Date().toISOString(),
                 wamid: sourceId,
-              }), { access: 'public', contentType: 'application/json', allowOverwrite: true });
-              console.log(`[CRM-WEBHOOK] ✅ ctwa_clid salvo no Blob: ctwa/${telDigits}.json`);
+              // Fix MEDIUM AI review 20/04/2026 (M5): addRandomSuffix previne enumeration
+              // do pathname (ctwa/{phone}.json era guessable → leak de ctwa_clid + ad_metadata).
+              // Recovery em crm-webhook.js usa list({prefix:'ctwa/'})+iterate, não afetado.
+              }), { access: 'public', addRandomSuffix: true, contentType: 'application/json', allowOverwrite: true });
+              console.log(`[CRM-WEBHOOK] ✅ ctwa_clid salvo no Blob: ctwa/${telDigits}-*.json`);
             } catch (e) {
               console.warn(`[CRM-WEBHOOK] Blob save ctwa failed: ${e.message}`);
             }
@@ -244,7 +247,10 @@ export default async function handler(req, res) {
   // NOTA: Chatwoot v3.x / v4.x envia mudança de labels em `label_list` (array) ou
   // `cached_label_list` (string CSV). A chave `labels` NUNCA aparece em changed_attributes.
   // Fix 17/04/2026: procurar label_list (array) primeiro, fallback cached_label_list.
-  const changedAttributes = body.changed_attributes || [];
+  // Fix MEDIUM AI review 20/04/2026 (M1): Chatwoot pode enviar changed_attributes
+  // como objeto em vez de array. Array.isArray coerce previne TypeError em .some/.filter.
+  const rawChanged = body.changed_attributes || [];
+  const changedAttributes = Array.isArray(rawChanged) ? rawChanged : [rawChanged];
   const hasLabelChange = changedAttributes.some(attr =>
     attr.label_list !== undefined || attr.labels !== undefined
   );
@@ -344,7 +350,9 @@ export default async function handler(req, res) {
     //    enriquecidos — pra usar em advanced matching + ad attribution nos events
     //    Lead Quente / Purchase disparados pelo label do Chatwoot.
     try {
-      const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
+      // Limit 200 (era 50) — volume CTWA alto pode perder clicks antigos.
+      // Fix MEDIUM AI review 20/04/2026 (M6).
+      const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 200 });
       for (const blob of ctwaBlobs.blobs) {
         // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
         // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
@@ -515,15 +523,18 @@ export default async function handler(req, res) {
   // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
   const ctwaAdMeta = ctwaData && ctwaData.ad_metadata ? ctwaData.ad_metadata : null;
 
+  // action_source dinâmico baseado em CTWA presence (Meta Conversion Leads spec):
+  //  - 'business_messaging' quando ctwaClid presente (CTWA ad → WhatsApp conversation)
+  //  - 'system_generated' quando lead vem via CRM label update sem CTWA origin
+  // Fix MEDIUM AI review 20/04/2026 (M3).
+  const actionSource = ctwaClid ? 'business_messaging' : 'system_generated';
+
   // Factory: cada chamada retorna novo objeto com shallow clone de user_data,
   // evitando referência compartilhada que poluiria todos os eventos do batch.
   // Bug CRITICAL detectado via AI code review 19/04/2026 (Claude Opus 4.6).
-  // Antes: `const baseEvent` + spread `...baseEvent` copiava REFERÊNCIA de user_data
-  // → qualquer mutação em user_data de um evento afetava TODOS os events do array.
-  // Funcionava por acidente hoje (nenhum código mutava pós-push) mas era bomba-relógio.
   const mkBaseEvent = () => ({
     event_source_url: eventSourceUrl,
-    action_source: 'system_generated',  // CRM events: system_generated (não chat)
+    action_source: actionSource,
     user_data: { ...userData },         // shallow clone — arrays dentro (em, ph, fn...) ficam shared mas são imutáveis na prática
   });
 
@@ -748,13 +759,16 @@ export default async function handler(req, res) {
   }
 
   const result = await sendCAPI(validEvents, token);
-  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${result.events_received} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+  // Fix MEDIUM AI review 20/04/2026 (M4): events_received pode ser undefined se
+  // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
+  const eventsReceived = result?.events_received ?? 0;
+  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
   return res.status(200).json({
     ok: true,
     contact: nome,
     labels,
     events_sent: validEvents.length,
-    events_received: result.events_received,
+    events_received: eventsReceived,
     ctwa_clid: !!ctwaClid,
     customer_segmentation: customerSeg,
   });
