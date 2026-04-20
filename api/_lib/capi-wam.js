@@ -46,7 +46,6 @@ const WAM_ALLOWED_EVENTS = new Set([
   'Subscribe',
   'InitiateCheckout',
   'AddPaymentInfo',
-  'Contact',
 ]);
 
 /**
