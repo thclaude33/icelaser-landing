@@ -26,9 +26,9 @@ import { PARTNER_AGENT } from './capi.js';
 import { GRAPH_BASE } from './config.js';
 
 const WAM_DATASET_ID = process.env.WAM_DATASET_ID;
-// Token dedicado do dataset WAM (gerado via wizard Events Manager > Dataset Quality API).
-// Fallback pra CAPI_DATASET_TOKEN (pixel principal) e META_ACCESS_TOKEN (System User).
-const WAM_TOKEN = process.env.WAM_ACCESS_TOKEN || process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN;
+// Fix HIGH (AI review C3): SEM fallback. Token errado → atribuição cross-dataset
+// silenciosa (compliance-breaking). Se WAM_ACCESS_TOKEN ausente → skip explícito.
+const WAM_TOKEN = process.env.WAM_ACCESS_TOKEN;
 // Fix HIGH (AI review): sem fallback hardcoded — atribuição cruzada em prod é compliance-breaking.
 const PAGE_ID = process.env.META_PAGE_ID;
 const WABA_ID = process.env.META_WABA_ID;
@@ -39,6 +39,7 @@ const WABA_ID = process.env.META_WABA_ID;
 const MIN_CTWA_CLID_LENGTH = 32;
 const MIN_PSID_LENGTH = 6;
 const FETCH_TIMEOUT_MS = 10000;
+const MAX_EVENT_AGE_SECONDS = 7 * 24 * 3600; // Meta rejeita events > 7 dias
 
 const WAM_ALLOWED_EVENTS = new Set([
   'Purchase',
@@ -60,7 +61,7 @@ const WAM_ALLOWED_EVENTS = new Set([
  * @param {object} [opts.custom_data] - Purchase exige currency + value
  * @returns {Promise<object>} resposta Meta ou { skipped: 'reason' }
  */
-export async function sendWAMEvent({ event_name, event_id, event_time, user_data, custom_data, action_source = 'system_generated' }) {
+export async function sendWAMEvent({ event_name, event_id, event_time, user_data, custom_data, action_source }) {
   if (!WAM_DATASET_ID) return { skipped: 'wam_dataset_not_configured' };
   if (!WAM_TOKEN) return { skipped: 'wam_token_missing' };
   if (!event_name || !WAM_ALLOWED_EVENTS.has(event_name)) {
@@ -78,14 +79,30 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
       return { skipped: 'wam_purchase_requires_currency_and_value' };
     }
   }
+  // Fix HIGH (AI review C4): Meta rejeita event_time > 7 dias. Cron retries
+  // antigos consomem quota sem efeito. Skip early.
+  const finalEventTime = event_time || Math.floor(Date.now() / 1000);
+  const age = Math.floor(Date.now() / 1000) - finalEventTime;
+  if (age > MAX_EVENT_AGE_SECONDS) {
+    return { skipped: `wam_event_too_old: ${age}s > 7d` };
+  }
   const ud = user_data || {};
   const hasCtwa = typeof ud.ctwa_clid === 'string' && ud.ctwa_clid.length >= MIN_CTWA_CLID_LENGTH;
   const hasPsid = typeof ud.page_scoped_user_id === 'string' && ud.page_scoped_user_id.length >= MIN_PSID_LENGTH;
-  // business_messaging exige ctwa_clid OU psid (Meta spec); outros action_sources
-  // (system_generated, website) aceitam matching key normal (em/ph/external_id/etc).
-  const isBusinessMessaging = action_source === 'business_messaging';
+  // Fix HIGH (AI review C1): AUTO-DETECT action_source pra evitar atribuição
+  // CTWA silenciosamente perdida. Quando ctwa_clid OU psid presente, FORÇA
+  // business_messaging (otimização CTWA). Senão system_generated (CRM).
+  const finalActionSource = action_source || (
+    (hasCtwa || hasPsid) ? 'business_messaging' : 'system_generated'
+  );
+  const isBusinessMessaging = finalActionSource === 'business_messaging';
   if (isBusinessMessaging && !hasCtwa && !hasPsid) {
     return { skipped: 'wam_business_messaging_requires_ctwa_clid_or_psid' };
+  }
+  // Fix HIGH (AI review C2): page_id obrigatório em business_messaging
+  // (Meta rejeita 2804116). Skip early se env ausente.
+  if (isBusinessMessaging && !PAGE_ID && !ud.page_id) {
+    return { skipped: 'wam_business_messaging_requires_page_id' };
   }
   // Qualquer action_source exige PELO MENOS UMA matching key.
   const hasMatchingKey = !!(
@@ -105,11 +122,12 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   }
   const eventObj = {
     event_name,
-    event_time: event_time || Math.floor(Date.now() / 1000),
+    event_time: finalEventTime,
     event_id,
-    action_source,
+    action_source: finalActionSource,
     user_data: enrichedUserData,
-    custom_data: custom_data || {},
+    // Fix MEDIUM (AI review M3): omitir custom_data vazio (Meta documenta).
+    ...(custom_data && Object.keys(custom_data).length > 0 ? { custom_data } : {}),
   };
   if (isBusinessMessaging) {
     eventObj.messaging_channel = 'whatsapp';
