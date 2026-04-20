@@ -890,7 +890,7 @@ export default async function handler(req, res) {
   let wamErrors = 0;
   if (ctwaClid) {
     const wamCompatibleEvents = validEvents.filter(e =>
-      ['Purchase', 'LeadSubmitted', 'Lead', 'CompleteRegistration', 'Subscribe', 'InitiateCheckout', 'AddPaymentInfo'].includes(e.event_name)
+      ['Purchase', 'LeadSubmitted', 'InitiateCheckout', 'AddToCart', 'ViewContent', 'OrderCreated', 'Shipped', 'Delivered', 'Canceled', 'Returned', 'CartAbandoned', 'QualifiedLead', 'RatingProvided', 'ReviewProvided'].includes(e.event_name)
     );
     for (const evt of wamCompatibleEvents) {
       const wamResp = await sendWAMEvent({

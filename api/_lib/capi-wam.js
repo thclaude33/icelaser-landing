@@ -6,9 +6,10 @@
  * eventos pra otimizar campanhas de mensagens WhatsApp e atribuir
  * corretamente quando user clica ad → conversa → converte.
  *
- * REQUISITOS ESTRITOS (Meta spec WAM Event Sharing):
- *   - event_name: APENAS padrão Meta (Purchase, LeadSubmitted, Lead,
- *     CompleteRegistration, Subscribe, InitiateCheckout)
+ * REQUISITOS ESTRITOS (Meta spec WAM Event Sharing - 2026):
+ *   - event_name: APENAS padrão Meta business_messaging (Purchase, LeadSubmitted,
+ *     InitiateCheckout, AddToCart, ViewContent, OrderCreated, Shipped, Delivered,
+ *     Canceled, Returned, CartAbandoned, QualifiedLead, RatingProvided, ReviewProvided)
  *   - action_source: "business_messaging"
  *   - messaging_channel: "whatsapp"
  *   - user_data.page_id (OBRIGATÓRIO)
@@ -44,11 +45,18 @@ const MAX_EVENT_AGE_SECONDS = 7 * 24 * 3600; // Meta rejeita events > 7 dias
 const WAM_ALLOWED_EVENTS = new Set([
   'Purchase',
   'LeadSubmitted',
-  'Lead',
-  'CompleteRegistration',
-  'Subscribe',
   'InitiateCheckout',
-  'AddPaymentInfo',
+  'AddToCart',
+  'ViewContent',
+  'OrderCreated',
+  'Shipped',
+  'Delivered',
+  'Canceled',
+  'Returned',
+  'CartAbandoned',
+  'QualifiedLead',
+  'RatingProvided',
+  'ReviewProvided',
 ]);
 
 /**
