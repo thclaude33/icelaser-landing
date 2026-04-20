@@ -8,7 +8,7 @@
 
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
-import { put, head } from '@vercel/blob';
+import { put, head, list, del } from '@vercel/blob';
 import { PIXEL_ID, GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml, sanitizeHeader } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
@@ -875,6 +875,7 @@ export default async function handler(req, res) {
                   page_id: value?.page_id || '',
                   received_at: new Date().toISOString(),
                   processed: false,
+                  retry_count: 0,
                 }), {
                   access: 'public',
                   addRandomSuffix: false,  // idempotente — mesma leadgen_id reescreve
@@ -882,8 +883,16 @@ export default async function handler(req, res) {
                 });
                 console.log(`[LEADGEN DLQ] ✅ Payload salvo em ${dlqBlobPath}`);
               } catch (dlqErr) {
-                console.error(`[LEADGEN DLQ] blob save failed: ${dlqErr.message}`);
-                // Não bloqueia processamento principal — falha em Blob não perde lead
+                // Fix MEDIUM #6 AI review 20/04: alerta diferenciado quando Blob falha.
+                // Safety net quebrada — se Chatwoot também falhar, lead se perde.
+                console.error(`[LEADGEN DLQ ALERT] 🚨 SAFETY NET BROKEN — blob save failed: ${dlqErr.message} lead_id=${leadId}`);
+                // Emitir email de alerta (fire-and-forget, não bloquante)
+                try {
+                  enviarEmail(
+                    `🚨 ALERT: Blob DLQ failure — lead ${leadId} sem safety net`,
+                    `<p><strong>Blob save failed</strong>: ${escapeHtml(dlqErr.message)}</p><p>Lead ID: ${escapeHtml(String(leadId))}</p><p>Se Chatwoot/CAPI também falharem, este lead SE PERDE.</p><p>Investigar BLOB_READ_WRITE_TOKEN e Vercel Blob status.</p>`
+                  ).catch(() => {});
+                } catch {}
               }
             }
 
@@ -983,12 +992,14 @@ export default async function handler(req, res) {
                       if (match) contactId = match.id;
                     }
 
-                    // Fix MEDIUM #12 AI review 20/04: DEDUP Stage 2 por phone/email —
-                    // mesmo user pode submeter múltiplos forms (campanhas diferentes).
-                    // Se phone/email existe mas leadgen_id novo, reusa contato + cria conversa.
-                    // Evita contatos duplicados pra mesma pessoa no Chatwoot.
+                    // Fix MEDIUM #12 AI review 20/04: DEDUP Stage 2 por phone/email.
+                    // Fix MEDIUM #3 AI review 20/04 DEFINITIVO: search?q= é FULL-TEXT (contains).
+                    // Validar exact match antes de usar contactId (evita match errado).
                     if (!contactId && (tel || email)) {
-                      const searchTerm = (email && email.includes('@')) ? email : String(tel || '').replace(/\D/g, '').slice(-11);
+                      const emailNorm = email && email.includes('@') ? email.trim().toLowerCase() : null;
+                      const phoneDigits = String(tel || '').replace(/\D/g, '');
+                      const phoneSuffix = phoneDigits.length >= 10 ? phoneDigits.slice(-11) : null;
+                      const searchTerm = emailNorm || phoneSuffix;
                       if (searchTerm) {
                         try {
                           const altResp = await fetchCw(
@@ -996,10 +1007,20 @@ export default async function handler(req, res) {
                             { headers: cwHeaders }, 5000
                           );
                           const altJson = await altResp.json();
-                          if (altJson?.payload?.length > 0) {
-                            // Primeira coincidência por phone/email suffix
-                            contactId = altJson.payload[0].id;
-                            console.log(`[LEADGEN→CHATWOOT] ℹ️ Contato encontrado por phone/email id=${contactId} lead_id=${leadId} (cross-campaign dedup)`);
+                          // Exact match validation: iterar payload e confirmar phone/email bate
+                          for (const cand of (altJson?.payload || [])) {
+                            const candEmail = (cand.email || '').trim().toLowerCase();
+                            const candPhoneDigits = String(cand.phone_number || '').replace(/\D/g, '');
+                            if (emailNorm && candEmail === emailNorm) {
+                              contactId = cand.id;
+                              console.log(`[LEADGEN→CHATWOOT] ℹ️ Contato encontrado por EMAIL exato id=${contactId} lead_id=${leadId}`);
+                              break;
+                            }
+                            if (phoneSuffix && candPhoneDigits.endsWith(phoneSuffix)) {
+                              contactId = cand.id;
+                              console.log(`[LEADGEN→CHATWOOT] ℹ️ Contato encontrado por PHONE suffix exato id=${contactId} lead_id=${leadId}`);
+                              break;
+                            }
                           }
                         } catch { /* fallback pra criar novo */ }
                       }
@@ -1048,6 +1069,29 @@ export default async function handler(req, res) {
                     }
 
                     // 3. Criar CONVERSA pra o lead aparecer no inbox
+                    // Fix HIGH #1+2 AI review 20/04/2026: DEDUP conversa aberta existente.
+                    // Evidence: 4 conversas pro mesmo contato 235 (233, 235, 236, 241) por
+                    // retries Meta + cron paralelo sem check. Agora: se contato já tem
+                    // conversa open no inbox 8 → append mensagem em vez de criar nova.
+                    let existingConvId = null;
+                    if (contactId) {
+                      try {
+                        const convListResp = await fetchCw(
+                          `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/conversations`,
+                          { headers: cwHeaders }, 5000
+                        );
+                        const convListJson = await convListResp.json();
+                        const openConvs = (convListJson?.payload || []).filter(c =>
+                          c.inbox_id === Number(CHATWOOT_LEADS_INBOX_ID) && c.status === 'open'
+                        );
+                        if (openConvs.length > 0) {
+                          existingConvId = openConvs[0].id;
+                          console.log(`[LEADGEN→CHATWOOT] ℹ️ Conversa open existente id=${existingConvId} no inbox 8 — reusando`);
+                        }
+                      } catch (e) {
+                        console.warn(`[LEADGEN→CHATWOOT] conv list failed (${e.message}) — criando nova`);
+                      }
+                    }
                     if (contactId) {
                       const msg = [
                         '🎯 Novo Lead Meta Ads',
@@ -1066,21 +1110,34 @@ export default async function handler(req, res) {
                         `Origem: Meta Lead Ad`,
                         `Recebido: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })}`,
                       ].filter(Boolean).join('\n');
-                      const convBody = {
-                        source_id: identifier,
-                        inbox_id: Number(CHATWOOT_LEADS_INBOX_ID),
-                        contact_id: contactId,
-                        status: 'open',
-                        message: { content: msg, message_type: 'incoming' },
-                      };
-                      const convResp = await fetchCw(
-                        `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations`,
-                        { method: 'POST', headers: cwHeaders, body: JSON.stringify(convBody) }
-                      );
-                      const convJson = await convResp.json();
+                      let convJson = null;
+                      if (existingConvId) {
+                        // Append mensagem na conversa existente (idempotent via retry — Meta manda msg duplicada
+                        // SÓ na primeira retry; subsequentes serão dedup'd pelo Chatwoot — mas conversa nova NÃO).
+                        const msgResp = await fetchCw(
+                          `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${existingConvId}/messages`,
+                          { method: 'POST', headers: cwHeaders, body: JSON.stringify({ content: msg, message_type: 'incoming' }) }
+                        );
+                        convJson = { id: existingConvId, appended: msgResp.ok };
+                        console.log(`[LEADGEN→CHATWOOT] ✅ Msg append em conversa existente id=${existingConvId}`);
+                      } else {
+                        const convBody = {
+                          source_id: identifier,
+                          inbox_id: Number(CHATWOOT_LEADS_INBOX_ID),
+                          contact_id: contactId,
+                          status: 'open',
+                          message: { content: msg, message_type: 'incoming' },
+                        };
+                        const convResp = await fetchCw(
+                          `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations`,
+                          { method: 'POST', headers: cwHeaders, body: JSON.stringify(convBody) }
+                        );
+                        convJson = await convResp.json();
+                      }
                       if (convJson?.id) {
-                        console.log(`[LEADGEN→CHATWOOT] ✅ Conversa criada id=${convJson.id} contact=${contactId}`);
+                        console.log(`[LEADGEN→CHATWOOT] ✅ Conversa OK id=${convJson.id} contact=${contactId}`);
                         // Fix DLQ CRITICAL #3: marcar Blob como processed ao sucesso.
+                        // Fix MEDIUM #5 AI review: delete pending blob pra prevenir list overflow.
                         if (process.env.BLOB_READ_WRITE_TOKEN) {
                           try {
                             await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
@@ -1089,6 +1146,13 @@ export default async function handler(req, res) {
                               conversation_id: convJson.id,
                               processed_at: new Date().toISOString(),
                             }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+                            // Delete pending blob — cleanup (evita list overflow)
+                            try {
+                              const pendingBlobs = await list({ prefix: `leadgen/pending/${leadId}.json`, limit: 1 });
+                              if (pendingBlobs.blobs?.[0]?.url) {
+                                await del(pendingBlobs.blobs[0].url);
+                              }
+                            } catch { /* swallow */ }
                           } catch { /* swallow — não crítico */ }
                         }
                       } else {
