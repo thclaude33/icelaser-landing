@@ -50,13 +50,23 @@ function parseDevice(ua) {
   return { modelo, os, navegador };
 }
 
-async function enviarEmailLead(nome, telefone, origem = {}) {
-  if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS não configurado — email ignorado'); return; }
-  try {
-    const t = nodemailer.createTransport({
+// Fix LOW AI review 20/04/2026 (L7): transporter module-level singleton.
+// Mesma otimização de M11 em whatsapp.js — amortiza TLS handshake entre invocações warm.
+let _mailTransport = null;
+function getMailTransport() {
+  if (!_mailTransport && EMAIL_PASS) {
+    _mailTransport = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: EMAIL_FROM, pass: EMAIL_PASS },
     });
+  }
+  return _mailTransport;
+}
+
+async function enviarEmailLead(nome, telefone, origem = {}) {
+  if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS não configurado — email ignorado'); return; }
+  try {
+    const t = getMailTransport();
     const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
     const telLimpo = (telefone || '').replace(/\D/g, '');
     const waLink = telLimpo ? `https://wa.me/55${telLimpo}` : '';
@@ -239,6 +249,13 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  // Fix LOW AI review 20/04/2026 (L9): validar body parseado. Se Vercel não
+  // parsear (Content-Type errado, body vazio), destructuring silenciosamente
+  // resulta em tudo undefined → evento sem dados enviado ao Meta.
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ error: 'Invalid JSON body' });
+  }
+
   const {
     event_name = 'Lead',
     event_id,
@@ -346,34 +363,24 @@ export default async function handler(req, res) {
   // Pixel Custom Audience "Compradores+Leads Quentes 180d" antes de enviar?
   // Não — o customer_segmentation é declarado do ponto de vista do evento
   // específico (primeiro touchpoint LP = new), não do histórico do usuário.
+  // Fix INFO AI review 20/04/2026 (I1): lookup table em vez de if/else repetitivo.
+  // Base comum (value:0, currency:BRL, customer_segmentation:new) aplicada uniformemente.
+  // PageView intencionalmente AUSENTE — só user_data pro matching.
+  const CUSTOM_DATA_MAP = {
+    CompleteRegistration: { status: 'submitted', content_name: 'Avaliacao Gratuita LP' },
+    InitiateCheckout:     { content_name: 'Form Avaliacao Gratuita' },
+    Lead:                 { content_name: 'Avaliacao Gratuita LP', content_category: 'depilacao_laser', lead_event_source: 'landing_page' },
+    ViewContent:          { content_name: 'LP Avaliacao Gratuita', content_category: 'depilacao_laser' },
+  };
   const custom_data = {};
-  if (event_name === 'CompleteRegistration') {
-    custom_data.value = 0;
-    custom_data.currency = 'BRL';
-    custom_data.status = 'submitted';
-    custom_data.content_name = 'Avaliacao Gratuita LP';
-    custom_data.customer_segmentation = 'new_customer_to_business';
-  } else if (event_name === 'InitiateCheckout') {
-    custom_data.value = 0;
-    custom_data.currency = 'BRL';
-    custom_data.content_name = 'Form Avaliacao Gratuita';
-    custom_data.customer_segmentation = 'new_customer_to_business';
-  } else if (event_name === 'Lead') {
-    custom_data.value = 0;
-    custom_data.currency = 'BRL';
-    custom_data.content_name = 'Avaliacao Gratuita LP';
-    custom_data.content_category = 'depilacao_laser';
-    custom_data.lead_event_source = 'landing_page';
-    custom_data.customer_segmentation = 'new_customer_to_business';
-  } else if (event_name === 'ViewContent') {
-    custom_data.value = 0;
-    custom_data.currency = 'BRL';
-    custom_data.content_name = 'LP Avaliacao Gratuita';
-    custom_data.content_category = 'depilacao_laser';
-    custom_data.customer_segmentation = 'new_customer_to_business';
-  } else if (event_name === 'PageView') {
-    // PageView não precisa de custom_data — só user_data para matching.
-    // customer_segmentation não se aplica (Meta docs só cita em eventos de funil).
+  const baseData = CUSTOM_DATA_MAP[event_name];
+  if (baseData) {
+    Object.assign(custom_data, {
+      value: 0,
+      currency: 'BRL',
+      customer_segmentation: 'new_customer_to_business',
+      ...baseData,
+    });
   }
 
   // Validação: garantir MATCHING KEY real (não só geo).

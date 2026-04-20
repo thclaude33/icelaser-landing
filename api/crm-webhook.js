@@ -104,7 +104,16 @@ async function sendCAPI(events, token, retryCount = 0) {
     } catch {}
   }
 
-  const result = await res.json();
+  // Fix LOW AI review 20/04/2026 (L3): defensive JSON parse. Meta pode retornar
+  // HTML (503/Cloudflare maintenance), res.json() lança SyntaxError não-informativo.
+  const rawText = await res.text();
+  let result;
+  try {
+    result = JSON.parse(rawText);
+  } catch {
+    console.error(`[CAPI] Non-JSON response (${res.status}): ${rawText.substring(0, 200)}`);
+    return { error: { message: 'non-json response', code: res.status, is_transient: true } };
+  }
 
   // Error handling com is_transient e blame_field_specs
   if (result.error) {
@@ -579,7 +588,13 @@ export default async function handler(req, res) {
   const customerSeg = wasAlreadyPurchased ? 'existing_customer_to_business' : 'new_customer_to_business';
 
   // helper: verifica se algum label está presente (case-insensitive, suporta variações)
-  const hasLabel = (...variants) => labels.some(l => variants.includes(l) || variants.includes(l.toLowerCase()));
+  // Fix LOW AI review 20/04/2026 (L2): normalizar AMBOS os lados em lowercase.
+  // Antes comparava variants literais contra l.toLowerCase() — se variant fosse
+  // 'Lead_Quente' (mixed) e label 'lead_quente' (lower), matching falhava.
+  const hasLabel = (...variants) => {
+    const lowerVariants = variants.map(v => String(v).toLowerCase());
+    return labels.some(l => lowerVariants.includes(String(l).toLowerCase()));
+  };
 
   // ❌ DESQUALIFICADO — Hybrid approach (Meta best practice 2026):
   //   1. Standard `Lead` event (mantém EMQ calculation + predicted_ltv=0 signal
@@ -765,7 +780,9 @@ export default async function handler(req, res) {
   console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
   return res.status(200).json({
     ok: true,
-    contact: nome,
+    // Fix LOW AI review 20/04/2026 (L1): mask PII na response (pode vazar em
+    // logs de proxies/CDN intermediários). Chatwoot já tem o dado internamente.
+    contact: maskName(nome),
     labels,
     events_sent: validEvents.length,
     events_received: eventsReceived,

@@ -101,6 +101,9 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
   const servicoSafe = escapeHtml(servico);
   const ctwaClidSafe = escapeHtml(ctwaClid || '');
   const telDigits = String(telefone || '').replace(/\D/g, '');
+  // Fix LOW AI review 20/04/2026 (L4): se telefone já vem com 55 (E.164), não
+  // duplicar prefixo. Meta WA Cloud API envia `from` em formato 5581XXXXXXXXX.
+  const waDigits = telDigits.startsWith('55') ? telDigits : '55' + telDigits;
   const html = `
   <div style="font-family:Arial,sans-serif;max-width:580px;margin:auto">
     <div style="background:#1a1a2e;padding:20px;border-radius:8px 8px 0 0">
@@ -113,7 +116,7 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
             <td style="padding:8px 0"><strong>${nomeSafe}</strong></td></tr>
         <tr><td style="padding:8px 0;color:#666">Telefone</td>
             <td style="padding:8px 0">
-              <a href="https://wa.me/55${telDigits}" style="color:#25D366;font-weight:bold">${telefoneSafe}</a>
+              <a href="https://wa.me/${waDigits}" style="color:#25D366;font-weight:bold">${telefoneSafe}</a>
             </td></tr>
         <tr><td style="padding:8px 0;color:#666">Serviço</td>
             <td style="padding:8px 0">${servicoSafe}</td></tr>
@@ -437,7 +440,9 @@ async function processarCTWA(from, message, referral, profileName) {
       if (respBody.error) {
         console.warn(`[CTWA] ⚠️  CAPI rejected: code=${respBody.error.code} sub=${respBody.error.error_subcode} ${respBody.error.message}`);
       } else {
-        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${from.slice(-4)} received=${respBody.events_received}`);
+        // Fix LOW AI review 20/04/2026 (L6): usar maskPhone em vez de slice(-4)
+        // pra consistência com o resto do código (PII mascarado em logs).
+        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${maskPhone(from)} received=${respBody.events_received}`);
       }
     } catch (e) {
       console.warn('[CTWA] CAPI LeadSubmitted failed:', e.message);
@@ -853,7 +858,6 @@ export default async function handler(req, res) {
     // Fix HIGH AI review 19/04/2026: URLs Railway removidas do fallback hardcoded
     // (expõe infra interna). Agora lê SOMENTE de env vars. Se não configurado, skip forward
     // (graceful degradation) + backup Blob preserva payload pra recovery manual.
-    const EVOLUTION_WEBHOOK = process.env.EVOLUTION_WEBHOOK_URL;
     const CHATWOOT_WA_WEBHOOK = process.env.CHATWOOT_WEBHOOK_URL;
     if (!CHATWOOT_WA_WEBHOOK) {
       console.warn('[WEBHOOK] ⚠️ CHATWOOT_WEBHOOK_URL not configured — skipping forward');
@@ -862,23 +866,10 @@ export default async function handler(req, res) {
     const MEDIA_TYPES = ['audio', 'video', 'image', 'document', 'sticker'];
     const MEDIA_LABELS = { audio: '🎤 Áudio', video: '🎬 Vídeo', image: '📷 Imagem', document: '📄 Documento', sticker: '🏷️ Sticker' };
 
-    const forwardToEvolution = async () => {
-      if (!EVOLUTION_WEBHOOK) {
-        return false;  // env var não setada — skip silencioso (feature opcional)
-      }
-      try {
-        const r = await fetch(EVOLUTION_WEBHOOK, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: rawBody.toString(),
-        });
-        console.log(`[EVO] Forward: ${r.status}`);
-        return r.ok;
-      } catch (e) {
-        console.error(`[EVO] Forward failed: ${e.message}`);
-        return false;
-      }
-    };
+    // Fix LOW AI review 20/04/2026 (L5): forwardToEvolution removido.
+    // Função nunca chamada (Evolution API desabilitada desde 17/04/2026).
+    // Código morto aumentava superfície de manutenção. Reativação futura:
+    // reimplementar em branch separado com lookup do commit pré-remoção.
 
     const sendToChat = async (payload, label = 'original') => {
       if (!CHATWOOT_WA_WEBHOOK) {
