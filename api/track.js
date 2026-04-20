@@ -236,7 +236,7 @@ const normalizePhone = normalizePhoneBR;
 
 export default async function handler(req, res) {
   const origin = req.headers['origin'] || '';
-  // CORS: só seta Access-Control-Allow-Origin pra origens permitidas.
+  // CORS: s�� seta Access-Control-Allow-Origin pra origens permitidas.
   // Antes caía em fallback ALLOWED_ORIGINS[0] — permissivo demais, browser
   // bloqueava na prática mas ruído pra debug de CORS.
   if (ALLOWED_ORIGINS.includes(origin)) {
@@ -508,7 +508,7 @@ export default async function handler(req, res) {
           state: 'pe',
           zip_code: '50000',
           country: 'br',
-          external_id: email || telefone || undefined,
+          external_id: externalIdRaw || undefined,
           // Origem completa: campanha, anúncio, público, placement
           utm_source, utm_medium, utm_campaign, utm_content, utm_term,
           ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
