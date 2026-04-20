@@ -101,7 +101,35 @@ export async function sendCapiEvents(events, token, options = {}) {
     }
     lastResult = result;
 
-    if (!result.error) return result;
+    if (!result.error) {
+      // Fix CRITICAL 20/04/2026 (silent failure investigation): Meta CAPI retorna
+      // `messages[]` com WARNINGS mesmo quando events_received > 0. Eventos podem
+      // ser "received" mas silenciosamente DEGRADADOS ou DROPPED em processamento
+      // posterior (match quality baixo, user_data rejeitado, event_source_url não
+      // verificado, partner não whitelistado, etc). Antes: só checávamos error;
+      // warnings eram invisíveis → usuário reportou "events chegaram mas não
+      // apareceram em EM". Agora: log TUDO pra observability.
+      if (Array.isArray(result.messages) && result.messages.length > 0) {
+        const eventNames = events.map(e => e.event_name).join(',');
+        console.warn(
+          `[CAPI WARN] events=${eventNames} received=${result.events_received ?? 0} messages=${JSON.stringify(result.messages)} fbtrace=${result.fbtrace_id || 'n/a'}`
+        );
+      }
+      // events_received = 0 com status 200 e sem error = silent drop total.
+      if ((result.events_received ?? 0) === 0) {
+        const eventNames = events.map(e => e.event_name).join(',');
+        console.error(
+          `[CAPI SILENT_DROP] events=${eventNames} received=0 sent=${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`
+        );
+      }
+      // Mismatch count → parcialmente dropados.
+      if ((result.events_received ?? 0) > 0 && result.events_received < events.length) {
+        console.warn(
+          `[CAPI PARTIAL_DROP] received=${result.events_received ?? 0}/${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`
+        );
+      }
+      return result;
+    }
 
     const { code, error_subcode, message, is_transient, blame_field_specs } = result.error;
     const blame = blame_field_specs ? ` blame=${JSON.stringify(blame_field_specs)}` : '';
