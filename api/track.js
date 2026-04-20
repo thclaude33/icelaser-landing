@@ -213,11 +213,11 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     // sanitizeHeader aplicado global no subject — plataforma vem de utm_source
     // controlado por atacante (URL query param). CRLF em utm_source poderia
     // injetar Bcc: attacker@evil via subject (CVE-class).
-    // Fix MEDIUM AI review 20/04/2026 (M15): nome raw no subject — sanitizeHeader
-    // strip CRLF, mas caracteres especiais HTML/unicode podem quebrar display em
-    // mail clients. Usar escapeHtml pra consistência com o resto do template.
+    // Fix M15 + escapeHtml-subject: nome raw no subject. sanitizeHeader strips CRLF
+    // (SMTP header injection prevention). HTML entities NÃO são interpretadas em
+    // plain text email headers — escapeHtml causaria &lt; e &gt; literalmente visíveis.
     const subject = sanitizeHeader(
-      `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${escapeHtml(nome)} | ${lpNome}`,
+      `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${nome} | ${lpNome}`,
       200
     );
     await t.sendMail({
