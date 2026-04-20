@@ -916,11 +916,8 @@ export default async function handler(req, res) {
                       state: 'pe',
                       country: 'br',
                       external_id: email || telDigits || undefined,
+                      lead_id: /^\d{15,17}$/.test(String(leadId)) ? String(leadId) : undefined,
                     });
-                    // lead_id: Meta-generated 15-17 digit (validar formato defensivo)
-                    if (/^\d{15,17}$/.test(String(leadId))) {
-                      leadUserData.lead_id = String(leadId);
-                    }
                     if (process.env.META_PAGE_ID) leadUserData.page_id = process.env.META_PAGE_ID;
                     const leadPayload = {
                       data: [{

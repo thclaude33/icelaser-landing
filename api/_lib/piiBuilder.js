@@ -176,7 +176,7 @@ function manualFallback(value, dataType) {
 /**
  * Batch helper: recebe user_data plain-text e retorna hashed conforme Meta SDK.
  * Campos não-PII (fbp, fbc, client_ip_address, client_user_agent, ctwa_clid,
- * whatsapp_business_account_id, page_id, page_scoped_user_id, ig_sid) NÃO são hasheados.
+ * whatsapp_business_account_id, page_id, page_scoped_user_id, ig_sid, lead_id) NÃO são hasheados.
  *
  * Advanced matching partial keys (Meta Java SDK oficial 2026):
  *  - f5first: primeiros 5 chars do first_name, normalizados e hasheados
@@ -274,5 +274,6 @@ export async function buildUserData(plain) {
   if (plain.fb_login_id) ud.fb_login_id = plain.fb_login_id;
   if (plain.ig_account_id) ud.ig_account_id = plain.ig_account_id;
   if (plain.ig_sid) ud.ig_sid = plain.ig_sid;
+  if (plain.lead_id) ud.lead_id = plain.lead_id;
   return ud;
 }
