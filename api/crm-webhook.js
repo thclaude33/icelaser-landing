@@ -643,25 +643,88 @@ export default async function handler(req, res) {
   });
 
   // custom_data base para todos os eventos CRM (conforme guia Meta Conversion Leads)
-  const crmBase = {
+  // Helper: spread só se valor truthy (evita poluir payload com null/undefined).
+  const ifSet = (k, v) => (v !== null && v !== undefined && v !== '') ? { [k]: v } : {};
+  const m = ctwaAdMeta || {};
+  let crmBase = {
     event_source: 'crm',         // obrigatório para Conversion Leads
-    // Attribution CTWA full (via Meta Graph API lookup em whatsapp.js):
-    ...(ctwaAdMeta?.ad_id ? { ad_id: ctwaAdMeta.ad_id } : {}),
-    ...(ctwaAdMeta?.ad_name ? { ad_name: ctwaAdMeta.ad_name } : {}),
-    ...(ctwaAdMeta?.adset_id ? { adset_id: ctwaAdMeta.adset_id } : {}),
-    ...(ctwaAdMeta?.adset_name ? { adset_name: ctwaAdMeta.adset_name } : {}),
-    ...(ctwaAdMeta?.campaign_id ? { campaign_id: ctwaAdMeta.campaign_id } : {}),
-    ...(ctwaAdMeta?.campaign_name ? { campaign_name: ctwaAdMeta.campaign_name } : {}),
-    ...(ctwaAdMeta?.optimization_goal ? { optimization_goal: ctwaAdMeta.optimization_goal } : {}),
-    ...(ctwaAdMeta?.destination_type ? { destination_type: ctwaAdMeta.destination_type } : {}),
-    ...(ctwaAdMeta?.publisher_platforms ? { publisher_platforms: ctwaAdMeta.publisher_platforms } : {}),
-    ...(ctwaAdMeta?.campaign_objective ? { campaign_objective: ctwaAdMeta.campaign_objective } : {}),
-    lead_event_source: 'Chatwoot', // nome do CRM
-    // Fix 20/04/2026: crm_contact_id em custom_data (não user_data) — referência
-    // interna Chatwoot pra debugging no Events Manager. NÃO é matching key,
-    // NÃO substitui o que seria lead_id válido (15-17 digit Meta-generated).
-    ...(crmContactId ? { crm_contact_id: crmContactId } : {}),
+    lead_event_source: 'Chatwoot',
+    // ── ATTRIBUTION CTWA FULL (via Meta Graph API lookup em whatsapp.js) ──
+    // ad
+    ...ifSet('ad_id', m.ad_id),
+    ...ifSet('ad_name', m.ad_name),
+    ...ifSet('ad_status', m.ad_status),
+    ...ifSet('account_id', m.account_id),
+    // creative (key pra creative testing analysis)
+    ...ifSet('creative_id', m.creative_id),
+    ...ifSet('creative_name', m.creative_name),
+    ...ifSet('creative_body', m.creative_body),
+    ...ifSet('creative_cta', m.creative_cta),
+    ...ifSet('creative_image_url', m.creative_image_url),
+    ...ifSet('creative_video_id', m.creative_video_id),
+    ...ifSet('creative_thumbnail', m.creative_thumbnail),
+    // adset
+    ...ifSet('adset_id', m.adset_id),
+    ...ifSet('adset_name', m.adset_name),
+    ...ifSet('adset_status', m.adset_status),
+    ...ifSet('optimization_goal', m.optimization_goal),
+    ...ifSet('destination_type', m.destination_type),
+    ...ifSet('billing_event', m.billing_event),
+    ...ifSet('bid_strategy', m.bid_strategy),
+    ...ifSet('attribution_window_event', m.attribution_window_event),
+    ...ifSet('attribution_window_days', m.attribution_window_days),
+    ...ifSet('adset_daily_budget_cents', m.adset_daily_budget_cents),
+    ...ifSet('adset_lifetime_budget_cents', m.adset_lifetime_budget_cents),
+    ...ifSet('adset_start_time', m.adset_start_time),
+    ...ifSet('adset_end_time', m.adset_end_time),
+    // campaign
+    ...ifSet('campaign_id', m.campaign_id),
+    ...ifSet('campaign_name', m.campaign_name),
+    ...ifSet('campaign_status', m.campaign_status),
+    ...ifSet('campaign_objective', m.campaign_objective),
+    ...ifSet('buying_type', m.buying_type),
+    ...ifSet('special_ad_categories', m.special_ad_categories),
+    ...ifSet('campaign_daily_budget_cents', m.campaign_daily_budget_cents),
+    ...ifSet('campaign_lifetime_budget_cents', m.campaign_lifetime_budget_cents),
+    ...ifSet('campaign_start_time', m.campaign_start_time),
+    ...ifSet('campaign_stop_time', m.campaign_stop_time),
+    ...ifSet('smart_promotion_type', m.smart_promotion_type),
+    ...ifSet('pacing_type', m.pacing_type),
+    // placements
+    ...ifSet('publisher_platforms', m.publisher_platforms),
+    ...ifSet('facebook_positions', m.facebook_positions),
+    ...ifSet('instagram_positions', m.instagram_positions),
+    ...ifSet('messenger_positions', m.messenger_positions),
+    // cohort (targeting basics, anonimizado — sem GPS coords)
+    ...ifSet('target_age_min', m.target_age_min),
+    ...ifSet('target_age_max', m.target_age_max),
+    ...ifSet('target_genders', m.target_genders),
+    ...ifSet('target_geo_country', m.target_geo_country),
+    ...ifSet('target_geo_region_id', m.target_geo_region_id),
+    ...ifSet('target_geo_city_id', m.target_geo_city_id),
+    // promoted (page+wa identifiers)
+    ...ifSet('promoted_page_id', m.promoted_page_id),
+    ...ifSet('promoted_wa_phone_id', m.promoted_wa_phone_id),
+    ...ifSet('promoted_wa_phone_number', m.promoted_wa_phone_number),
+    // referência interna Chatwoot pra debugging (não é matching key)
+    ...ifSet('crm_contact_id', crmContactId),
   };
+
+  // Fix P1 (AI review): payload size guard. Meta limits ~25KB por evento.
+  // Em burst com creative_body + asset URLs, pode estourar. Truncar campos
+  // pesados primeiro (creative_body, depois URLs longas).
+  const MAX_CUSTOM_DATA_BYTES = 20000;
+  const sizeNow = () => Buffer.byteLength(JSON.stringify(crmBase), 'utf8');
+  if (sizeNow() > MAX_CUSTOM_DATA_BYTES) {
+    delete crmBase.creative_body;
+    if (sizeNow() > MAX_CUSTOM_DATA_BYTES) {
+      delete crmBase.creative_image_url;
+      delete crmBase.creative_thumbnail;
+    }
+    if (sizeNow() > MAX_CUSTOM_DATA_BYTES) {
+      console.warn(`[CRM-WEBHOOK] custom_data ainda > ${MAX_CUSTOM_DATA_BYTES}B após truncate (${sizeNow()}B)`);
+    }
+  }
 
   const events = [];
   // Fix HIGH AI deep review v2 B2 (crm-webhook.js:572): jitter 4 chars (~1.7M combinations)

@@ -284,11 +284,12 @@ async function lookupAdMetadata(adId) {
     // Meta rate-limit: 1 call extra por novo CTWA lead. Com cache Blob futuro
     // (por ad_id vs por phone atual), pode reduzir em >95%.
     // Meta Graph API: nó Ad NÃO expõe adset_name/campaign_name como top-level —
-    // erro #100 "Tried accessing nonexisting field". Pegar via expansion adset{name},
-    // campaign{name} (relacionamento).
-    const adFields = 'name,adset_id,campaign_id';
-    const adsetFields = 'name,optimization_goal,destination_type,targeting';
-    const campaignFields = 'name,objective,buying_type,status';
+    // erro #100. Pegar via expansion adset{name}, campaign{name} (relacionamento).
+    // Captura EXPANDIDA pra atribuição máxima (creative testing, bid analysis, compliance).
+    // Fix P1 (AI review): creative.body/image/CTA pra creative testing real (sem isso só temos label).
+    const adFields = 'name,effective_status,configured_status,adset_id,campaign_id,account_id,creative{id,name,thumbnail_url,body,image_url,video_id,call_to_action_type}';
+    const adsetFields = 'name,optimization_goal,destination_type,billing_event,bid_strategy,attribution_spec,start_time,end_time,daily_budget,lifetime_budget,effective_status,promoted_object,targeting{age_min,age_max,genders,publisher_platforms,facebook_positions,instagram_positions,messenger_positions,geo_locations}';
+    const campaignFields = 'name,objective,buying_type,special_ad_categories,daily_budget,lifetime_budget,bid_strategy,start_time,stop_time,effective_status,smart_promotion_type,pacing_type';
     const fields = `${adFields},adset{${adsetFields}},campaign{${campaignFields}}`;
     const r = await fetch(`${GRAPH_BASE}/${adId}?fields=${fields}`, {
       headers: { 'Authorization': `Bearer ${META_TOKEN}` },
@@ -298,20 +299,76 @@ async function lookupAdMetadata(adId) {
       console.warn(`[CTWA AD-LOOKUP] ${adId}: ${data.error.message}`);
       return null;
     }
-    const pubPlatforms = data.adset?.targeting?.publisher_platforms;
+    const adset = data.adset || {};
+    const campaign = data.campaign || {};
+    const targeting = adset.targeting || {};
+    const creative = data.creative || {};
+    const promoted = adset.promoted_object || {};
+    const attrSpec = Array.isArray(adset.attribution_spec) ? adset.attribution_spec[0] : null;
+    const geoCustom = Array.isArray(targeting.geo_locations?.custom_locations)
+      ? targeting.geo_locations.custom_locations[0] : null;
+    const joinArr = (a) => Array.isArray(a) ? a.join(',') : null;
+
     return {
+      // ── AD ──
       ad_id: adId,
       ad_name: data.name || null,
+      ad_status: data.effective_status || null,                    // ACTIVE/PAUSED/etc
+      ad_configured_status: data.configured_status || null,
+      account_id: data.account_id || null,
+      // ── CREATIVE (key pra creative testing analysis) ──
+      creative_id: creative.id || null,
+      creative_name: creative.name || null,
+      creative_thumbnail: creative.thumbnail_url || null,
+      creative_body: creative.body ? String(creative.body).slice(0, 500) : null,    // truncate pra payload size
+      creative_image_url: creative.image_url || null,
+      creative_video_id: creative.video_id || null,
+      creative_cta: creative.call_to_action_type || null,                            // SEND_WHATSAPP_MESSAGE, etc
+      // ── ADSET ──
       adset_id: data.adset_id || null,
-      adset_name: data.adset?.name || null,        // via expansion
+      adset_name: adset.name || null,
+      adset_status: adset.effective_status || null,
+      optimization_goal: adset.optimization_goal || null,          // CONVERSATIONS, LEAD_GENERATION, etc
+      destination_type: adset.destination_type || null,            // WHATSAPP, ON_AD, etc
+      billing_event: adset.billing_event || null,                  // IMPRESSIONS, LINK_CLICKS
+      bid_strategy: adset.bid_strategy || campaign.bid_strategy || null, // LOWEST_COST_WITHOUT_CAP, COST_CAP, etc
+      attribution_window_event: attrSpec?.event_type || null,      // CLICK_THROUGH, VIEW_THROUGH
+      attribution_window_days: attrSpec?.window_days || null,      // 1, 7
+      adset_daily_budget_cents: adset.daily_budget ? parseInt(adset.daily_budget, 10) : null,
+      adset_lifetime_budget_cents: adset.lifetime_budget ? parseInt(adset.lifetime_budget, 10) : null,
+      adset_start_time: adset.start_time || null,
+      adset_end_time: adset.end_time || null,
+      promoted_page_id: promoted.page_id || null,
+      promoted_wa_phone_id: promoted.whats_app_business_phone_number_id || null,
+      promoted_wa_phone_number: promoted.whatsapp_phone_number || null,
+      // ── PLACEMENTS ──
+      publisher_platforms: joinArr(targeting.publisher_platforms),  // facebook,instagram,whatsapp
+      facebook_positions: joinArr(targeting.facebook_positions),    // feed,stories,reels
+      instagram_positions: joinArr(targeting.instagram_positions),
+      messenger_positions: joinArr(targeting.messenger_positions),
+      // ── TARGETING (cohort analysis) ──
+      // Fix P2 (AI review): remover lat/lng/radius — vaza estratégia de geofencing
+      // do anunciante e Meta restringe coords em custom_data em algumas regiões.
+      // Manter só country + region/city IDs (anonimizados).
+      target_age_min: targeting.age_min || null,
+      target_age_max: targeting.age_max || null,
+      target_genders: joinArr(targeting.genders),                  // 1=male, 2=female
+      target_geo_country: geoCustom?.country || null,
+      target_geo_region_id: geoCustom?.region_id || null,
+      target_geo_city_id: geoCustom?.primary_city_id || null,
+      // ── CAMPAIGN ──
       campaign_id: data.campaign_id || null,
-      campaign_name: data.campaign?.name || null,  // via expansion
-      // Novos campos ricos:
-      optimization_goal: data.adset?.optimization_goal || null,   // ex: CONVERSATIONS
-      destination_type: data.adset?.destination_type || null,     // ex: WHATSAPP
-      publisher_platforms: Array.isArray(pubPlatforms) ? pubPlatforms.join(',') : null, // "facebook,instagram"
-      campaign_objective: data.campaign?.objective || null,       // ex: OUTCOME_ENGAGEMENT
-      buying_type: data.campaign?.buying_type || null,            // AUCTION / RESERVED
+      campaign_name: campaign.name || null,
+      campaign_status: campaign.effective_status || null,
+      campaign_objective: campaign.objective || null,              // OUTCOME_ENGAGEMENT, OUTCOME_SALES
+      buying_type: campaign.buying_type || null,                   // AUCTION, RESERVED
+      campaign_daily_budget_cents: campaign.daily_budget ? parseInt(campaign.daily_budget, 10) : null,
+      campaign_lifetime_budget_cents: campaign.lifetime_budget ? parseInt(campaign.lifetime_budget, 10) : null,
+      campaign_start_time: campaign.start_time || null,
+      campaign_stop_time: campaign.stop_time || null,
+      special_ad_categories: joinArr(campaign.special_ad_categories), // HOUSING, EMPLOYMENT, CREDIT (compliance)
+      smart_promotion_type: campaign.smart_promotion_type || null, // GUIDED_CREATION, etc
+      pacing_type: joinArr(campaign.pacing_type),                  // standard, day_parting
     };
   } catch (e) {
     console.warn(`[CTWA AD-LOOKUP] exception: ${e.message}`);
