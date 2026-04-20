@@ -74,7 +74,11 @@ function manualFallback(value, dataType) {
   let normalized = String(value).trim().toLowerCase();
   switch (dataType) {
     case 'phone':
-      normalized = normalized.replace(/[^0-9]/g, '').replace(/^0+/, '');
+      // Fix HIGH AI deep review v2 B2 (piiBuilder.js:77): `.replace(/^0+/, '')`
+      // apagava prefixo 0 mas alguns DDDs ou country codes têm 0 (ex: "5508199..."
+      // hipotético). E.164 correto: manter só dígitos, não remover zeros líderes
+      // arbitrariamente. normalizePhoneBR em security.js já lida com 55+DDD.
+      normalized = normalized.replace(/[^0-9]/g, '');
       if (!normalized) return null;
       break;
     case 'email':

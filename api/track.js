@@ -50,13 +50,23 @@ function parseDevice(ua) {
   return { modelo, os, navegador };
 }
 
-async function enviarEmailLead(nome, telefone, origem = {}) {
-  if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS não configurado — email ignorado'); return; }
-  try {
-    const t = nodemailer.createTransport({
+// Fix LOW AI review 20/04/2026 (L7): transporter module-level singleton.
+// Mesma otimização de M11 em whatsapp.js — amortiza TLS handshake entre invocações warm.
+let _mailTransport = null;
+function getMailTransport() {
+  if (!_mailTransport && EMAIL_PASS) {
+    _mailTransport = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: EMAIL_FROM, pass: EMAIL_PASS },
     });
+  }
+  return _mailTransport;
+}
+
+async function enviarEmailLead(nome, telefone, origem = {}) {
+  if (!EMAIL_PASS) { console.warn('[EMAIL LEAD] EMAIL_PASS não configurado — email ignorado'); return; }
+  try {
+    const t = getMailTransport();
     const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
     const telLimpo = (telefone || '').replace(/\D/g, '');
     const waLink = telLimpo ? `https://wa.me/55${telLimpo}` : '';
@@ -203,6 +213,9 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
     // sanitizeHeader aplicado global no subject — plataforma vem de utm_source
     // controlado por atacante (URL query param). CRLF em utm_source poderia
     // injetar Bcc: attacker@evil via subject (CVE-class).
+    // Fix M15 + escapeHtml-subject: nome raw no subject. sanitizeHeader strips CRLF
+    // (SMTP header injection prevention). HTML entities NÃO são interpretadas em
+    // plain text email headers — escapeHtml causaria &lt; e &gt; literalmente visíveis.
     const subject = sanitizeHeader(
       `🔥 ${telefone ? 'Lead' : 'Clique WA'} ${temUtm ? plataforma : 'LP'} — ${nome} | ${lpNome}`,
       200
@@ -235,6 +248,13 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Fix LOW AI review 20/04/2026 (L9): validar body parseado. Se Vercel não
+  // parsear (Content-Type errado, body vazio), destructuring silenciosamente
+  // resulta em tudo undefined → evento sem dados enviado ao Meta.
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ error: 'Invalid JSON body' });
+  }
 
   const {
     event_name = 'Lead',
@@ -307,17 +327,24 @@ export default async function handler(req, res) {
   if ((!fbp || !fbc) && telefone && process.env.BLOB_READ_WRITE_TOKEN) {
     try {
       const telDigits = telefone.replace(/\D/g, '');
+      // Fix MEDIUM AI review 20/04/2026 (M13): paralelizar fetches via Promise.allSettled.
+      // Antes: fetch sequencial de até 100 blobs = 2-10s extra no request user-facing.
+      // Agora: 1 list() + N fetches concorrentes, short-circuit assim que achou match.
       const blobs = await list({ prefix: 'leads/', limit: 100 });
-      for (const blob of blobs.blobs) {
-        if (blob.size > 200) {
-          const res = await fetch(blob.url);
-          const data = await res.json();
-          const blobTel = (data.telefone || '').replace(/\D/g, '');
-          if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
-            if (!finalFbp && data.fbp) finalFbp = data.fbp;
-            if (!finalFbc && data.fbc) finalFbc = data.fbc;
-            if (finalFbp && finalFbc) break;
-          }
+      const candidates = blobs.blobs.filter(b => b.size > 200);
+      const datas = await Promise.allSettled(
+        candidates.map(b => fetch(b.url).then(r => r.json()))
+      );
+      for (const result of datas) {
+        if (result.status !== 'fulfilled') continue;
+        const data = result.value;
+        // Fix MEDIUM AI review 20/04/2026 (M14): `const res` shadowava o Vercel
+        // Response do handler — renomeado pra blobData pra evitar armadilha.
+        const blobTel = (data?.telefone || '').replace(/\D/g, '');
+        if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
+          if (!finalFbp && data.fbp) finalFbp = data.fbp;
+          if (!finalFbc && data.fbc) finalFbc = data.fbc;
+          if (finalFbp && finalFbc) break;
         }
       }
       if (finalFbp !== fbp || finalFbc !== fbc) {
@@ -336,34 +363,24 @@ export default async function handler(req, res) {
   // Pixel Custom Audience "Compradores+Leads Quentes 180d" antes de enviar?
   // Não — o customer_segmentation é declarado do ponto de vista do evento
   // específico (primeiro touchpoint LP = new), não do histórico do usuário.
+  // Fix INFO AI review 20/04/2026 (I1): lookup table em vez de if/else repetitivo.
+  // Base comum (value:0, currency:BRL, customer_segmentation:new) aplicada uniformemente.
+  // PageView intencionalmente AUSENTE — só user_data pro matching.
+  const CUSTOM_DATA_MAP = {
+    CompleteRegistration: { status: 'submitted', content_name: 'Avaliacao Gratuita LP' },
+    InitiateCheckout:     { content_name: 'Form Avaliacao Gratuita' },
+    Lead:                 { content_name: 'Avaliacao Gratuita LP', content_category: 'depilacao_laser', lead_event_source: 'landing_page' },
+    ViewContent:          { content_name: 'LP Avaliacao Gratuita', content_category: 'depilacao_laser' },
+  };
   const custom_data = {};
-  if (event_name === 'CompleteRegistration') {
-    custom_data.value = 0;
-    custom_data.currency = 'BRL';
-    custom_data.status = 'submitted';
-    custom_data.content_name = 'Avaliacao Gratuita LP';
-    custom_data.customer_segmentation = 'new_customer_to_business';
-  } else if (event_name === 'InitiateCheckout') {
-    custom_data.value = 0;
-    custom_data.currency = 'BRL';
-    custom_data.content_name = 'Form Avaliacao Gratuita';
-    custom_data.customer_segmentation = 'new_customer_to_business';
-  } else if (event_name === 'Lead') {
-    custom_data.value = 0;
-    custom_data.currency = 'BRL';
-    custom_data.content_name = 'Avaliacao Gratuita LP';
-    custom_data.content_category = 'depilacao_laser';
-    custom_data.lead_event_source = 'landing_page';
-    custom_data.customer_segmentation = 'new_customer_to_business';
-  } else if (event_name === 'ViewContent') {
-    custom_data.value = 0;
-    custom_data.currency = 'BRL';
-    custom_data.content_name = 'LP Avaliacao Gratuita';
-    custom_data.content_category = 'depilacao_laser';
-    custom_data.customer_segmentation = 'new_customer_to_business';
-  } else if (event_name === 'PageView') {
-    // PageView não precisa de custom_data — só user_data para matching.
-    // customer_segmentation não se aplica (Meta docs só cita em eventos de funil).
+  const baseData = CUSTOM_DATA_MAP[event_name];
+  if (baseData) {
+    Object.assign(custom_data, {
+      value: 0,
+      currency: 'BRL',
+      customer_segmentation: 'new_customer_to_business',
+      ...baseData,
+    });
   }
 
   // Validação: garantir MATCHING KEY real (não só geo).
@@ -375,6 +392,13 @@ export default async function handler(req, res) {
   );
   if (!hasMatchingKey) {
     return res.status(400).json({ error: 'Insufficient user_data for matching (need em/ph/fn+ln/external_id/fbp/fbc)' });
+  }
+
+  // Fix MEDIUM AI review 20/04/2026 (M17): event_id OBRIGATÓRIO pra dedup
+  // Pixel↔CAPI. Se frontend não enviar (bug JS, race condition), cair pra 400
+  // força fix no client em vez de double-counting silencioso no Events Manager.
+  if (!event_id || typeof event_id !== 'string' || event_id.length < 8) {
+    return res.status(400).json({ error: 'event_id required for dedup (min 8 chars)' });
   }
 
   // event_time: se browser mandou e é válido (dentro da janela 7d Meta), usa ele.
@@ -476,8 +500,31 @@ export default async function handler(req, res) {
       } // end BLOB_READ_WRITE_TOKEN check
     }
 
-    const [metaResponse] = await Promise.all(promises);
-    const result = await metaResponse.json();
+    // Fix HIGH AI deep review v2 (b1 track.js:503): separar Meta fetch do Blob put.
+    // Antes: Promise.all rejection (network error Meta) pulava retry logic. Agora:
+    // Meta fetch em try/catch próprio → retry logic executa. Blob/email continuam
+    // em paralelo (fire-and-forget via promises[1..N]).
+    // Fix MEDIUM AI deep review v2 (b1 track.js:504): defensive JSON parse no
+    // 1º attempt (retry já tem). Cloudflare 502 HTML não crasha mais.
+    let metaResponse, result;
+    try {
+      metaResponse = await promises[0];
+      const rawTxt = await metaResponse.text();
+      try { result = JSON.parse(rawTxt); }
+      catch {
+        console.error(`[TRACK] Non-JSON CAPI response (${metaResponse.status}): ${rawTxt.substring(0,200)}`);
+        result = { error: { message: 'non-json response', code: metaResponse.status, is_transient: true } };
+      }
+    } catch (netErr) {
+      console.error('[TRACK] Meta fetch network error:', netErr.message);
+      // Sinaliza erro transient pra retry logic executar abaixo.
+      metaResponse = { headers: { get: () => null }, status: 0 };
+      result = { error: { message: netErr.message, is_transient: true } };
+    }
+    // Await remaining (Blob put) without blocking retry (já fire-and-forget via .catch).
+    if (promises.length > 1) {
+      await Promise.allSettled(promises.slice(1));
+    }
 
     // Monitorar X-App-Usage e X-Business-Use-Case-Usage pra antecipar rate limits
     const appUsage = metaResponse.headers.get('x-app-usage');
@@ -549,7 +596,11 @@ export default async function handler(req, res) {
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit
     // HTTP Set-Cookie headers persist up to 180 days even in Safari
     // Cookies setados independente de CAPI success (benefit user mesmo se Meta errou)
-    const cookieOpts = 'Path=/; SameSite=Lax; Secure; Max-Age=15552000'; // 180 days
+    // Fix MEDIUM AI review 20/04/2026 (M16): Domain=.icelasers.com.br garante que
+    // cookie é visível em subdomínios (www/api/staging). Sem Domain=, é host-only
+    // → se LP está em www.icelasers.com.br e api em icelasers.com.br, cookies
+    // divergem e Pixel browser+CAPI server geram _fbp diferentes (dedup falha).
+    const cookieOpts = 'Path=/; Domain=.icelasers.com.br; SameSite=Lax; Secure; Max-Age=15552000'; // 180 days
     const setCookies = [];
     if (finalFbp) setCookies.push(`_fbp=${finalFbp}; ${cookieOpts}`);
     if (finalFbc) setCookies.push(`_fbc=${finalFbc}; ${cookieOpts}`);
@@ -567,6 +618,10 @@ export default async function handler(req, res) {
     }
     return res.status(200).json({ ok: true, events_received: finalResult.events_received });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    // Fix MEDIUM AI review 20/04/2026 (M18): não retornar err.message ao cliente.
+    // Pode vazar URLs internas, tokens parciais, stack traces (info disclosure).
+    // Detalhes logados internamente; resposta pública = mensagem genérica.
+    console.error('[TRACK] Unhandled:', err?.message, err?.stack?.split('\n').slice(0, 3).join(' | '));
+    return res.status(500).json({ error: 'internal_error' });
   }
 }

@@ -48,13 +48,23 @@ function validarAssinatura(rawBody, sig) {
 }
 
 // ── EMAIL via SMTP nativo (sem lib externa) ───────────────────────────────────
-async function enviarEmail(assunto, html) {
-  if (!EMAIL_PASS) { console.warn('[EMAIL] EMAIL_PASS não configurado — email ignorado'); return false; }
-  try {
-    const t = nodemailer.createTransport({
+// Fix MEDIUM AI review 20/04/2026 (M11): transporter como module-level singleton.
+// Antes criava um transporter novo por email (TLS handshake ~200-500ms). Vercel
+// reusa o módulo entre invocações warm → singleton amortiza o custo de conexão.
+let _mailTransport = null;
+function getTransport() {
+  if (!_mailTransport && EMAIL_PASS) {
+    _mailTransport = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: EMAIL_FROM, pass: EMAIL_PASS },
     });
+  }
+  return _mailTransport;
+}
+async function enviarEmail(assunto, html) {
+  if (!EMAIL_PASS) { console.warn('[EMAIL] EMAIL_PASS não configurado — email ignorado'); return false; }
+  try {
+    const t = getTransport();
     // sanitizeHeader defense-in-depth: subject nunca deve ter CRLF (SMTP injection).
     await t.sendMail({
       from: `"IceLaser Bot" <${EMAIL_FROM}>`,
@@ -91,6 +101,9 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
   const servicoSafe = escapeHtml(servico);
   const ctwaClidSafe = escapeHtml(ctwaClid || '');
   const telDigits = String(telefone || '').replace(/\D/g, '');
+  // Fix LOW AI review 20/04/2026 (L4): se telefone já vem com 55 (E.164), não
+  // duplicar prefixo. Meta WA Cloud API envia `from` em formato 5581XXXXXXXXX.
+  const waDigits = telDigits.startsWith('55') ? telDigits : '55' + telDigits;
   const html = `
   <div style="font-family:Arial,sans-serif;max-width:580px;margin:auto">
     <div style="background:#1a1a2e;padding:20px;border-radius:8px 8px 0 0">
@@ -103,7 +116,7 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
             <td style="padding:8px 0"><strong>${nomeSafe}</strong></td></tr>
         <tr><td style="padding:8px 0;color:#666">Telefone</td>
             <td style="padding:8px 0">
-              <a href="https://wa.me/55${telDigits}" style="color:#25D366;font-weight:bold">${telefoneSafe}</a>
+              <a href="https://wa.me/${waDigits}" style="color:#25D366;font-weight:bold">${telefoneSafe}</a>
             </td></tr>
         <tr><td style="padding:8px 0;color:#666">Serviço</td>
             <td style="padding:8px 0">${servicoSafe}</td></tr>
@@ -120,6 +133,81 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
   // Envia template de confirmação se Cloud API ativo
   if (META_TOKEN && from !== '—') {
     enviarTemplateConfirmacao(from, nome, servico).catch(e => console.error('[TEMPLATE]', e.message));
+  }
+
+  // Fix HIGH AI deep review v2 B2 (whatsapp.js:833) — Opção B:
+  // Flow lead (nfm_reply) SEMPRE dispara CAPI LeadSubmitted, mesmo sem CTWA.
+  // Flow submitted = signal forte de Lead qualificado (nome + phone + serviço).
+  // Sem CTWA → lead orgânico (Andromeda ainda usa pra optimization signals).
+  // Com CTWA → segundo event (event_id distinto) com dados completos do form.
+  // Meta v25 Conversion Leads spec: LeadSubmitted = dentro business_messaging flow.
+  if (CAPI_TOKEN && from && from !== '—') {
+    try {
+      const telNorm = String(telefone || from).replace(/\D/g, '');
+      let firstName = null, lastName = null;
+      if (nome && nome !== from) {
+        const parts = String(nome).trim().split(/\s+/);
+        firstName = parts[0];
+        if (parts.length > 1) lastName = parts[parts.length - 1];
+      }
+      const inferredState = stateFromPhone(from);
+      const userData = await buildUserData({
+        phone: telNorm || from,
+        first_name: firstName || undefined,
+        last_name: lastName || undefined,
+        city: 'recife',
+        state: inferredState,
+        country: 'br',
+        external_id: from, // phone como identidade estável
+      });
+      if (ctwaClid) userData.ctwa_clid = ctwaClid;
+      if (process.env.META_PAGE_ID) userData.page_id = process.env.META_PAGE_ID;
+
+      // event_id idempotente: baseado em wamid (nfm_reply.response_json fica na msg)
+      // + tipo 'flow' pra não colidir com CTWA LeadSubmitted (event_id: `ctwa_${wamid}`).
+      const eventTime = Math.floor(Date.now() / 1000);
+      const eventId = `flow_${telNorm || from}_${eventTime}`;
+
+      const payload = {
+        data: [{
+          event_name: 'LeadSubmitted',
+          event_time: eventTime,
+          event_id: eventId,
+          action_source: 'business_messaging',
+          messaging_channel: 'whatsapp',
+          user_data: userData,
+          custom_data: {
+            content_name: String(servico || 'Depilacao Laser').slice(0, 100),
+            content_category: 'depilacao_laser',
+            currency: 'BRL',
+            value: 0,
+            lead_event_source: 'WhatsApp Flow',
+            customer_segmentation: 'new_customer_to_business',
+            ...(ctwaClid ? { attribution: 'ctwa' } : { attribution: 'organic' }),
+          },
+        }],
+        partner_agent: PARTNER_AGENT,
+      };
+
+      const r = await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CAPI_TOKEN}` },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const txt = (await r.text()).substring(0, 200);
+        console.error(`[FLOW LeadSubmitted] Meta API ${r.status}: ${txt}`);
+      } else {
+        const respBody = await r.json();
+        if (respBody?.error) {
+          console.error('[FLOW LeadSubmitted] CAPI error:', respBody.error.message);
+        } else {
+          console.log(`[FLOW LeadSubmitted] ✅ ph=${maskPhone(from)} ctwa=${!!ctwaClid} received=${respBody.events_received}`);
+        }
+      }
+    } catch (e) {
+      console.error('[FLOW LeadSubmitted] exception:', e.message);
+    }
   }
 }
 
@@ -284,8 +372,14 @@ async function processarCTWA(from, message, referral, profileName) {
         first_msg_text: firstMsgText.slice(0, 500),
         ad_metadata: adMetadata,
         timestamp: ts,
-      }), { access: 'public', contentType: 'application/json', allowOverwrite: true });
-      console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}.json (profile=${!!profileName}, ad_meta=${!!adMetadata})`);
+        // Fix MEDIUM AI review 20/04/2026 (M10): addRandomSuffix:true cria path
+        // único por click CTWA. Antes ctwa/{phone}.json + allowOverwrite:true
+        // sobrescrevia clicks anteriores — se user clicava em 2 ads CTWA, o 2º
+        // apagava a attribution do 1º. Agora mantém histórico. Bônus M5-like:
+        // previne enumeration do pathname. Recovery em crm-webhook.js usa
+        // list({prefix:'ctwa/'})+iterate, funciona com suffix random.
+      }), { access: 'public', addRandomSuffix: true, contentType: 'application/json' });
+      console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}-*.json (profile=${!!profileName}, ad_meta=${!!adMetadata})`);
     } catch (e) {
       console.warn('[CTWA] Blob save failed:', e.message);
     }
@@ -331,11 +425,14 @@ async function processarCTWA(from, message, referral, profileName) {
         if (parts.length > 1) lastName = parts[parts.length - 1];
       }
       const inferredState = stateFromPhone(from);
+      // Fix MEDIUM AI review 20/04/2026 (M12): remover gender:'f' hardcoded.
+      // Target IceLaser é 95%+ mulheres, mas homens podem clicar CTWA (parceiros,
+      // gift, curiosos). Enviar gender errado degrada EMQ (Meta falha match com
+      // perfil feminino). Meta prefere ausência de dado a dado incorreto.
       const userData = await buildUserData({
         phone: from,
         first_name: firstName || undefined,
         last_name: lastName || undefined,
-        gender: 'f',
         city: 'recife',
         state: inferredState,         // inferido pelo DDD (antes hardcoded 'pe')
         country: 'br',
@@ -418,7 +515,9 @@ async function processarCTWA(from, message, referral, profileName) {
       if (respBody.error) {
         console.warn(`[CTWA] ⚠️  CAPI rejected: code=${respBody.error.code} sub=${respBody.error.error_subcode} ${respBody.error.message}`);
       } else {
-        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${from.slice(-4)} received=${respBody.events_received}`);
+        // Fix LOW AI review 20/04/2026 (L6): usar maskPhone em vez de slice(-4)
+        // pra consistência com o resto do código (PII mascarado em logs).
+        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${maskPhone(from)} received=${respBody.events_received}`);
       }
     } catch (e) {
       console.warn('[CTWA] CAPI LeadSubmitted failed:', e.message);
@@ -458,6 +557,11 @@ async function processarAlertaTemplate(ev) {
 
 // ── ENVIA TEMPLATE DE CONFIRMAÇÃO ─────────────────────────────────────────────
 async function enviarTemplateConfirmacao(to, nome, servico) {
+  // Fix MEDIUM AI review 20/04/2026 (M8): sanitizar params do template.
+  //  - nome pode ser null/undefined (TypeError em .split)
+  //  - Meta limita params a 1024 chars — truncar pra evitar rejeição
+  const primeiroNome = String(nome || '').trim().split(/\s+/)[0].slice(0, 60) || 'Cliente';
+  const servicoSafe = String(servico || 'Depilação Laser').slice(0, 100);
   const r = await fetch(`https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${META_TOKEN}` },
@@ -469,8 +573,8 @@ async function enviarTemplateConfirmacao(to, nome, servico) {
         name: 'confirmacao_lead_icelaser',
         language: { code: 'pt_BR' },
         components: [{ type: 'body', parameters: [
-          { type: 'text', text: nome.split(' ')[0] },
-          { type: 'text', text: servico },
+          { type: 'text', text: primeiroNome },
+          { type: 'text', text: servicoSafe },
         ]}],
       },
     }),
@@ -829,7 +933,6 @@ export default async function handler(req, res) {
     // Fix HIGH AI review 19/04/2026: URLs Railway removidas do fallback hardcoded
     // (expõe infra interna). Agora lê SOMENTE de env vars. Se não configurado, skip forward
     // (graceful degradation) + backup Blob preserva payload pra recovery manual.
-    const EVOLUTION_WEBHOOK = process.env.EVOLUTION_WEBHOOK_URL;
     const CHATWOOT_WA_WEBHOOK = process.env.CHATWOOT_WEBHOOK_URL;
     if (!CHATWOOT_WA_WEBHOOK) {
       console.warn('[WEBHOOK] ⚠️ CHATWOOT_WEBHOOK_URL not configured — skipping forward');
@@ -838,23 +941,10 @@ export default async function handler(req, res) {
     const MEDIA_TYPES = ['audio', 'video', 'image', 'document', 'sticker'];
     const MEDIA_LABELS = { audio: '🎤 Áudio', video: '🎬 Vídeo', image: '📷 Imagem', document: '📄 Documento', sticker: '🏷️ Sticker' };
 
-    const forwardToEvolution = async () => {
-      if (!EVOLUTION_WEBHOOK) {
-        return false;  // env var não setada — skip silencioso (feature opcional)
-      }
-      try {
-        const r = await fetch(EVOLUTION_WEBHOOK, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: rawBody.toString(),
-        });
-        console.log(`[EVO] Forward: ${r.status}`);
-        return r.ok;
-      } catch (e) {
-        console.error(`[EVO] Forward failed: ${e.message}`);
-        return false;
-      }
-    };
+    // Fix LOW AI review 20/04/2026 (L5): forwardToEvolution removido.
+    // Função nunca chamada (Evolution API desabilitada desde 17/04/2026).
+    // Código morto aumentava superfície de manutenção. Reativação futura:
+    // reimplementar em branch separado com lookup do commit pré-remoção.
 
     const sendToChat = async (payload, label = 'original') => {
       if (!CHATWOOT_WA_WEBHOOK) {
@@ -918,23 +1008,35 @@ export default async function handler(req, res) {
     const fallbackToChatwoot = async () => {
       try {
         if (hasMedia()) {
-          // Converter mídia pra texto + Blob URL
+          // Fix MEDIUM AI review 20/04/2026 (M7): paralelizar downloadMediaToBlob.
+          // Antes fazia N*3 fetches sequenciais (Graph metadata + download + put)
+          // dentro do for loop. Com 3 imagens = 9 ops sequenciais. Em payload com
+          // vídeos grandes, facilmente estourava timeout 30s Vercel Function.
+          // Promise.allSettled: se 1 mídia falhar, outras ainda são entregues.
           const payload = JSON.parse(JSON.stringify(body));
+          const mediaJobs = [];
           for (const entry of payload.entry || []) {
             for (const change of entry.changes || []) {
               const msgs = change.value?.messages || [];
               for (let i = 0; i < msgs.length; i++) {
                 const msg = msgs[i];
                 if (MEDIA_TYPES.includes(msg.type)) {
-                  const blobUrl = await downloadMediaToBlob(msg);
-                  const label = MEDIA_LABELS[msg.type] || msg.type;
-                  const caption = msg[msg.type]?.caption || '';
-                  const blobLink = blobUrl ? `\n🔗 ${blobUrl}` : '';
-                  msgs[i] = { from: msg.from, id: msg.id, timestamp: msg.timestamp, type: 'text',
-                    text: { body: `${label} recebido${caption ? ': ' + caption : ''}${blobLink}` } };
+                  mediaJobs.push({ msgs, i, msg });
                 }
               }
             }
+          }
+          const blobUrls = await Promise.allSettled(
+            mediaJobs.map(job => downloadMediaToBlob(job.msg))
+          );
+          for (let j = 0; j < mediaJobs.length; j++) {
+            const { msgs, i, msg } = mediaJobs[j];
+            const blobUrl = blobUrls[j].status === 'fulfilled' ? blobUrls[j].value : null;
+            const label = MEDIA_LABELS[msg.type] || msg.type;
+            const caption = msg[msg.type]?.caption || '';
+            const blobLink = blobUrl ? `\n🔗 ${blobUrl}` : '';
+            msgs[i] = { from: msg.from, id: msg.id, timestamp: msg.timestamp, type: 'text',
+              text: { body: `${label} recebido${caption ? ': ' + caption : ''}${blobLink}` } };
           }
           const r = await sendToChat(JSON.stringify(payload), 'fallback-media');
           return r.ok;

@@ -50,7 +50,12 @@ async function enviarEmail(assunto, html) {
 }
 
 export default async function handler(req, res) {
-  // Validar CRON_SECRET
+  // Fix HIGH AI deep review v2 (b4 emq-monitor.js:52): auth bypass quando
+  // CRON_SECRET é undefined. Antes: `Bearer undefined` passava se caller
+  // enviasse literal string "Bearer undefined". Fail-fast se env ausente.
+  if (!process.env.CRON_SECRET) {
+    return res.status(503).json({ error: 'cron_secret_not_configured' });
+  }
   const authHeader = req.headers.authorization;
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -68,6 +73,12 @@ export default async function handler(req, res) {
       `${GRAPH_BASE}/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}`,
       { headers: { 'Authorization': `Bearer ${token}` } }
     );
+    // Fix INFO AI deep review v2 (b4): checar response.ok antes de parse JSON.
+    if (!response.ok) {
+      const txt = (await response.text()).substring(0, 200);
+      console.error(`[EMQ-MONITOR] Meta API ${response.status}: ${txt}`);
+      return res.status(502).json({ error: 'meta_api_upstream_error', status: response.status });
+    }
     const data = await response.json();
 
     // Monitorar X-App-Usage
@@ -97,9 +108,12 @@ export default async function handler(req, res) {
 
     for (const evt of webEvents) {
       const nome = evt.event_name || '?';
-      const emq = evt.event_match_quality?.composite_score || 0;
-      const coverage = evt.event_coverage?.percentage || 0;
-      const coverageGoal = evt.event_coverage?.goal_percentage || 75;
+      // Fix HIGH AI deep review v2 (b4 emq-monitor.js:100): falsy-coercion.
+      // score 0 NÃO significa ausente — significa "matching zero". Usar ??
+      // (null/undefined) em vez de || (0, '', false também coercem).
+      const emq = evt.event_match_quality?.composite_score ?? null;
+      const coverage = evt.event_coverage?.percentage ?? null;
+      const coverageGoal = evt.event_coverage?.goal_percentage ?? 75;
       const freshness = evt.data_freshness?.upload_frequency || '?';
       const matchKeys = evt.event_match_quality?.match_key_feedback || [];
       const diagnostics = evt.event_match_quality?.diagnostics || [];

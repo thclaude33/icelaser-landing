@@ -104,7 +104,16 @@ async function sendCAPI(events, token, retryCount = 0) {
     } catch {}
   }
 
-  const result = await res.json();
+  // Fix LOW AI review 20/04/2026 (L3): defensive JSON parse. Meta pode retornar
+  // HTML (503/Cloudflare maintenance), res.json() lança SyntaxError não-informativo.
+  const rawText = await res.text();
+  let result;
+  try {
+    result = JSON.parse(rawText);
+  } catch {
+    console.error(`[CAPI] Non-JSON response (${res.status}): ${rawText.substring(0, 200)}`);
+    return { error: { message: 'non-json response', code: res.status, is_transient: true } };
+  }
 
   // Error handling com is_transient e blame_field_specs
   if (result.error) {
@@ -216,8 +225,12 @@ export default async function handler(req, res) {
                 source_type: msgData.referral.source_type || '',
                 timestamp: new Date().toISOString(),
                 wamid: sourceId,
-              }), { access: 'public', contentType: 'application/json', allowOverwrite: true });
-              console.log(`[CRM-WEBHOOK] ✅ ctwa_clid salvo no Blob: ctwa/${telDigits}.json`);
+              // Fix HIGH AI deep review v2 B2 (crm-webhook.js:231): addRandomSuffix + allowOverwrite
+              // são mutuamente contraditórios. Com suffix random, path é único por put() → allowOverwrite
+              // nunca dispara. Remover allowOverwrite (redundante). Trade-off: cada CTWA click cria Blob
+              // novo (esperado — preserva histórico). Recovery usa list+iterate, não afetado.
+              }), { access: 'public', addRandomSuffix: true, contentType: 'application/json' });
+              console.log(`[CRM-WEBHOOK] ✅ ctwa_clid salvo no Blob: ctwa/${telDigits}-*.json`);
             } catch (e) {
               console.warn(`[CRM-WEBHOOK] Blob save ctwa failed: ${e.message}`);
             }
@@ -244,7 +257,10 @@ export default async function handler(req, res) {
   // NOTA: Chatwoot v3.x / v4.x envia mudança de labels em `label_list` (array) ou
   // `cached_label_list` (string CSV). A chave `labels` NUNCA aparece em changed_attributes.
   // Fix 17/04/2026: procurar label_list (array) primeiro, fallback cached_label_list.
-  const changedAttributes = body.changed_attributes || [];
+  // Fix MEDIUM AI review 20/04/2026 (M1): Chatwoot pode enviar changed_attributes
+  // como objeto em vez de array. Array.isArray coerce previne TypeError em .some/.filter.
+  const rawChanged = body.changed_attributes || [];
+  const changedAttributes = Array.isArray(rawChanged) ? rawChanged : [rawChanged];
   const hasLabelChange = changedAttributes.some(attr =>
     attr.label_list !== undefined || attr.labels !== undefined
   );
@@ -288,7 +304,14 @@ export default async function handler(req, res) {
   // Normaliza (email RFC2822, phone e.164 strip zeros, nome lowercase+strip punct,
   // country/state mapping completo), hasheia SHA-256 e deriva advanced matching
   // partial keys (f5first, f5last, fi) automaticamente pra aumentar EMQ.
-  const now = Math.floor(Date.now() / 1000);
+  // Fix: use webhook timestamp (x-chatwoot-timestamp header) for idempotency.
+  // If webhook is retried by Chatwoot, same timestamp ensures identical event_id,
+  // enabling Meta's dedup to work correctly (without duplicates from retries).
+  // Chatwoot sends timestamp in Unix seconds (already validated in verifyChatwootSignature).
+  const chatwootTs = req.headers['x-chatwoot-timestamp'];
+  const now = chatwootTs 
+    ? parseInt(chatwootTs, 10)
+    : Math.floor(Date.now() / 1000);
   let firstName = null, lastName = null;
   if (nome) {
     const parts = nome.trim().split(/\s+/);
@@ -344,7 +367,9 @@ export default async function handler(req, res) {
     //    enriquecidos — pra usar em advanced matching + ad attribution nos events
     //    Lead Quente / Purchase disparados pelo label do Chatwoot.
     try {
-      const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
+      // Limit 200 (era 50) — volume CTWA alto pode perder clicks antigos.
+      // Fix MEDIUM AI review 20/04/2026 (M6).
+      const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 200 });
       for (const blob of ctwaBlobs.blobs) {
         // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
         // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
@@ -515,15 +540,18 @@ export default async function handler(req, res) {
   // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
   const ctwaAdMeta = ctwaData && ctwaData.ad_metadata ? ctwaData.ad_metadata : null;
 
+  // action_source dinâmico baseado em CTWA presence (Meta Conversion Leads spec):
+  //  - 'business_messaging' quando ctwaClid presente (CTWA ad → WhatsApp conversation)
+  //  - 'system_generated' quando lead vem via CRM label update sem CTWA origin
+  // Fix MEDIUM AI review 20/04/2026 (M3).
+  const actionSource = ctwaClid ? 'business_messaging' : 'system_generated';
+
   // Factory: cada chamada retorna novo objeto com shallow clone de user_data,
   // evitando referência compartilhada que poluiria todos os eventos do batch.
   // Bug CRITICAL detectado via AI code review 19/04/2026 (Claude Opus 4.6).
-  // Antes: `const baseEvent` + spread `...baseEvent` copiava REFERÊNCIA de user_data
-  // → qualquer mutação em user_data de um evento afetava TODOS os events do array.
-  // Funcionava por acidente hoje (nenhum código mutava pós-push) mas era bomba-relógio.
   const mkBaseEvent = () => ({
     event_source_url: eventSourceUrl,
-    action_source: 'system_generated',  // CRM events: system_generated (não chat)
+    action_source: actionSource,
     user_data: { ...userData },         // shallow clone — arrays dentro (em, ph, fn...) ficam shared mas são imutáveis na prática
   });
 
@@ -545,11 +573,15 @@ export default async function handler(req, res) {
   };
 
   const events = [];
-  // Dedup edge case: se contact.id ausente, adicionar fallback + jitter
-  // pra não colidir event_id entre contatos diferentes no mesmo segundo
+  // Fix HIGH AI deep review v2 B2 (crm-webhook.js:572): jitter 4 chars (~1.7M combinations)
+  // tinha probabilidade real de collision em bursts + NÃO é idempotente. Meta retenta
+  // webhooks → mesmo contact+label gera event_id diferente → duplicata no Meta.
+  // Novo: determinístico por (contactKey + label_set + now) — Meta dedup funciona corretamente.
+  // labels array → sort + join para hash stable. Se Chatwoot re-envia o mesmo update, eventId
+  // idêntico → Meta dedup aceita 1ª e rejeita retries.
   const contactKey = contact.id || (telefone ? telefone.replace(/\D/g, '') : 'unk');
-  const jitter = Math.random().toString(36).slice(2, 6);
-  const eventId = `crm_${contactKey}_${now}_${jitter}`;
+  const labelsKey = [...labels].sort().join(',').replace(/[^a-z0-9,_-]/gi, '').slice(0, 60);
+  const eventId = `crm_${contactKey}_${now}_${labelsKey}`;
   const orderId = `order_${contactKey}_${now}`;
 
   // customerSeg: 3 sinais combinados pra detectar existing customer
@@ -568,7 +600,13 @@ export default async function handler(req, res) {
   const customerSeg = wasAlreadyPurchased ? 'existing_customer_to_business' : 'new_customer_to_business';
 
   // helper: verifica se algum label está presente (case-insensitive, suporta variações)
-  const hasLabel = (...variants) => labels.some(l => variants.includes(l) || variants.includes(l.toLowerCase()));
+  // Fix LOW AI review 20/04/2026 (L2): normalizar AMBOS os lados em lowercase.
+  // Antes comparava variants literais contra l.toLowerCase() — se variant fosse
+  // 'Lead_Quente' (mixed) e label 'lead_quente' (lower), matching falhava.
+  const hasLabel = (...variants) => {
+    const lowerVariants = variants.map(v => String(v).toLowerCase());
+    return labels.some(l => lowerVariants.includes(String(l).toLowerCase()));
+  };
 
   // ❌ DESQUALIFICADO — Hybrid approach (Meta best practice 2026):
   //   1. Standard `Lead` event (mantém EMQ calculation + predicted_ltv=0 signal
@@ -748,13 +786,18 @@ export default async function handler(req, res) {
   }
 
   const result = await sendCAPI(validEvents, token);
-  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${result.events_received} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+  // Fix MEDIUM AI review 20/04/2026 (M4): events_received pode ser undefined se
+  // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
+  const eventsReceived = result?.events_received ?? 0;
+  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
   return res.status(200).json({
     ok: true,
-    contact: nome,
+    // Fix LOW AI review 20/04/2026 (L1): mask PII na response (pode vazar em
+    // logs de proxies/CDN intermediários). Chatwoot já tem o dado internamente.
+    contact: maskName(nome),
     labels,
     events_sent: validEvents.length,
-    events_received: result.events_received,
+    events_received: eventsReceived,
     ctwa_clid: !!ctwaClid,
     customer_segmentation: customerSeg,
   });
