@@ -949,8 +949,11 @@ export default async function handler(req, res) {
                 // → user_data seria empty, EMQ cai pra 0, Meta rejeita silenciosamente.
                 const hasContactData = (tel && tel !== '?' && !String(tel).includes('dummy'))
                   || (email && email.includes('@'));
-                if (!hasContactData) {
-                  console.warn(`[LEADGEN] lead ${leadId} sem phone/email válidos — criando só contato (sem CAPI)`);
+                const hasValidLeadId = /^\d{15,17}$/.test(String(leadId));
+                if (!hasContactData && !hasValidLeadId) {
+                  console.warn(`[LEADGEN] lead ${leadId} sem phone/email válidos e sem leadgen_id válido — criando só contato (sem CAPI)`);
+                } else if (!hasContactData && hasValidLeadId) {
+                  console.warn(`[LEADGEN] lead ${leadId} sem phone/email válidos mas com leadgen_id válido — CAPI será enviado com lead_id matching`);
                 }
 
                 // Fix CRITICAL 20/04/2026 (wizard CRM setup): CRIAR contato + conversa no
@@ -1181,7 +1184,6 @@ export default async function handler(req, res) {
                 // Test leads do Events Manager têm phone/email dummy mas leadgen_id real:
                 // se skipamos CAPI, Events Manager nunca mostra Processado no wizard
                 // Conversion Leads CRM.
-                const hasValidLeadId = /^\d{15,17}$/.test(String(leadId));
                 if (CAPI_TOKEN && leadId && (hasContactData || hasValidLeadId)) {
                   try {
                     const telDigits = String(tel || '').replace(/\D/g, '');
