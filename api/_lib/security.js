@@ -182,9 +182,8 @@ export function normalizePhoneBR(phone) {
   const result = `55${digits.replace(/^55/, '')}`; // evita 5555... se re-normalizar
   // Validação final: resultado precisa ter 12 ou 13 chars. Menos = input inválido.
   if (result.length < 12 || result.length > 13) {
-    // Retornar string concatenada preserva comportamento antigo (callers esperam string).
-    // Mas loga warning pra debug.
-    return result;
+    // Input não contém dígitos válidos — retorna null em vez de string inválida
+    return null;
   }
   return result;
 }
