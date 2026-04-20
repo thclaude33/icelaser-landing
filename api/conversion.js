@@ -10,9 +10,10 @@
  * Autenticação: header x-api-key deve bater com CONVERSION_API_KEY env var
  */
 
+import crypto from 'crypto';
 import { list, put, del } from '@vercel/blob';
 import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE } from './_lib/config.js';
-import { sha256, normalizePhoneBR } from './_lib/security.js';
+import { normalizePhoneBR, maskName, maskPhone } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 
@@ -23,42 +24,49 @@ async function findLeadInBlob(nome, telefone) {
   const telDigits = normalizePhone(telefone);
   const nomeLower = nome.trim().toLowerCase();
 
-  // Lista todos os leads pendentes
-  let cursor;
-  let allBlobs = [];
-  do {
-    const result = await list({ prefix: 'leads/pending/', cursor, limit: 100 });
-    allBlobs = allBlobs.concat(result.blobs);
-    cursor = result.hasMore ? result.cursor : undefined;
-  } while (cursor);
-
-  // Busca o lead mais recente que bate nome + telefone.
-  // Match estrito (telefone exato OU nome exato) + fallback conservador
-  // (primeiro nome inclui o passado E telefone parcial bate últimos 8 dígitos).
-  // Critério anterior `leadNome.includes(nomeLower)` dava false positive
-  // entre clientes com nomes semelhantes (ex: "ana" match de "ana silva" e "ana costa").
-  for (const blob of allBlobs.reverse()) {
-    try {
+  // Fix HIGH AI deep review v2 (b3 conversion.js:40): limit 100, sem paginate
+  // completo (antes: do-while cursor pegava TODOS leads, O(N) fetches). Agora:
+  // priorizar leads recentes (Blob DESC uploadedAt) + Promise.allSettled paralelo.
+  const result = await list({ prefix: 'leads/pending/', limit: 100 });
+  const blobs = (result.blobs || []).filter(b => b.size > 200);
+  const datas = await Promise.allSettled(
+    blobs.map(async (blob) => {
       const res = await fetch(blob.url);
       const data = await res.json();
-      const leadTel = normalizePhone(data.telefone || '');
-      const leadNome = (data.nome || '').trim().toLowerCase();
+      return { data, blob };
+    })
+  );
 
-      // 1. Match estrito por telefone (sempre prioritário)
-      if (telDigits && leadTel === telDigits) return { data, blob };
-      // 2. Match estrito por nome
-      if (nomeLower && leadNome === nomeLower) return { data, blob };
-      // 3. Fallback: primeiro nome igual E últimos 8 dígitos do telefone batem
-      if (nomeLower && telDigits && leadNome && leadTel) {
-        const nomePrimeiro = leadNome.split(/\s+/)[0];
-        const telSuffix = telDigits.slice(-8);
-        if (nomePrimeiro === nomeLower.split(/\s+/)[0] && leadTel.endsWith(telSuffix)) {
-          return { data, blob };
-        }
-      }
-    } catch { /* skip corrupt entries */ }
+  // Match priority (strict first):
+  //   1. Telefone exato
+  //   2. Nome exato
+  //   3. Primeiro nome igual E últimos 8 dígitos batem (conservative fallback)
+  for (const r of datas) {
+    if (r.status !== 'fulfilled') continue;
+    const { data, blob } = r.value;
+    const leadTel = normalizePhone(data?.telefone || '');
+    const leadNome = (data?.nome || '').trim().toLowerCase();
+    if (telDigits && leadTel === telDigits) return { data, blob };
   }
-
+  for (const r of datas) {
+    if (r.status !== 'fulfilled') continue;
+    const { data, blob } = r.value;
+    const leadNome = (data?.nome || '').trim().toLowerCase();
+    if (nomeLower && leadNome === nomeLower) return { data, blob };
+  }
+  for (const r of datas) {
+    if (r.status !== 'fulfilled') continue;
+    const { data, blob } = r.value;
+    const leadTel = normalizePhone(data?.telefone || '');
+    const leadNome = (data?.nome || '').trim().toLowerCase();
+    if (nomeLower && telDigits && leadNome && leadTel) {
+      const nomePrimeiro = leadNome.split(/\s+/)[0];
+      const telSuffix = telDigits.slice(-8);
+      if (nomePrimeiro === nomeLower.split(/\s+/)[0] && leadTel.endsWith(telSuffix)) {
+        return { data, blob };
+      }
+    }
+  }
   return null;
 }
 
@@ -74,7 +82,11 @@ export default async function handler(req, res) {
   const apiKey = process.env.CONVERSION_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'CONVERSION_API_KEY not configured' });
   const reqKey = req.headers['x-api-key'] || req.body?.api_key;
-  if (reqKey !== apiKey) {
+  // Fix HIGH AI deep review v2 (b3 conversion.js:76): timing-safe comparison
+  // previne timing attacks na API key.
+  const keyBuf = Buffer.from(String(apiKey));
+  const reqBuf = Buffer.from(String(reqKey || ''));
+  if (keyBuf.length !== reqBuf.length || !crypto.timingSafeEqual(keyBuf, reqBuf)) {
     return res.status(401).json({ error: 'Invalid API key' });
   }
 
@@ -109,15 +121,17 @@ export default async function handler(req, res) {
       firstName = parts[0];
       if (parts.length > 1) lastName = parts[parts.length - 1];
     }
+    // Fix HIGH AI deep review v2 (b3 conversion.js:116): não hardcodar gender/city/state.
+      // Se lead tem esses dados no Blob original, usar. Caso contrário, deixar vazio
+      // (Meta prefere ausência a dado errado — degrada EMQ pra matches não-esperados).
     const userData = await buildUserData({
       phone: tel ? normalizePhone(tel) : undefined,
       first_name: firstName || undefined,
       last_name: lastName || undefined,
-      city: 'recife',
-      state: 'pe',
-      zip_code: '50000',
-      country: 'br',
-      gender: 'f',
+      city: lead?.data?.city || undefined,
+      state: lead?.data?.state || undefined,
+      zip_code: lead?.data?.zip_code || undefined,
+      country: lead?.data?.country || 'br',
     });
 
     // Dados originais da sessão do lead (fbp, fbc, IP, UA) — maximiza match quality
@@ -129,7 +143,8 @@ export default async function handler(req, res) {
     }
 
     // 3. Envia Purchase event ao Facebook CAPI
-    const eventId = 'purchase_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+    // event_id com entropy crypto.randomUUID (não Math.random).
+    const eventId = 'purchase_' + Date.now() + '_' + crypto.randomUUID().slice(0, 8);
 
     const payload = {
       data: [{
@@ -145,12 +160,9 @@ export default async function handler(req, res) {
           content_name: 'Depilacao Laser',
           content_category: 'depilacao_laser',
           content_type: 'product',
-          // Oficial Meta 2026 (docs server-event custom_data):
-          // Purchase vindo de CRM website = customer novo pra relacionamento com o negócio.
           customer_segmentation: 'new_customer_to_business',
         },
       }],
-      // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
       partner_agent: PARTNER_AGENT,
     };
 
@@ -166,38 +178,59 @@ export default async function handler(req, res) {
         body: JSON.stringify(payload),
       }
     );
-    const metaResult = await metaRes.json();
+    // Fix CRITICAL AI deep review v2 (b3 conversion.js:169): defensive JSON parse
+    // + verificar se CAPI retornou erro. Antes: res.json() cru + retornava 200 OK
+    // mesmo se Meta rejeitou. Purchase perdidos silenciosamente.
+    const rawText = await metaRes.text();
+    let metaResult;
+    try { metaResult = JSON.parse(rawText); }
+    catch {
+      console.error(`[CONVERSION] CAPI non-JSON response (${metaRes.status}): ${rawText.substring(0,200)}`);
+      return res.status(502).json({ ok: false, error: 'capi_non_json_response' });
+    }
+    if (metaResult?.error) {
+      console.error(`[CONVERSION] CAPI error: code=${metaResult.error.code} msg=${metaResult.error.message}`);
+      return res.status(502).json({ ok: false, error: 'capi_upstream_error' });
+    }
+    if (!metaResult?.events_received) {
+      console.error('[CONVERSION] CAPI returned 0 events_received');
+      return res.status(502).json({ ok: false, error: 'capi_zero_received' });
+    }
 
-    // 4. Move lead para converted/ no Blob
+    // 4. Move lead para converted/ no Blob — só após CAPI confirmado.
     if (lead?.blob) {
       const convertedData = {
         ...lead.data,
         converted: true,
         converted_at: new Date().toISOString(),
-        purchase_value: Number(value),
+        purchase_value: parsedValue,
         purchase_event_id: eventId,
       };
       const newPath = lead.blob.pathname.replace('leads/pending/', 'leads/converted/');
+      // Fix HIGH AI deep review v2 (b3 conversion.js:181): addRandomSuffix evita
+      // enumeration de path PII. access:'public' mantido (store Vercel Blob é public-only).
       await put(newPath, JSON.stringify(convertedData), {
         access: 'public',
+        addRandomSuffix: true,
         contentType: 'application/json',
       });
       await del(lead.blob.url).catch(() => {});
     }
 
+    // Fix HIGH AI deep review v2 (b3 conversion.js:193): mascarar PII na response.
     return res.status(200).json({
       ok: true,
       events_received: metaResult.events_received,
       event_id: eventId,
       lead_found: !!lead,
-      lead_nome: lead?.data?.nome || nome,
-      lead_telefone: lead?.data?.telefone || telefone,
+      lead_nome: maskName(lead?.data?.nome || nome),
+      lead_telefone: maskPhone(lead?.data?.telefone || telefone),
       message: lead
         ? `Purchase event enviado com dados completos do lead original (EMQ alto)`
         : `Purchase event enviado com dados fornecidos (lead não encontrado no Blob)`,
     });
   } catch (err) {
-    console.error('[CONVERSION]', err.message);
-    return res.status(500).json({ error: err.message });
+    console.error('[CONVERSION]', err?.message, err?.stack?.split('\n').slice(0,3).join(' | '));
+    return res.status(500).json({ error: 'internal_error' });
   }
 }

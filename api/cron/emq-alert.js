@@ -46,6 +46,13 @@ async function fetchEmq(token) {
   const fields = 'web{event_name,event_match_quality{composite_score},event_coverage{percentage,goal_percentage}}';
   const url = `${GRAPH_BASE}/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}`;
   const r = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+  // Fix HIGH AI deep review v2 (b4 emq-alert.js:49): checar response.ok antes
+  // de r.json(). Meta retorna HTML em 502/503 → SyntaxError no parse, mensagem
+  // inútil no log. Agora: descrever status HTTP explicitamente.
+  if (!r.ok) {
+    const txt = (await r.text()).substring(0, 200);
+    throw new Error(`Meta API ${r.status}: ${txt}`);
+  }
   const data = await r.json();
   if (data.error) throw new Error(`Meta API: ${data.error.message}`);
   return data.web || [];

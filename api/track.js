@@ -500,8 +500,31 @@ export default async function handler(req, res) {
       } // end BLOB_READ_WRITE_TOKEN check
     }
 
-    const [metaResponse] = await Promise.all(promises);
-    const result = await metaResponse.json();
+    // Fix HIGH AI deep review v2 (b1 track.js:503): separar Meta fetch do Blob put.
+    // Antes: Promise.all rejection (network error Meta) pulava retry logic. Agora:
+    // Meta fetch em try/catch próprio → retry logic executa. Blob/email continuam
+    // em paralelo (fire-and-forget via promises[1..N]).
+    // Fix MEDIUM AI deep review v2 (b1 track.js:504): defensive JSON parse no
+    // 1º attempt (retry já tem). Cloudflare 502 HTML não crasha mais.
+    let metaResponse, result;
+    try {
+      metaResponse = await promises[0];
+      const rawTxt = await metaResponse.text();
+      try { result = JSON.parse(rawTxt); }
+      catch {
+        console.error(`[TRACK] Non-JSON CAPI response (${metaResponse.status}): ${rawTxt.substring(0,200)}`);
+        result = { error: { message: 'non-json response', code: metaResponse.status, is_transient: true } };
+      }
+    } catch (netErr) {
+      console.error('[TRACK] Meta fetch network error:', netErr.message);
+      // Sinaliza erro transient pra retry logic executar abaixo.
+      metaResponse = { headers: { get: () => null }, status: 0 };
+      result = { error: { message: netErr.message, is_transient: true } };
+    }
+    // Await remaining (Blob put) without blocking retry (já fire-and-forget via .catch).
+    if (promises.length > 1) {
+      await Promise.allSettled(promises.slice(1));
+    }
 
     // Monitorar X-App-Usage e X-Business-Use-Case-Usage pra antecipar rate limits
     const appUsage = metaResponse.headers.get('x-app-usage');
