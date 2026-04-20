@@ -225,10 +225,11 @@ export default async function handler(req, res) {
                 source_type: msgData.referral.source_type || '',
                 timestamp: new Date().toISOString(),
                 wamid: sourceId,
-              // Fix MEDIUM AI review 20/04/2026 (M5): addRandomSuffix previne enumeration
-              // do pathname (ctwa/{phone}.json era guessable → leak de ctwa_clid + ad_metadata).
-              // Recovery em crm-webhook.js usa list({prefix:'ctwa/'})+iterate, não afetado.
-              }), { access: 'public', addRandomSuffix: true, contentType: 'application/json', allowOverwrite: true });
+              // Fix HIGH AI deep review v2 B2 (crm-webhook.js:231): addRandomSuffix + allowOverwrite
+              // são mutuamente contraditórios. Com suffix random, path é único por put() → allowOverwrite
+              // nunca dispara. Remover allowOverwrite (redundante). Trade-off: cada CTWA click cria Blob
+              // novo (esperado — preserva histórico). Recovery usa list+iterate, não afetado.
+              }), { access: 'public', addRandomSuffix: true, contentType: 'application/json' });
               console.log(`[CRM-WEBHOOK] ✅ ctwa_clid salvo no Blob: ctwa/${telDigits}-*.json`);
             } catch (e) {
               console.warn(`[CRM-WEBHOOK] Blob save ctwa failed: ${e.message}`);
@@ -565,11 +566,15 @@ export default async function handler(req, res) {
   };
 
   const events = [];
-  // Dedup edge case: se contact.id ausente, adicionar fallback + jitter
-  // pra não colidir event_id entre contatos diferentes no mesmo segundo
+  // Fix HIGH AI deep review v2 B2 (crm-webhook.js:572): jitter 4 chars (~1.7M combinations)
+  // tinha probabilidade real de collision em bursts + NÃO é idempotente. Meta retenta
+  // webhooks → mesmo contact+label gera event_id diferente → duplicata no Meta.
+  // Novo: determinístico por (contactKey + label_set + now) — Meta dedup funciona corretamente.
+  // labels array → sort + join para hash stable. Se Chatwoot re-envia o mesmo update, eventId
+  // idêntico → Meta dedup aceita 1ª e rejeita retries.
   const contactKey = contact.id || (telefone ? telefone.replace(/\D/g, '') : 'unk');
-  const jitter = Math.random().toString(36).slice(2, 6);
-  const eventId = `crm_${contactKey}_${now}_${jitter}`;
+  const labelsKey = [...labels].sort().join(',').replace(/[^a-z0-9,_-]/gi, '').slice(0, 60);
+  const eventId = `crm_${contactKey}_${now}_${labelsKey}`;
   const orderId = `order_${contactKey}_${now}`;
 
   // customerSeg: 3 sinais combinados pra detectar existing customer
