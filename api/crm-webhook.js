@@ -411,9 +411,10 @@ export default async function handler(req, res) {
                   };
                   console.log(`[CRM-WEBHOOK] Found original Lead: event_id=${data.event_id} clamped=${clampedTs !== originalTs}`);
                 }
-                // Short-circuit: para quando TODOS os campos foram recuperados (inc. IP/UA).
+                // Short-circuit: para quando os campos críticos foram recuperados.
+                // clientIp e clientUa são enriquecimento opcional (86% dos leads não têm).
                 // Fix HIGH AI review 19/04/2026.
-                if (fbp && fbc && originalLeadData && clientIp && clientUa) break outerSearch;
+                if (fbp && fbc && originalLeadData) break outerSearch;
               }
             }
           }
