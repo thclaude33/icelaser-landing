@@ -1,9 +1,11 @@
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
-import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
+// PIXEL_ID + GRAPH_BASE + PARTNER_AGENT NÃO importados — refatoração 20/04/2026
+// delegou CAPI send pra _lib/capi.js sendCapiEvents que usa internamente.
+import { ALLOWED_ORIGINS } from './_lib/config.js';
 import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
-import { PARTNER_AGENT } from './_lib/capi.js';
+import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -429,18 +431,15 @@ export default async function handler(req, res) {
     ? parsedBodyTime
     : nowSec;
 
-  const payload = {
-    data: [{
-      event_name,
-      event_time: eventTime,
-      event_id,
-      event_source_url: event_source_url || 'https://icelasers.com.br/',
-      action_source: 'website',
-      user_data: userData,
-      ...(Object.keys(custom_data).length > 0 && { custom_data }),
-    }],
-    // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
-    partner_agent: PARTNER_AGENT,
+  // partner_agent adicionado automaticamente por sendCapiEvents (_lib/capi.js).
+  const eventPayload = {
+    event_name,
+    event_time: eventTime,
+    event_id,
+    event_source_url: event_source_url || 'https://icelasers.com.br/',
+    action_source: 'website',
+    user_data: userData,
+    ...(Object.keys(custom_data).length > 0 && { custom_data }),
   };
 
   // Prefer dataset-scoped CAPI_DATASET_TOKEN (Events Manager > API de Conversões token)
@@ -449,25 +448,15 @@ export default async function handler(req, res) {
   if (!token) return res.status(500).json({ error: 'meta_token_not_configured' });
 
   try {
-    // Roda email + CAPI em paralelo — ambos aguardados antes de responder
-    // Authorization: Bearer (mais seguro que access_token na URL — evita leak em logs)
-    const promises = [
-      fetch(
-        `${GRAPH_BASE}/${PIXEL_ID}/events`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify(payload),
-        }
-      ),
-    ];
-
-    // Email + Blob no evento Lead (com ou sem telefone — WA direto não tem tel)
+    // REFATORAÇÃO 20/04/2026 — usar _lib/capi.js sendCapiEvents + filterValidEvents
+    // Antes: lógica inline de fetch+retry+rate-limit-monitor+JSON-parse defensive
+    // duplicada com conversion.js e crm-webhook.js. Diverge ao longo do tempo.
+    // Agora: helper central com retry 2x (backoff 1s+2s), defensive JSON parse,
+    // X-App-Usage/BUC monitor em 1 lugar. filterValidEvents clampa event_time
+    // imutavelmente + valida required fields.
+    //
+    // Email + Blob em paralelo fire-and-forget (não bloqueiam CAPI response).
     if (event_name === 'Lead' && nome) {
-      // Fire-and-forget: email não bloqueia a resposta ao usuário
       enviarEmailLead(nome, telefone, {
         email,
         event_source_url, utm_source, utm_medium, utm_campaign,
@@ -478,149 +467,47 @@ export default async function handler(req, res) {
         landing_url, time_on_page, scroll_depth,
       }).catch(e => console.error('[EMAIL LEAD]', e.message));
 
-      // Salva lead no Blob (só se token configurado)
       if (process.env.BLOB_READ_WRITE_TOKEN) {
-      const ts = new Date().toISOString();
-      // Sanitiza firstName pra evitar path traversal / chars inválidos no filename
-      // NOTA: renomeado pra safeFirstName — evita shadowing com `let firstName` (linha ~270)
-      // usado em buildUserData pra Meta Advanced Matching. Fix HIGH via AI review 19/04/2026.
-      const safeFirstName = nome.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'anon';
-      const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${safeFirstName}.json`;
-      promises.push(
+        const ts = new Date().toISOString();
+        const safeFirstName = nome.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'anon';
+        const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${safeFirstName}.json`;
         put(fileName, JSON.stringify({
-          nome,
-          telefone,
-          email: email || undefined,
-          timestamp: ts,
-          event_id,
+          nome, telefone, email: email || undefined, timestamp: ts, event_id,
           event_source_url: event_source_url || 'https://icelasers.com.br/',
           client_user_agent: client_user_agent || req.headers['user-agent'],
           client_ip_address,
-          fbp: fbp || undefined,
-          fbc: fbc || undefined,
-          // Fix HIGH AI audit 20/04/2026 (track.js:488): persistir geo/matching
-          // keys usadas em buildUserData pra Lead, pra que conversion.js (Purchase)
-          // recupere TODAS as Advanced Matching keys do Lead original e mantenha EMQ alto.
-          // Antes: Purchase EMQ caia ~5-6 (só ph+fn+ln+fbp+fbc+IP+UA). Agora: EMQ ~8+.
-          // gender OMITIDO intencionalmente pra consistência c/ M12 (whatsapp.js)
-          // e crm-webhook remoção — Meta penaliza mismatch > ausência.
-          city: 'recife',
-          state: 'pe',
-          zip_code: '50000',
-          country: 'br',
+          fbp: fbp || undefined, fbc: fbc || undefined,
+          // Fix HIGH audit 20/04: persist geo/matching keys pra Purchase EMQ alto.
+          // gender omitido (M12 consistency — Meta penaliza mismatch > ausência).
+          city: 'recife', state: 'pe', zip_code: '50000', country: 'br',
           external_id: externalIdRaw || undefined,
-          // Origem completa: campanha, anúncio, público, placement
           utm_source, utm_medium, utm_campaign, utm_content, utm_term,
           ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
           placement, site_source_name, platform,
-          // Qualificação
           screen_width, screen_height, language, timezone, referrer,
           landing_url, time_on_page, scroll_depth,
           converted: false,
         }), {
-          // LGPD mitigation: Vercel store é public-only, mas addRandomSuffix gera
-          // URL com sufixo aleatório não-adivinhável (serve como bearer token).
-          // Sem isso, path leads/pending/{ts}_{firstName}.json é enumerável.
-          // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
           access: 'public',
           addRandomSuffix: true,
           contentType: 'application/json',
-        }).catch(e => console.error('[BLOB LEAD]', e.message))
-      );
-      } // end BLOB_READ_WRITE_TOKEN check
-    }
-
-    // Fix HIGH AI deep review v2 (b1 track.js:503): separar Meta fetch do Blob put.
-    // Antes: Promise.all rejection (network error Meta) pulava retry logic. Agora:
-    // Meta fetch em try/catch próprio → retry logic executa. Blob/email continuam
-    // em paralelo (fire-and-forget via promises[1..N]).
-    // Fix MEDIUM AI deep review v2 (b1 track.js:504): defensive JSON parse no
-    // 1º attempt (retry já tem). Cloudflare 502 HTML não crasha mais.
-    let metaResponse, result;
-    try {
-      metaResponse = await promises[0];
-      const rawTxt = await metaResponse.text();
-      try { result = JSON.parse(rawTxt); }
-      catch {
-        console.error(`[TRACK] Non-JSON CAPI response (${metaResponse.status}): ${rawTxt.substring(0,200)}`);
-        result = { error: { message: 'non-json response', code: metaResponse.status, is_transient: true } };
+        }).catch(e => console.error('[BLOB LEAD]', e.message));
       }
-    } catch (netErr) {
-      console.error('[TRACK] Meta fetch network error:', netErr.message);
-      // Sinaliza erro transient pra retry logic executar abaixo.
-      metaResponse = { headers: { get: () => null }, status: 0 };
-      result = { error: { message: netErr.message, is_transient: true } };
-    }
-    // Await remaining (Blob put) without blocking retry (já fire-and-forget via .catch).
-    if (promises.length > 1) {
-      await Promise.allSettled(promises.slice(1));
     }
 
-    // Monitorar X-App-Usage e X-Business-Use-Case-Usage pra antecipar rate limits
-    const appUsage = metaResponse.headers.get('x-app-usage');
-    if (appUsage) {
-      try {
-        const usage = JSON.parse(appUsage);
-        if (usage.call_count > 80 || usage.total_cputime > 80 || usage.total_time > 80) {
-          console.warn(`[TRACK] ⚠️ Rate limit approaching: call_count=${usage.call_count}% cpu=${usage.total_cputime}% time=${usage.total_time}%`);
-        }
-      } catch {}
-    }
-    const bucUsage = metaResponse.headers.get('x-business-use-case-usage');
-    if (bucUsage) {
-      try {
-        const buc = JSON.parse(bucUsage);
-        for (const [bizId, entries] of Object.entries(buc)) {
-          for (const e of entries) {
-            if (e.call_count > 80 || e.total_cputime > 80 || e.total_time > 80) {
-              console.warn(`[BUC] ⚠️ ${e.type} limit approaching: call=${e.call_count}% cpu=${e.total_cputime}% time=${e.total_time}% | recover=${e.estimated_time_to_regain_access}min`);
-            }
-          }
-        }
-      } catch {}
+    // Validação + clamp via filterValidEvents (immutable — preserva events original).
+    const validatedEvents = filterValidEvents([eventPayload]);
+    if (validatedEvents.length === 0) {
+      return res.status(400).json({ error: 'event failed validation' });
     }
 
-    // Error handling com is_transient e blame_field_specs
-    // Rastrea success pós-retry pra response refletir realidade (fix HIGH 19/04/2026).
-    let finalResult = result;
-    let capiSuccess = !result.error;
+    // CAPI send via helper central: retry 2x, rate limit monitor, defensive parse.
+    const result = await sendCapiEvents(validatedEvents, token);
+    const finalResult = result;
+    const capiSuccess = !result.error;
     if (result.error) {
       const { code, error_subcode, message, is_transient } = result.error;
-      const blame = result.error.blame_field_specs ? ` | blame: ${JSON.stringify(result.error.blame_field_specs)}` : '';
-      console.error(`[TRACK CAPI ERROR] code=${code} subcode=${error_subcode} transient=${is_transient} event=${event_name} msg=${message}${blame}`);
-
-      // Retry 1x em erros transientes
-      if (is_transient) {
-        await new Promise(r => setTimeout(r, 1000));
-        const retryRes = await fetch(
-          `${GRAPH_BASE}/${PIXEL_ID}/events`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify(payload),
-          }
-        );
-        // Defensive JSON parse: se Meta retornar HTML (ex: Cloudflare 502 page),
-        // retryRes.json() lança SyntaxError sem esse try/catch → outer handler 500 confuso.
-        // Fix HIGH via AI review 19/04/2026.
-        let retryResult;
-        try {
-          retryResult = await retryRes.json();
-        } catch (parseErr) {
-          console.error(`[TRACK] Retry response not JSON (status=${retryRes.status}) for ${event_name}:`, parseErr.message);
-          retryResult = { error: { message: `Non-JSON response (status ${retryRes.status})` } };
-        }
-        if (retryRes.ok && !retryResult.error) {
-          console.log(`[TRACK] Retry succeeded for ${event_name}`);
-          finalResult = retryResult;
-          capiSuccess = true;
-        } else {
-          console.error(`[TRACK] Retry ALSO failed for ${event_name}:`, retryResult.error);
-        }
-      }
+      console.error(`[TRACK CAPI ERROR] code=${code} subcode=${error_subcode} transient=${is_transient} event=${event_name} msg=${message}`);
     }
 
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit

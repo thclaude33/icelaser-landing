@@ -12,10 +12,12 @@
 
 import crypto from 'crypto';
 import { list, put, del } from '@vercel/blob';
-import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE } from './_lib/config.js';
+// PIXEL_ID + GRAPH_BASE + PARTNER_AGENT NÃO importados — refatoração 20/04/2026
+// delegou CAPI send pra _lib/capi.js sendCapiEvents que usa internamente.
+import { DEFAULT_PURCHASE_VALUE } from './_lib/config.js';
 import { normalizePhoneBR, maskName, maskPhone } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
-import { PARTNER_AGENT } from './_lib/capi.js';
+import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
 
 // Alias local (fonte de verdade em _lib/security.js).
 const normalizePhone = normalizePhoneBR;
@@ -159,48 +161,34 @@ export default async function handler(req, res) {
     // event_id com entropy crypto.randomUUID (não Math.random).
     const eventId = 'purchase_' + Date.now() + '_' + crypto.randomUUID().slice(0, 8);
 
-    const payload = {
-      data: [{
-        event_name: 'Purchase',
-        event_time: Math.floor(Date.now() / 1000),
-        event_id: eventId,
-        event_source_url: lead?.data?.event_source_url || 'https://icelasers.com.br/',
-        action_source: 'website',
-        user_data: userData,
-        custom_data: {
-          value: parsedValue,
-          currency,
-          content_name: 'Depilacao Laser',
-          content_category: 'depilacao_laser',
-          content_type: 'product',
-          customer_segmentation: 'new_customer_to_business',
-        },
-      }],
-      partner_agent: PARTNER_AGENT,
-    };
+    // REFATORAÇÃO 20/04/2026 — usar _lib/capi.js sendCapiEvents + filterValidEvents.
+    // Helper central aplica retry 2x (backoff 1s+2s), defensive JSON parse, X-App-Usage
+    // monitor. filterValidEvents clampa event_time imutavelmente + rejeita inválidos.
+    const events = [{
+      event_name: 'Purchase',
+      event_time: Math.floor(Date.now() / 1000),
+      event_id: eventId,
+      event_source_url: lead?.data?.event_source_url || 'https://icelasers.com.br/',
+      action_source: 'website',
+      user_data: userData,
+      custom_data: {
+        value: parsedValue,
+        currency,
+        content_name: 'Depilacao Laser',
+        content_category: 'depilacao_laser',
+        content_type: 'product',
+        customer_segmentation: 'new_customer_to_business',
+      },
+    }];
 
-    // Authorization Bearer (evita expor token na URL / logs)
-    const metaRes = await fetch(
-      `${GRAPH_BASE}/${PIXEL_ID}/events`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      }
-    );
-    // Fix CRITICAL AI deep review v2 (b3 conversion.js:169): defensive JSON parse
-    // + verificar se CAPI retornou erro. Antes: res.json() cru + retornava 200 OK
-    // mesmo se Meta rejeitou. Purchase perdidos silenciosamente.
-    const rawText = await metaRes.text();
-    let metaResult;
-    try { metaResult = JSON.parse(rawText); }
-    catch {
-      console.error(`[CONVERSION] CAPI non-JSON response (${metaRes.status}): ${rawText.substring(0,200)}`);
-      return res.status(502).json({ ok: false, error: 'capi_non_json_response' });
+    const validatedEvents = filterValidEvents(events);
+    if (validatedEvents.length === 0) {
+      console.error('[CONVERSION] Purchase event failed validation');
+      return res.status(400).json({ ok: false, error: 'validation_failed' });
     }
+
+    const metaResult = await sendCapiEvents(validatedEvents, token);
+
     if (metaResult?.error) {
       console.error(`[CONVERSION] CAPI error: code=${metaResult.error.code} msg=${metaResult.error.message}`);
       return res.status(502).json({ ok: false, error: 'capi_upstream_error' });

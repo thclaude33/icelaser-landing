@@ -146,6 +146,20 @@ export function filterValidEvents(events) {
       console.warn(`[CAPI INVALID] business_messaging sem messaging_channel: ${evt.event_name}`);
       continue;
     }
+    // Defense-in-depth AI sanity v3: validar custom_data.value (número finito)
+    // + currency (ISO 4217 = 3 letras uppercase) quando presentes. Meta rejeita
+    // silenciosamente value string ou currency inválido → EMQ degradado.
+    if (evt.custom_data) {
+      const { value, currency } = evt.custom_data;
+      if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
+        console.warn(`[CAPI INVALID] ${evt.event_name} custom_data.value não é number finito: ${value}`);
+        continue;
+      }
+      if (currency !== undefined && (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency))) {
+        console.warn(`[CAPI INVALID] ${evt.event_name} custom_data.currency não é ISO 4217: ${currency}`);
+        continue;
+      }
+    }
     // Clamp event_time se > now (futuro — não aceita) ou < now-7d (rejeita 2804003).
     let clampedTime = evt.event_time;
     if (clampedTime > nowSec) {
