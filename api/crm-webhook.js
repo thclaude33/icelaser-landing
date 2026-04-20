@@ -304,7 +304,14 @@ export default async function handler(req, res) {
   // Normaliza (email RFC2822, phone e.164 strip zeros, nome lowercase+strip punct,
   // country/state mapping completo), hasheia SHA-256 e deriva advanced matching
   // partial keys (f5first, f5last, fi) automaticamente pra aumentar EMQ.
-  const now = Math.floor(Date.now() / 1000);
+  // Fix: use webhook timestamp (x-chatwoot-timestamp header) for idempotency.
+  // If webhook is retried by Chatwoot, same timestamp ensures identical event_id,
+  // enabling Meta's dedup to work correctly (without duplicates from retries).
+  // Chatwoot sends timestamp in Unix seconds (already validated in verifyChatwootSignature).
+  const chatwootTs = req.headers['x-chatwoot-timestamp'];
+  const now = chatwootTs 
+    ? parseInt(chatwootTs, 10)
+    : Math.floor(Date.now() / 1000);
   let firstName = null, lastName = null;
   if (nome) {
     const parts = nome.trim().split(/\s+/);
