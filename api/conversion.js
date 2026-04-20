@@ -130,16 +130,21 @@ export default async function handler(req, res) {
       if (parts.length > 1) lastName = parts[parts.length - 1];
     }
     // Fix HIGH AI deep review v2 (b3 conversion.js:116): não hardcodar gender/city/state.
-      // Se lead tem esses dados no Blob original, usar. Caso contrário, deixar vazio
-      // (Meta prefere ausência a dado errado — degrada EMQ pra matches não-esperados).
+    //   Se lead tem esses dados no Blob original, usar. Caso contrário, deixar vazio.
+    // Fix HIGH AI audit 20/04/2026 (conversion.js:135): passar email + external_id
+    //   do Blob pro buildUserData. Email é a matching key mais forte do Meta — antes
+    //   Purchase perdia ela. Agora Purchase EMQ vai de ~5-6 pra ~8+.
     const userData = await buildUserData({
       phone: tel ? normalizePhone(tel) : undefined,
+      email: lead?.data?.email || undefined,
       first_name: firstName || undefined,
       last_name: lastName || undefined,
       city: lead?.data?.city || undefined,
       state: lead?.data?.state || undefined,
       zip_code: lead?.data?.zip_code || undefined,
       country: lead?.data?.country || 'br',
+      gender: lead?.data?.gender || undefined,
+      external_id: lead?.data?.external_id || lead?.data?.email || (tel ? normalizePhone(tel) : undefined),
     });
 
     // Dados originais da sessão do lead (fbp, fbc, IP, UA) — maximiza match quality

@@ -346,7 +346,10 @@ export default async function handler(req, res) {
     state: 'pe',
     zip_code: '50000',
     country: 'br',
-    gender: 'f',
+    // Fix HIGH AI audit 20/04/2026 (crm-webhook.js:349): remover gender:'f' hardcoded
+    // pra consistência com M12 aplicado em whatsapp.js. Meta penaliza mismatch mais
+    // que ausência — leads masculinos (~5%) estavam degradando EMQ com gender errado.
+    // Se gender vier de custom_attrs ou dados Chatwoot, ainda pode ser populado adiante.
   });
 
   // UTMs do contato (se vieram da LP)

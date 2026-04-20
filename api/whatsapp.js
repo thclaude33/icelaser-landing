@@ -80,7 +80,7 @@ async function enviarEmail(assunto, html) {
 }
 
 // ── PROCESSA LEAD VIA FLOW ────────────────────────────────────────────────────
-async function processarLeadFlow(from, nfmReply, ctwaClid) {
+async function processarLeadFlow(from, nfmReply, ctwaClid, wamid) {
   let dados = {};
   try { dados = JSON.parse(nfmReply.response_json || '{}'); } catch {}
 
@@ -163,10 +163,14 @@ async function processarLeadFlow(from, nfmReply, ctwaClid) {
       if (ctwaClid) userData.ctwa_clid = ctwaClid;
       if (process.env.META_PAGE_ID) userData.page_id = process.env.META_PAGE_ID;
 
-      // event_id idempotente: baseado em wamid (nfm_reply.response_json fica na msg)
-      // + tipo 'flow' pra não colidir com CTWA LeadSubmitted (event_id: `ctwa_${wamid}`).
+      // Fix HIGH AI audit 20/04/2026 (whatsapp.js:169): event_id IDEMPOTENTE.
+      // Antes: `flow_{phone}_{Date.now()/1000}` — Meta retenta webhook 7 dias → nova
+      // invocação → novo eventTime → event_id diferente → duplicata no Meta dataset.
+      // Agora: usa wamid (message.id) que é único por mensagem WhatsApp — mesmo retry
+      // gera event_id IDÊNTICO → Meta dedup funciona.
       const eventTime = Math.floor(Date.now() / 1000);
-      const eventId = `flow_${telNorm || from}_${eventTime}`;
+      const stableSeed = wamid || `${telNorm || from}_${eventTime}`;
+      const eventId = `flow_leadsubmitted_${stableSeed}`;
 
       const payload = {
         data: [{
@@ -917,7 +921,8 @@ export default async function handler(req, res) {
 
           // Lead via Flow (nfm_reply)
           if (msg.type === 'interactive' && msg.interactive?.type === 'nfm_reply') {
-            await processarLeadFlow(from, msg.interactive.nfm_reply, ctwaClid);
+            // Fix HIGH AI audit 20/04/2026: passar wamid pra event_id idempotente.
+            await processarLeadFlow(from, msg.interactive.nfm_reply, ctwaClid, msg.id);
             continue;
           }
 

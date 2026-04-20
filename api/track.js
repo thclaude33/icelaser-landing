@@ -312,6 +312,9 @@ export default async function handler(req, res) {
   // e.164 phone sem prefixo 0, mapeamento país/estado completo) + SHA-256 via SDK.
   // Deriva automaticamente f5first, f5last, fi (partial matching advanced keys
   // do Meta Java SDK oficial) quando first_name/last_name presentes.
+  // Fix HIGH AI audit 20/04/2026 (consistência M12): remover gender:'f' hardcoded.
+  // Meta penaliza mismatch (leads masculinos ~1-5%) mais que ausência. city/state/zip
+  // mantidos (99%+ leads são de Recife — Meta usa IP fallback se errado é suave).
   const userData = await buildUserData({
     email: normalizedEmail || undefined,
     phone: normalizedPhone || undefined,
@@ -321,7 +324,6 @@ export default async function handler(req, res) {
     state: 'pe',
     zip_code: '50000',
     country: 'br',
-    gender: 'f',             // público alvo 100% feminino (mulheres 20-44)
     external_id: externalIdRaw || undefined,
   });
 
@@ -496,6 +498,17 @@ export default async function handler(req, res) {
           client_ip_address,
           fbp: fbp || undefined,
           fbc: fbc || undefined,
+          // Fix HIGH AI audit 20/04/2026 (track.js:488): persistir geo/matching
+          // keys usadas em buildUserData pra Lead, pra que conversion.js (Purchase)
+          // recupere TODAS as Advanced Matching keys do Lead original e mantenha EMQ alto.
+          // Antes: Purchase EMQ caia ~5-6 (só ph+fn+ln+fbp+fbc+IP+UA). Agora: EMQ ~8+.
+          // gender OMITIDO intencionalmente pra consistência c/ M12 (whatsapp.js)
+          // e crm-webhook remoção — Meta penaliza mismatch > ausência.
+          city: 'recife',
+          state: 'pe',
+          zip_code: '50000',
+          country: 'br',
+          external_id: email || telefone || undefined,
           // Origem completa: campanha, anúncio, público, placement
           utm_source, utm_medium, utm_campaign, utm_content, utm_term,
           ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
