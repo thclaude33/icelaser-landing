@@ -526,8 +526,17 @@ export default async function handler(req, res) {
             body: JSON.stringify(payload),
           }
         );
-        const retryResult = await retryRes.json();
-        if (!retryResult.error) {
+        // Defensive JSON parse: se Meta retornar HTML (ex: Cloudflare 502 page),
+        // retryRes.json() lança SyntaxError sem esse try/catch → outer handler 500 confuso.
+        // Fix HIGH via AI review 19/04/2026.
+        let retryResult;
+        try {
+          retryResult = await retryRes.json();
+        } catch (parseErr) {
+          console.error(`[TRACK] Retry response not JSON (status=${retryRes.status}) for ${event_name}:`, parseErr.message);
+          retryResult = { error: { message: `Non-JSON response (status ${retryRes.status})` } };
+        }
+        if (retryRes.ok && !retryResult.error) {
           console.log(`[TRACK] Retry succeeded for ${event_name}`);
           finalResult = retryResult;
           capiSuccess = true;

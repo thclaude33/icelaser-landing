@@ -633,7 +633,12 @@ export default async function handler(req, res) {
       {
         ...mkBaseEvent(),
         event_name: 'Lead',
-        event_time: now - 3600,
+        // event_time: now (antes -3600). Backdating hardcoded desalinhava dedup Pixel↔CAPI
+        // quando Pixel browser disparou Lead no tempo real T (form submit) e CAPI chega
+        // com T-3600. Meta prioriza proximidade temporal na reconciliação dedup.
+        // Também invertia ordem do funnel (CR appearance antes de Lead).
+        // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
+        event_time: now,
         event_id: `${eventId}_hot_lead`,
         custom_data: {
           ...crmBase,

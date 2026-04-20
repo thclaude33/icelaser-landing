@@ -689,8 +689,9 @@ export default async function handler(req, res) {
           }
         }
         // Ad account events não vão pro Chatwoot
-        await backupPromise;
-        return res.status(200).json({ ok: true });
+        // Fix HIGH 19/04/2026: `continue` em vez de `return` pra permitir Meta
+        // batch múltiplas entries no mesmo payload. Antes só primeira era processada.
+        continue;
       }
 
       // ── PAGE EVENTS (leadgen, feed) ─────────────────────────────────────────
@@ -750,8 +751,8 @@ export default async function handler(req, res) {
           }
         }
         // Page events não vão pro Chatwoot WA
-        await backupPromise;
-        return res.status(200).json({ ok: true });
+        // Fix HIGH 19/04/2026: `continue` pra permitir Meta batch múltiplas entries.
+        continue;
       }
 
       // ── WHATSAPP BUSINESS ACCOUNT EVENTS ────────────────────────────────────
