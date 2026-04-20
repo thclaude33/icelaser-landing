@@ -871,7 +871,17 @@ export default async function handler(req, res) {
                 const nome = fields.find(f => f.name === 'full_name')?.values?.[0] || '?';
                 const tel = fields.find(f => f.name === 'phone_number')?.values?.[0] || '?';
                 const email = fields.find(f => f.name === 'email')?.values?.[0] || '';
+                // Fix AI review CRITICAL 20/04: nunca logar PII raw (LGPD). Mask helpers
+                // já existem em _lib/security.js — já usamos aqui, bom.
                 console.log(`[LEADGEN] ${maskName(nome)} | ${maskPhone(tel)} | ${maskEmail(email)}`);
+                // Fix AI review HIGH 20/04: extrair TODOS os field_data como custom_attributes
+                // (ex: "procedimento_interesse", "horario_preferido") pra atendente no Chatwoot.
+                const extraFields = {};
+                fields.forEach(f => {
+                  if (!['full_name', 'phone_number', 'email'].includes(f.name)) {
+                    extraFields[f.name] = f.values?.[0] || '';
+                  }
+                });
                 // XSS-safe: nome, tel, email podem vir maliciosos via Lead Gen Form
                 const nomeLgSafe = escapeHtml(nome);
                 const telLgSafe = escapeHtml(tel);
@@ -893,6 +903,14 @@ export default async function handler(req, res) {
                     </div>
                   </div>`
                 );
+
+                // Fix CRITICAL 20/04/2026 (AI review): lead sem phone E sem email
+                // → user_data seria empty, EMQ cai pra 0, Meta rejeita silenciosamente.
+                const hasContactData = (tel && tel !== '?' && !String(tel).includes('dummy'))
+                  || (email && email.includes('@'));
+                if (!hasContactData) {
+                  console.warn(`[LEADGEN] lead ${leadId} sem phone/email válidos — criando só contato (sem CAPI)`);
+                }
 
                 // Fix CRITICAL 20/04/2026 (wizard CRM setup): CRIAR contato + conversa no
                 // Chatwoot quando lead nativo Meta chega. Meta wizard "Etapa 2: confirme se
@@ -954,6 +972,9 @@ export default async function handler(req, res) {
                           leadgen_ad_id: String(adId || ''),
                           lead_source: 'Meta Lead Ad',
                           created_at_meta: new Date().toISOString(),
+                          // Fix AI review HIGH 20/04: propagar campos custom do form
+                          // (procedimento, horario, etc) pra atendente ver no Chatwoot.
+                          ...extraFields,
                         },
                       };
                       const createResp = await fetchCw(
@@ -985,6 +1006,10 @@ export default async function handler(req, res) {
                         `Nome: ${nome}`,
                         email ? `Email: ${email}` : null,
                         tel ? `Telefone: ${tel}` : null,
+                        // Fix AI review HIGH: campos custom do form (procedimento, horário, etc)
+                        ...Object.entries(extraFields)
+                          .filter(([_, v]) => v)
+                          .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`),
                         '',
                         `Lead ID: ${leadId}`,
                         `Form: ${formId || '-'}`,
@@ -1021,7 +1046,10 @@ export default async function handler(req, res) {
                 // Agora: CAPI event com lead_id 15-17 digits REAL (conforme Meta spec).
                 // Isso completa o funil Conversion Leads: Lead → CompleteRegistration (CRM
                 // quando stage avança) → Purchase (CRM compra).
-                if (CAPI_TOKEN && leadId) {
+                //
+                // Fix AI review 20/04 CRITICAL #5: skip CAPI quando sem dados de contato
+                // (phone/email) — EMQ despenca pra 0, Meta degrada match rate.
+                if (CAPI_TOKEN && leadId && hasContactData) {
                   try {
                     const telDigits = String(tel || '').replace(/\D/g, '');
                     let leadFirstName = null, leadLastName = null;
