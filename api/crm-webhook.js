@@ -134,16 +134,17 @@ async function sendCAPI(events, token, retryCount = 0) {
     // mas serem degradados/dropados em processamento assíncrono (match quality baixo,
     // event_source_url não verificado, user_data parcial). Antes invisível → user
     // reportou "CRM events não aparecem". Agora: log TUDO.
+    const eventsReceived = result?.events_received ?? 0;
     if (Array.isArray(result.messages) && result.messages.length > 0) {
       const names = events.map(e => e.event_name).join(',');
-      console.warn(`[CAPI WARN CRM] events=${names} received=${result.events_received} messages=${JSON.stringify(result.messages)} fbtrace=${result.fbtrace_id || 'n/a'}`);
+      console.warn(`[CAPI WARN CRM] events=${names} received=${eventsReceived} messages=${JSON.stringify(result.messages)} fbtrace=${result.fbtrace_id || 'n/a'}`);
     }
-    if (result.events_received === 0) {
+    if (eventsReceived === 0) {
       const names = events.map(e => e.event_name).join(',');
       console.error(`[CAPI SILENT_DROP CRM] events=${names} received=0 sent=${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`);
     }
-    if (result.events_received && result.events_received < events.length) {
-      console.warn(`[CAPI PARTIAL_DROP CRM] received=${result.events_received}/${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`);
+    if (eventsReceived && eventsReceived < events.length) {
+      console.warn(`[CAPI PARTIAL_DROP CRM] received=${eventsReceived}/${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`);
     }
   }
 
