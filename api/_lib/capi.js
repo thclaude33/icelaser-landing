@@ -112,20 +112,20 @@ export async function sendCapiEvents(events, token, options = {}) {
       if (Array.isArray(result.messages) && result.messages.length > 0) {
         const eventNames = events.map(e => e.event_name).join(',');
         console.warn(
-          `[CAPI WARN] events=${eventNames} received=${result.events_received} messages=${JSON.stringify(result.messages)} fbtrace=${result.fbtrace_id || 'n/a'}`
+          `[CAPI WARN] events=${eventNames} received=${result.events_received ?? 0} messages=${JSON.stringify(result.messages)} fbtrace=${result.fbtrace_id || 'n/a'}`
         );
       }
       // events_received = 0 com status 200 e sem error = silent drop total.
-      if (result.events_received === 0) {
+      if ((result.events_received ?? 0) === 0) {
         const eventNames = events.map(e => e.event_name).join(',');
         console.error(
           `[CAPI SILENT_DROP] events=${eventNames} received=0 sent=${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`
         );
       }
       // Mismatch count → parcialmente dropados.
-      if (result.events_received && result.events_received < events.length) {
+      if ((result.events_received ?? 0) > 0 && result.events_received < events.length) {
         console.warn(
-          `[CAPI PARTIAL_DROP] received=${result.events_received}/${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`
+          `[CAPI PARTIAL_DROP] received=${result.events_received ?? 0}/${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`
         );
       }
       return result;
