@@ -78,13 +78,21 @@ function sleep(ms) {
  * Evita pegar subprefixos MAIS específicos da mesma família (ex: webhooks/wa/
  * ao listar webhooks/) — a comparação startsWith filtra os filhos já tratados.
  */
-async function collectExpired(prefix, retentionDays, skipPrefixes = []) {
+async function collectExpired(prefix, retentionDays, skipPrefixes = [], deadlineMs = 0) {
   const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
   const expired = [];
   let cursor;
   let listed = 0;
+  let truncated = false;
 
   do {
+    // Fix Observability 20/04/2026: deadline abort (blob-gc 504 em 06:15 prod).
+    // Mesmo pattern aplicado em blob-stats — prefixes grandes (webhooks/wa/) com
+    // milhares de blobs podem paginar + collect por minutos. Retorna parcial.
+    if (deadlineMs && Date.now() > deadlineMs) {
+      truncated = true;
+      break;
+    }
     const result = await list({ prefix, cursor, limit: LIST_PAGE_LIMIT });
     listed += result.blobs.length;
 
@@ -101,16 +109,24 @@ async function collectExpired(prefix, retentionDays, skipPrefixes = []) {
     cursor = result.hasMore ? result.cursor : undefined;
   } while (cursor);
 
-  return { expired, listed };
+  return { expired, listed, truncated };
 }
 
 /**
  * Deleta em batches respeitando rate limit.
  * del() é free, mas cada URL conta como 1 Advanced Op (rate limit).
  */
-async function deleteBatched(urls) {
+async function deleteBatched(urls, deadlineMs = 0) {
   let deleted = 0;
+  let stopped = false;
   for (let i = 0; i < urls.length; i += BATCH_SIZE) {
+    // Fix Observability 20/04/2026: deadline check em deleteBatched também.
+    // Grandes volumes de expired (retention cleanup após migration) podem ter
+    // milhares de URLs → batches × sleep acumula. Retorna parcial pra não 504.
+    if (deadlineMs && Date.now() > deadlineMs) {
+      stopped = true;
+      break;
+    }
     const batch = urls.slice(i, i + BATCH_SIZE);
     try {
       await del(batch);
@@ -120,7 +136,7 @@ async function deleteBatched(urls) {
     }
     if (i + BATCH_SIZE < urls.length) await sleep(BATCH_SLEEP_MS);
   }
-  return deleted;
+  return { deleted, stopped };
 }
 
 export default async function handler(req, res) {
@@ -146,20 +162,30 @@ export default async function handler(req, res) {
   // Dry-run mode: ?dry=1 lista o que seria deletado sem executar.
   const dryRun = req.query?.dry === '1';
   const startMs = Date.now();
+  // Fix Observability 20/04/2026: deadline 25s (dentro timeout 30s Vercel).
+  // Prefixes acima do cutoff retornam parcial com `truncated:true`. Próxima
+  // execução do cron 24h depois continua do zero — limpa o que restou.
+  const deadlineMs = startMs + 25000;
   const report = {};
 
   const processedPrefixes = [];
   for (const prefix of ORDERED_PREFIXES) {
+    // Se deadline já estourou, skip prefixes restantes.
+    if (Date.now() > deadlineMs) {
+      report[prefix] = { skipped: true, reason: 'deadline_exceeded_before_start' };
+      continue;
+    }
     try {
       const retention = RETENTION_DAYS[prefix];
-      // Child prefixes já processados DEVEM ser pulados ao listar pais.
-      // Ex: ao processar 'webhooks/', skip tudo que começa com 'webhooks/wa/' (já tratado).
       const childSkips = processedPrefixes.filter(p => p.startsWith(prefix) && p !== prefix);
-      const { expired, listed } = await collectExpired(prefix, retention, childSkips);
+      const { expired, listed, truncated: collectTruncated } = await collectExpired(prefix, retention, childSkips, deadlineMs);
 
       let deleted = 0;
+      let deleteStopped = false;
       if (!dryRun && expired.length > 0) {
-        deleted = await deleteBatched(expired);
+        const delResult = await deleteBatched(expired, deadlineMs);
+        deleted = delResult.deleted;
+        deleteStopped = delResult.stopped;
       }
 
       report[prefix] = {
@@ -168,6 +194,8 @@ export default async function handler(req, res) {
         expired: expired.length,
         deleted,
         child_skips: childSkips,
+        collect_truncated: collectTruncated,
+        delete_stopped: deleteStopped,
       };
       processedPrefixes.push(prefix);
     } catch (e) {
