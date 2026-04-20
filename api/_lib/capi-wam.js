@@ -67,7 +67,7 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   }
   // Fix HIGH (AI review): event_id obrigatório pra dedup. Sem ele, Meta conta
   // duplicatas quando cron retry dispara o mesmo evento (quebra métricas).
-  if (!event_id || typeof event_id !== 'string') {
+  if (!event_id || typeof event_id !== 'string' || event_id.length < 8) {
     return { skipped: 'wam_event_id_required_for_dedup' };
   }
   // Fix HIGH (AI review): Purchase sem currency+value é aceito mas atribui
