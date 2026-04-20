@@ -31,6 +31,23 @@ const GENDER_FEMALE = new Set(['f', 'female', 'woman', 'girl', 'mrs', 'ms']);
 // Novo: exige local >= 1, domain com dot, TLD >= 2 chars, sem chars espúrios.
 const EMAIL_STRICT = /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$/i;
 
+// Fix MEDIUM AI deep v3 (piiBuilder.js:93): mapeia nomes completos dos 27 estados
+// BR pra abreviação oficial de 2 chars (Meta spec `st` recebe 2-char ISO/region
+// code). Antes: `normalized.replace(/[^a-z]/g,'').slice(0,2)` pegava "saopaulo"
+// → "so" em vez de "sp". Agora: nome completo → lookup → 2-char correto.
+// Inputs já estão lowercase + strip non-alpha quando chegam aqui.
+const STATE_FULLNAME_TO_ABBR = {
+  acre: 'ac', alagoas: 'al', amapa: 'ap', amazonas: 'am',
+  bahia: 'ba', ceara: 'ce', distritofederal: 'df',
+  espiritosanto: 'es', goias: 'go', maranhao: 'ma',
+  matogrosso: 'mt', matogrossodosul: 'ms', minasgerais: 'mg',
+  para: 'pa', paraiba: 'pb', parana: 'pr', pernambuco: 'pe',
+  piaui: 'pi', riodejaneiro: 'rj', riograndedonorte: 'rn',
+  riograndedosul: 'rs', rondonia: 'ro', roraima: 'rr',
+  santacatarina: 'sc', saopaulo: 'sp', sergipe: 'se',
+  tocantins: 'to',
+};
+
 // Helper direto pra sha256 de valor já normalizado (evita SDK overhead e
 // ambiguidade do path 'external_id' pros partial matching keys fi/f5first/f5last).
 function sha256Hex(s) {
@@ -110,10 +127,17 @@ function manualFallback(value, dataType) {
         .replace(/[!"#$%&'()*+,\-./:;<=>?@ \[\]^_`{|}~\s]+/g, '');
       if (!normalized) return null;
       break;
-    case 'state':
-      // 2-letter lowercase
-      normalized = normalized.replace(/[^a-z]/g, '').slice(0, 2);
+    case 'state': {
+      // Fix MEDIUM AI deep v3 (piiBuilder.js:93): accept state como nome completo
+      // OU abreviação 2-char. Antes: slice(0,2) pegava "so" de "saopaulo" em
+      // vez de "sp". Agora: strip accents+non-alpha → lookup fullname → se achou,
+      // usa abreviação; senão assume que input já era 2-char abbr.
+      const cleaned = normalized.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z]/g, '');
+      if (!cleaned) return null;
+      normalized = STATE_FULLNAME_TO_ABBR[cleaned] || cleaned.slice(0, 2);
       break;
+    }
     case 'country':
       normalized = normalized.replace(/[^a-z]/g, '').slice(0, 2);
       break;
@@ -164,6 +188,17 @@ function manualFallback(value, dataType) {
  */
 export async function buildUserData(plain) {
   const ud = {};
+  // Fix MEDIUM AI deep v3 (piiBuilder.js:93): pré-mapear state full-name BR → 2-char
+  // abbr ANTES do SDK Meta. SDK faz slice(0,2) que quebra "saopaulo" → "sa" (esperado "sp").
+  // Aplicamos mapeamento aqui, depois SDK apenas hashea o 2-char correto.
+  let normalizedState = plain.state;
+  if (typeof plain.state === 'string' && plain.state.length > 2) {
+    const cleaned = plain.state.toLowerCase().normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
+    if (STATE_FULLNAME_TO_ABBR[cleaned]) {
+      normalizedState = STATE_FULLNAME_TO_ABBR[cleaned];
+    }
+  }
   const pii = [
     ['em', plain.email, 'email'],
     ['ph', plain.phone, 'phone'],
@@ -172,7 +207,7 @@ export async function buildUserData(plain) {
     ['db', plain.date_of_birth, 'date_of_birth'],
     ['ge', plain.gender, 'gender'],
     ['ct', plain.city, 'city'],
-    ['st', plain.state, 'state'],
+    ['st', normalizedState, 'state'],
     ['zp', plain.zip_code, 'zip_code'],
     ['country', plain.country, 'country'],
     ['external_id', plain.external_id, 'external_id'],
