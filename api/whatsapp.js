@@ -859,6 +859,34 @@ export default async function handler(req, res) {
             const created = value?.created_time;
             console.log(`[LEADGEN] 🎯 Novo lead! ID:${leadId} Form:${formId} Ad:${adId}`);
 
+            // Fix CRITICAL #3 AI review (20/04/2026): Dead Letter Queue via Blob.
+            // Salvar payload imediatamente como "pending" pra sobreviver cold-start,
+            // timeout, Railway down etc. Cron /api/cron/process-leadgen reprocessa
+            // blobs pending a cada 5min até sucesso ou TTL 30d.
+            // NÃO toca CAPI payload — só garante que lead NUNCA se perde.
+            if (leadId && process.env.BLOB_READ_WRITE_TOKEN) {
+              try {
+                const dlqBlobPath = `leadgen/pending/${leadId}.json`;
+                await put(dlqBlobPath, JSON.stringify({
+                  leadgen_id: String(leadId),
+                  form_id: String(formId || ''),
+                  ad_id: String(adId || ''),
+                  created_time: created,
+                  page_id: value?.page_id || '',
+                  received_at: new Date().toISOString(),
+                  processed: false,
+                }), {
+                  access: 'public',
+                  addRandomSuffix: false,  // idempotente — mesma leadgen_id reescreve
+                  contentType: 'application/json',
+                });
+                console.log(`[LEADGEN DLQ] ✅ Payload salvo em ${dlqBlobPath}`);
+              } catch (dlqErr) {
+                console.error(`[LEADGEN DLQ] blob save failed: ${dlqErr.message}`);
+                // Não bloqueia processamento principal — falha em Blob não perde lead
+              }
+            }
+
             // Buscar dados do lead via API
             if (leadId && META_TOKEN) {
               try {
@@ -943,8 +971,7 @@ export default async function handler(req, res) {
                       return fetch(url, { ...opts, signal: ctrl.signal })
                         .finally(() => clearTimeout(timer));
                     };
-                    // 1. DEDUP: buscar contato existente por identifier
-                    //    Chatwoot /contacts/search usa q= full-text; usar /contacts/filter pra exact match.
+                    // 1. DEDUP Stage 1: por leadgen_{id} identifier (mesmo webhook retry)
                     const filterResp = await fetchCw(
                       `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(identifier)}`,
                       { headers: cwHeaders }
@@ -954,6 +981,28 @@ export default async function handler(req, res) {
                     if (filterJson?.payload?.length > 0) {
                       const match = filterJson.payload.find(c => c.identifier === identifier);
                       if (match) contactId = match.id;
+                    }
+
+                    // Fix MEDIUM #12 AI review 20/04: DEDUP Stage 2 por phone/email —
+                    // mesmo user pode submeter múltiplos forms (campanhas diferentes).
+                    // Se phone/email existe mas leadgen_id novo, reusa contato + cria conversa.
+                    // Evita contatos duplicados pra mesma pessoa no Chatwoot.
+                    if (!contactId && (tel || email)) {
+                      const searchTerm = (email && email.includes('@')) ? email : String(tel || '').replace(/\D/g, '').slice(-11);
+                      if (searchTerm) {
+                        try {
+                          const altResp = await fetchCw(
+                            `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(searchTerm)}`,
+                            { headers: cwHeaders }, 5000
+                          );
+                          const altJson = await altResp.json();
+                          if (altJson?.payload?.length > 0) {
+                            // Primeira coincidência por phone/email suffix
+                            contactId = altJson.payload[0].id;
+                            console.log(`[LEADGEN→CHATWOOT] ℹ️ Contato encontrado por phone/email id=${contactId} lead_id=${leadId} (cross-campaign dedup)`);
+                          }
+                        } catch { /* fallback pra criar novo */ }
+                      }
                     }
 
                     if (!contactId) {
@@ -1031,6 +1080,17 @@ export default async function handler(req, res) {
                       const convJson = await convResp.json();
                       if (convJson?.id) {
                         console.log(`[LEADGEN→CHATWOOT] ✅ Conversa criada id=${convJson.id} contact=${contactId}`);
+                        // Fix DLQ CRITICAL #3: marcar Blob como processed ao sucesso.
+                        if (process.env.BLOB_READ_WRITE_TOKEN) {
+                          try {
+                            await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
+                              leadgen_id: String(leadId),
+                              contact_id: contactId,
+                              conversation_id: convJson.id,
+                              processed_at: new Date().toISOString(),
+                            }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+                          } catch { /* swallow — não crítico */ }
+                        }
                       } else {
                         console.warn(`[LEADGEN→CHATWOOT] ⚠️ createConversation resp=${JSON.stringify(convJson).slice(0, 250)}`);
                       }
