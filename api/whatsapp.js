@@ -8,7 +8,7 @@
 
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
-import { put } from '@vercel/blob';
+import { put, head } from '@vercel/blob';
 import { PIXEL_ID, GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml, sanitizeHeader } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
@@ -576,8 +576,39 @@ export default async function handler(req, res) {
     // Dispara backup em paralelo (não bloqueia processamento)
     const backupPromise = backupBlob();
 
-    // ── DEDUPLICAÇÃO (evita processar mesmo evento 2x no retry da Meta) ────────
-    const processedIds = new Set();
+    // ── DEDUPLICAÇÃO PERSISTENTE via Vercel Blob (sobrevive cold starts) ──────
+    // Bug CRITICAL detectado via AI code review 19/04/2026 (Claude Opus 4.6):
+    // Antes usava `new Set()` em memória. Vercel serverless recria a cada invocação.
+    // Meta retenta webhooks 7 dias → retry = nova invocação → Set vazio → duplicate.
+    // Agora: Blob `dedup/wa/{key}.json` (público + nome previsível — sem PII, só timestamp).
+    // TTL via cron blob-gc.js (retention 7d alinhada com Meta webhook retry window).
+    // Fallback em memória mantido pra casos onde Blob falha ou não está configurado.
+    const memSet = new Set();
+    const hasBlob = !!process.env.BLOB_READ_WRITE_TOKEN;
+    const dedupCheck = async (key) => {
+      if (memSet.has(key)) return true;
+      if (!hasBlob) return false;
+      try {
+        await head(`dedup/wa/${key}.json`);
+        return true; // existe → já processado
+      } catch {
+        return false; // 404 → novo
+      }
+    };
+    const dedupMark = async (key) => {
+      memSet.add(key);
+      if (!hasBlob) return;
+      try {
+        await put(`dedup/wa/${key}.json`, JSON.stringify({ t: Date.now() }), {
+          access: 'public',
+          contentType: 'application/json',
+          cacheControlMaxAge: 0,
+          allowOverwrite: true,
+        });
+      } catch (e) {
+        console.warn(`[DEDUP] ⚠️ Blob write failed for ${key}: ${e.message}`);
+      }
+    };
 
     // Processa eventos por object type
     const objectType = body.object; // whatsapp_business_account, ad_account, page
@@ -590,8 +621,8 @@ export default async function handler(req, res) {
         for (const change of entry.changes || []) {
           const { field, value } = change;
           const dedup = `${field}_${value?.id || entry.id}_${entry.time}`;
-          if (processedIds.has(dedup)) continue;
-          processedIds.add(dedup);
+          if (await dedupCheck(dedup)) { console.log(`[DEDUP] ⏭️ Skip ad_account: ${dedup}`); continue; }
+          await dedupMark(dedup);
 
           if (field === 'creative_fatigue') {
             const nivel = value?.fatigue_level || '?';
@@ -737,12 +768,12 @@ export default async function handler(req, res) {
 
         // Mensagens
         for (const msg of value.messages || []) {
-          // Deduplicação por message ID
-          if (msg.id && processedIds.has(msg.id)) {
-            console.log(`[DEDUP] Ignorando msg duplicada: ${msg.id}`);
+          // Deduplicação por message ID via Blob persistente
+          if (msg.id && await dedupCheck(msg.id)) {
+            console.log(`[DEDUP] ⏭️ Ignorando msg duplicada: ${msg.id}`);
             continue;
           }
-          if (msg.id) processedIds.add(msg.id);
+          if (msg.id) await dedupMark(msg.id);
 
           const from = msg.from;
           let ctwaClid = null;

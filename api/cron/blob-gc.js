@@ -41,6 +41,7 @@ const RETENTION_DAYS = {
   'webhooks/wa/':  30,   // backup WhatsApp (só fallback se Chatwoot crashar)
   'webhooks/':     60,   // vercel webhook events (deploys, firewall, alerts)
   'media/':         7,   // media WA baixada da Meta pro Chatwoot
+  'dedup/wa/':      7,   // dedup keys persistentes (alinha com Meta webhook retry window)
 };
 
 // Ordem de processamento: mais específico primeiro (webhooks/wa/ antes de webhooks/).
@@ -52,6 +53,7 @@ const ORDERED_PREFIXES = [
   'webhooks/wa/',
   'webhooks/',
   'media/',
+  'dedup/wa/',
 ];
 
 const BATCH_SIZE = 64;

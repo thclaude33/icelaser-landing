@@ -504,11 +504,17 @@ export default async function handler(req, res) {
   // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
   const ctwaAdMeta = ctwaData && ctwaData.ad_metadata ? ctwaData.ad_metadata : null;
 
-  const baseEvent = {
+  // Factory: cada chamada retorna novo objeto com shallow clone de user_data,
+  // evitando referência compartilhada que poluiria todos os eventos do batch.
+  // Bug CRITICAL detectado via AI code review 19/04/2026 (Claude Opus 4.6).
+  // Antes: `const baseEvent` + spread `...baseEvent` copiava REFERÊNCIA de user_data
+  // → qualquer mutação em user_data de um evento afetava TODOS os events do array.
+  // Funcionava por acidente hoje (nenhum código mutava pós-push) mas era bomba-relógio.
+  const mkBaseEvent = () => ({
     event_source_url: eventSourceUrl,
     action_source: 'system_generated',  // CRM events: system_generated (não chat)
-    user_data: userData,
-  };
+    user_data: { ...userData },         // shallow clone — arrays dentro (em, ph, fn...) ficam shared mas são imutáveis na prática
+  });
 
   // custom_data base para todos os eventos CRM (conforme guia Meta Conversion Leads)
   const crmBase = {
@@ -578,7 +584,7 @@ export default async function handler(req, res) {
     events.push(
       // 1) Standard Lead event — otimização (EMQ calculado, predicted_ltv=0 signal)
       {
-        ...baseEvent,
+        ...mkBaseEvent(),
         event_name: 'Lead',
         event_time: now,
         event_id: `${eventId}_disqualified`,
@@ -587,7 +593,7 @@ export default async function handler(req, res) {
       // 2) Custom LeadDesqualificado event — audience creation (exclude list)
       //    event_id diferente pra Meta NÃO deduplicar (são sinais distintos).
       {
-        ...baseEvent,
+        ...mkBaseEvent(),
         event_name: 'LeadDesqualificado',
         event_time: now,
         event_id: `${eventId}_disqualified_audience`,
@@ -599,7 +605,7 @@ export default async function handler(req, res) {
   // 🧊 LEAD FRIO — sinal fraco (lead vai reagir mas não converter alto)
   if (hasLabel('lead_frio', '🧊 Lead Frio', '🧊_lead_frio', 'cold_lead', 'lead frio', 'frio')) {
     events.push({
-      ...baseEvent,
+      ...mkBaseEvent(),
       event_name: 'Lead',
       event_time: now,
       event_id: `${eventId}_cold_lead`,
@@ -620,7 +626,7 @@ export default async function handler(req, res) {
   if (hasLabel('lead_quente', '🔥 Lead Quente', '🔥_lead_quente', 'hot_lead', 'lead quente', 'quente')) {
     events.push(
       {
-        ...baseEvent,
+        ...mkBaseEvent(),
         event_name: 'Lead',
         event_time: now - 3600,
         event_id: `${eventId}_hot_lead`,
@@ -635,7 +641,7 @@ export default async function handler(req, res) {
         },
       },
       {
-        ...baseEvent,
+        ...mkBaseEvent(),
         event_name: 'CompleteRegistration',
         event_time: now,
         event_id: `${eventId}_hot_cr`,
@@ -663,7 +669,7 @@ export default async function handler(req, res) {
   if (hasLabel('link_pagamento', '💳 Link Pagamento', '💳_link_pagamento', 'link pagamento', 'pagamento', 'checkout')) {
     const valor = safeValorParse(customAttrs.purchase_value);
     events.push({
-      ...baseEvent,
+      ...mkBaseEvent(),
       event_name: 'InitiateCheckout',
       event_time: now,
       event_id: `${eventId}_ic`,
@@ -676,14 +682,14 @@ export default async function handler(req, res) {
     const valor = safeValorParse(customAttrs.purchase_value);
     events.push(
       {
-        ...baseEvent,
+        ...mkBaseEvent(),
         event_name: 'InitiateCheckout',
         event_time: now - 1800,
         event_id: `${eventId}_purchase_ic`,
         custom_data: { ...crmBase, currency: 'BRL', value: valor, content_name: 'Compra CRM', customer_segmentation: customerSeg },
       },
       {
-        ...baseEvent,
+        ...mkBaseEvent(),
         event_name: 'Purchase',
         event_time: now,
         event_id: `${eventId}_purchase`,
