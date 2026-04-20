@@ -283,9 +283,12 @@ async function lookupAdMetadata(adId) {
     // - placement: feed/stories/reels (via adset.targeting.publisher_platforms)
     // Meta rate-limit: 1 call extra por novo CTWA lead. Com cache Blob futuro
     // (por ad_id vs por phone atual), pode reduzir em >95%.
-    const adFields = 'name,adset_id,adset_name,campaign_id,campaign_name';
-    const adsetFields = 'optimization_goal,destination_type,targeting';
-    const campaignFields = 'objective,buying_type,status';
+    // Meta Graph API: nó Ad NÃO expõe adset_name/campaign_name como top-level —
+    // erro #100 "Tried accessing nonexisting field". Pegar via expansion adset{name},
+    // campaign{name} (relacionamento).
+    const adFields = 'name,adset_id,campaign_id';
+    const adsetFields = 'name,optimization_goal,destination_type,targeting';
+    const campaignFields = 'name,objective,buying_type,status';
     const fields = `${adFields},adset{${adsetFields}},campaign{${campaignFields}}`;
     const r = await fetch(`${GRAPH_BASE}/${adId}?fields=${fields}`, {
       headers: { 'Authorization': `Bearer ${META_TOKEN}` },
@@ -300,9 +303,9 @@ async function lookupAdMetadata(adId) {
       ad_id: adId,
       ad_name: data.name || null,
       adset_id: data.adset_id || null,
-      adset_name: data.adset_name || null,
+      adset_name: data.adset?.name || null,        // via expansion
       campaign_id: data.campaign_id || null,
-      campaign_name: data.campaign_name || null,
+      campaign_name: data.campaign?.name || null,  // via expansion
       // Novos campos ricos:
       optimization_goal: data.adset?.optimization_goal || null,   // ex: CONVERSATIONS
       destination_type: data.adset?.destination_type || null,     // ex: WHATSAPP
