@@ -44,17 +44,36 @@ const rlBuckets = new Map();
  *
  * Verificado executando o SDK real (test-subdomain.mjs) contra icelasers.com.br:
  *   host=icelasers.com.br          → subdomainIndex=2
- *   host=www.icelasers.com.br      → subdomainIndex=3
+ *   host=www.icelasers.com.br      → subdomainIndex=2 (TLD composto .com.br)
  *   host=example.com               → subdomainIndex=1
+ *   host=www.example.com           → subdomainIndex=1
  *
- * `.com.br` é TLD composto: Meta SDK interpreta como 3 segments (ice|com|br)
- * → index = 3 - 1 = 2. Consistência crítica com Pixel browser (que carrega
- * o mesmo SDK via unpkg CDN) — mismatch aqui causa Events Manager flag.
+ * `.com.br` é TLD composto (2-part TLD): Meta SDK usa public suffix list e
+ * interpreta ambos icelasers.com.br e www.icelasers.com.br como eTLD+1=icelasers.com.br
+ * → index = 3 - 1 = 2 em ambos os casos. Consistência crítica com Pixel browser
+ * (que carrega o mesmo SDK via unpkg CDN) — mismatch aqui causa Events Manager flag.
  */
 function computeSubdomainIndex(host) {
   if (!host) return 2;
   // Strip port (host:port) e lowercase.
   const clean = host.split(':')[0].toLowerCase();
+  
+  // Known multi-part (2-level) TLDs: .com.br, .co.uk, .co.in, etc.
+  // Para esses casos, o eTLD+1 exclui subdomínios como www.
+  // Exemplos: icelasers.com.br e www.icelasers.com.br ambos têm eTLD+1 = icelasers.com.br
+  const multiPartTlds = ['.com.br', '.co.uk', '.co.in', '.co.za', '.ac.uk', '.com.au', '.co.nz'];
+  for (const tld of multiPartTlds) {
+    if (clean.endsWith(tld)) {
+      // Extract eTLD+1: remove tld suffix, take last segment before it, append tld
+      const beforeTld = clean.slice(0, -(tld.length));
+      const lastSegment = beforeTld.split('.').pop();
+      const etld1 = lastSegment + tld;
+      const segments = etld1.split('.').filter(Boolean);
+      return Math.max(1, segments.length - 1);
+    }
+  }
+  
+  // For single-part TLDs (.com, .org, etc.), use standard calculation
   const segments = clean.split('.').filter(Boolean);
   if (segments.length === 0) return 2;
   return Math.max(1, segments.length - 1);

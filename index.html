@@ -201,7 +201,23 @@
     if(document.cookie.match(/(?:^|;\s*)_fbp=/)) return;
     var host = location.hostname || '';
     var segs = host.split('.').filter(Boolean);
-    var idx = Math.max(1, segs.length - 1);
+    var idx = 2;
+    var multiPartTlds = [".com.br", ".co.uk", ".co.in", ".co.za", ".ac.uk", ".com.au", ".co.nz"];
+    var found = false;
+    for (var t = 0; t < multiPartTlds.length; t++) {
+      if (host.endsWith(multiPartTlds[t])) {
+        var tld = multiPartTlds[t];
+        var beforeTld = host.slice(0, -(tld.length));
+        var segs = (beforeTld.split(".").pop() + tld).split(".").filter(Boolean);
+        idx = Math.max(1, segs.length - 1);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      var segs = host.split(".").filter(Boolean);
+      if (segs.length > 0) idx = Math.max(1, segs.length - 1);
+    }
     var rand;
     if (window.crypto && crypto.getRandomValues) {
       var arr = new Uint8Array(8);
