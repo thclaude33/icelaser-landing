@@ -27,8 +27,16 @@ async function findLeadInBlob(nome, telefone) {
   // Fix HIGH AI deep review v2 (b3 conversion.js:40): limit 100, sem paginate
   // completo (antes: do-while cursor pegava TODOS leads, O(N) fetches). Agora:
   // priorizar leads recentes (Blob DESC uploadedAt) + Promise.allSettled paralelo.
+  // Fix: Vercel Blob list() não garante DESC order — sort manual necessário pra
+  // realmente priorizar leads recentes e evitar perder conversões de leads antigos.
   const result = await list({ prefix: 'leads/pending/', limit: 100 });
-  const blobs = (result.blobs || []).filter(b => b.size > 200);
+  const candidates = (result.blobs || []).filter(b => b.size > 200);
+  // Sort DESC by uploadedAt (mais recentes primeiro) para priorizar leads novos
+  const blobs = candidates.sort((a, b) => {
+    const aTime = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
+    const bTime = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
+    return bTime - aTime; // DESC: maior timestamp primeiro
+  });
   const datas = await Promise.allSettled(
     blobs.map(async (blob) => {
       const res = await fetch(blob.url);
