@@ -13,6 +13,7 @@ import { PIXEL_ID, GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml, sanitizeHeader } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
+import { sendWAMEvent } from './_lib/capi-wam.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
@@ -225,6 +226,34 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid) {
             console.error(`[CAPI SILENT_DROP FLOW] received=0 fbtrace=${respBody.fbtrace_id || 'n/a'}`);
           }
           console.log(`[FLOW LeadSubmitted] ✅ ph=${maskPhone(from)} ctwa=${!!ctwaClid} received=${eventsReceived}`);
+        }
+      }
+
+      // WAM Dataset (WhatsApp Marketing Message Event Sharing) — disparar EM
+      // PARALELO quando ctwa_clid presente. Dataset exige ctwa_clid + page_id +
+      // action_source=business_messaging + event_name padrão Meta.
+      // Mesmo event_id permite dedup cross-dataset se Meta implementar.
+      if (ctwaClid) {
+        try {
+          const wamResp = await sendWAMEvent({
+            event_name: 'LeadSubmitted',
+            event_id: eventId,
+            event_time: eventTime,
+            user_data: { ...userData },
+            custom_data: {
+              event_source: 'crm',
+              lead_event_source: 'Chatwoot',
+              content_name: String(servico || 'Depilacao Laser').slice(0, 100),
+              content_category: 'depilacao_laser',
+              customer_segmentation: 'new_customer_to_business',
+              flow_source: 'WhatsApp Flow',
+            },
+          });
+          if (wamResp?.skipped) {
+            console.log(`[WAM FLOW] skipped: ${wamResp.skipped}`);
+          }
+        } catch (wamErr) {
+          console.error('[WAM FLOW] exception:', wamErr.message);
         }
       }
     } catch (e) {

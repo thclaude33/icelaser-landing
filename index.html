@@ -266,6 +266,11 @@
         if (_lsEm || _lsPh) initParams.external_id = _lsEm || _lsPh;
       } catch(_e) {}
       fbq('init', window._PIXEL_ID, initParams);
+      // WAM Dataset 967048725669499 — WhatsApp Marketing Message Event Sharing.
+      // Init paralelo pra que PageView/eventos browser também sejam atribuídos
+      // ao dataset CTWA. Meta dedup cross-dataset via event_id idêntico.
+      window._WAM_DATASET_ID = '967048725669499';
+      try { fbq('init', window._WAM_DATASET_ID, initParams); } catch(_e) {}
     })();
     // fbc fallback: algoritmo IDÊNTICO ao Meta capi-param-builder oficial.
     // urlUtil.js da SDK: regex [?#&]fbclid(=([^&#]*)|&|#|$) + replace '+' por ' '
@@ -1562,6 +1567,27 @@
       .footer-grid, .footer-copy { padding: 0; max-width: 1040px; }
     }
   </style>
+
+  <!-- Meta Pixel Code — WAM Dataset 967048725669499 (WhatsApp Marketing Event Sharing) -->
+  <!-- Snippet oficial Meta wizard. Init pixel WAM (paralelo ao 2774496306216737).
+       PageView dispara via linha 298 (com event_id pra dedup CAPI server-side).
+       Re-init com Advanced Matching também acontece no initPixel() IIFE acima. -->
+  <script>
+  !function(f,b,e,v,n,t,s)
+  {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+  n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+  if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+  n.queue=[];t=b.createElement(e);t.async=!0;
+  t.src=v;s=b.getElementsByTagName(e)[0];
+  s.parentNode.insertBefore(t,s)}(window, document,'script',
+  'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '967048725669499');
+  fbq('track', 'PageView');
+  </script>
+  <noscript><img height="1" width="1" style="display:none"
+  src="https://www.facebook.com/tr?id=967048725669499&ev=PageView&noscript=1"
+  /></noscript>
+  <!-- End Meta Pixel Code -->
 </head>
 
 <body>
