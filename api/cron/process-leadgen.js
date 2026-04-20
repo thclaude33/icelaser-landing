@@ -83,13 +83,13 @@ export default async function handler(req, res) {
             moved_at: new Date().toISOString(),
             final_retry_count: retryCount,
             reason: 'max_retries_exceeded',
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
           // Também marca processed pra não reprocessar
           await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
             leadgen_id: leadId,
             note: 'moved_to_failed',
             processed_at: new Date().toISOString(),
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
           report.failed++;
           report.items.push({ leadId, error: 'max_retries_exceeded' });
           continue;
@@ -111,7 +111,7 @@ export default async function handler(req, res) {
               leadgen_id: leadId,
               note: 'meta_graph_404_skipped',
               processed_at: new Date().toISOString(),
-            }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+            }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
             report.skipped++;
             continue;
           }
@@ -261,7 +261,7 @@ export default async function handler(req, res) {
             processed_at: new Date().toISOString(),
             processed_by: 'dlq_cron',
             retry_count: retryCount,
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
           try { await del(blob.url); } catch { /* swallow */ }
           report.processed++;
           report.items.push({ leadId, contactId, status: 'ok', retries: retryCount });
@@ -276,7 +276,7 @@ export default async function handler(req, res) {
             retry_count: retryCount,
             last_error: itemErr.message,
             last_attempt_at: new Date().toISOString(),
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
         } catch { /* swallow */ }
         report.failed++;
         report.items.push({ leadId, error: itemErr.message, retries: retryCount });

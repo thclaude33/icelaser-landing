@@ -878,21 +878,25 @@ export default async function handler(req, res) {
                   retry_count: 0,
                 }), {
                   access: 'public',
-                  addRandomSuffix: false,  // idempotente — mesma leadgen_id reescreve
+                  addRandomSuffix: false,
+                  allowOverwrite: true,  // Meta retries mesmo leadgen_id → sobrescreve (idempotente)
                   contentType: 'application/json',
                 });
                 console.log(`[LEADGEN DLQ] ✅ Payload salvo em ${dlqBlobPath}`);
               } catch (dlqErr) {
-                // Fix MEDIUM #6 AI review 20/04: alerta diferenciado quando Blob falha.
-                // Safety net quebrada — se Chatwoot também falhar, lead se perde.
-                console.error(`[LEADGEN DLQ ALERT] 🚨 SAFETY NET BROKEN — blob save failed: ${dlqErr.message} lead_id=${leadId}`);
-                // Emitir email de alerta (fire-and-forget, não bloquante)
-                try {
-                  enviarEmail(
-                    `🚨 ALERT: Blob DLQ failure — lead ${leadId} sem safety net`,
-                    `<p><strong>Blob save failed</strong>: ${escapeHtml(dlqErr.message)}</p><p>Lead ID: ${escapeHtml(String(leadId))}</p><p>Se Chatwoot/CAPI também falharem, este lead SE PERDE.</p><p>Investigar BLOB_READ_WRITE_TOKEN e Vercel Blob status.</p>`
-                  ).catch(() => {});
-                } catch {}
+                const msg = dlqErr?.message || '';
+                const isAlreadyExists = /already exists/i.test(msg);
+                if (isAlreadyExists) {
+                  console.warn(`[LEADGEN DLQ] ⚠️ blob já existe (retry Meta esperada) lead_id=${leadId}`);
+                } else {
+                  console.error(`[LEADGEN DLQ ALERT] 🚨 SAFETY NET BROKEN — blob save failed: ${msg} lead_id=${leadId}`);
+                  try {
+                    enviarEmail(
+                      `🚨 ALERT: Blob DLQ failure — lead ${leadId} sem safety net`,
+                      `<p><strong>Blob save failed</strong>: ${escapeHtml(msg)}</p><p>Lead ID: ${escapeHtml(String(leadId))}</p><p>Se Chatwoot/CAPI também falharem, este lead SE PERDE.</p><p>Investigar BLOB_READ_WRITE_TOKEN e Vercel Blob status.</p>`
+                    ).catch(() => {});
+                  } catch {}
+                }
               }
             }
 
@@ -1145,7 +1149,7 @@ export default async function handler(req, res) {
                               contact_id: contactId,
                               conversation_id: convJson.id,
                               processed_at: new Date().toISOString(),
-                            }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+                            }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
                             // Delete pending blob — cleanup (evita list overflow)
                             try {
                               const pendingBlobs = await list({ prefix: `leadgen/pending/${leadId}.json`, limit: 1 });
