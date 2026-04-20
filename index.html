@@ -266,6 +266,11 @@
         if (_lsEm || _lsPh) initParams.external_id = _lsEm || _lsPh;
       } catch(_e) {}
       fbq('init', window._PIXEL_ID, initParams);
+      // WAM Dataset 967048725669499 — WhatsApp Marketing Message Event Sharing.
+      // Init paralelo pra que PageView/eventos browser também sejam atribuídos
+      // ao dataset CTWA. Meta dedup cross-dataset via event_id idêntico.
+      window._WAM_DATASET_ID = '967048725669499';
+      try { fbq('init', window._WAM_DATASET_ID, initParams); } catch(_e) {}
     })();
     // fbc fallback: algoritmo IDÊNTICO ao Meta capi-param-builder oficial.
     // urlUtil.js da SDK: regex [?#&]fbclid(=([^&#]*)|&|#|$) + replace '+' por ' '

@@ -26,7 +26,9 @@ import { PARTNER_AGENT } from './capi.js';
 import { GRAPH_BASE } from './config.js';
 
 const WAM_DATASET_ID = process.env.WAM_DATASET_ID;
-const WAM_TOKEN = process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN;
+// Token dedicado do dataset WAM (gerado via wizard Events Manager > Dataset Quality API).
+// Fallback pra CAPI_DATASET_TOKEN (pixel principal) e META_ACCESS_TOKEN (System User).
+const WAM_TOKEN = process.env.WAM_ACCESS_TOKEN || process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN;
 // Fix HIGH (AI review): sem fallback hardcoded — atribuição cruzada em prod é compliance-breaking.
 const PAGE_ID = process.env.META_PAGE_ID;
 const WABA_ID = process.env.META_WABA_ID;
@@ -58,10 +60,9 @@ const WAM_ALLOWED_EVENTS = new Set([
  * @param {object} [opts.custom_data] - Purchase exige currency + value
  * @returns {Promise<object>} resposta Meta ou { skipped: 'reason' }
  */
-export async function sendWAMEvent({ event_name, event_id, event_time, user_data, custom_data }) {
+export async function sendWAMEvent({ event_name, event_id, event_time, user_data, custom_data, action_source = 'system_generated' }) {
   if (!WAM_DATASET_ID) return { skipped: 'wam_dataset_not_configured' };
   if (!WAM_TOKEN) return { skipped: 'wam_token_missing' };
-  if (!PAGE_ID) return { skipped: 'wam_page_id_not_configured' };
   if (!event_name || !WAM_ALLOWED_EVENTS.has(event_name)) {
     return { skipped: `wam_event_not_supported: ${event_name}` };
   }
@@ -80,26 +81,41 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   const ud = user_data || {};
   const hasCtwa = typeof ud.ctwa_clid === 'string' && ud.ctwa_clid.length >= MIN_CTWA_CLID_LENGTH;
   const hasPsid = typeof ud.page_scoped_user_id === 'string' && ud.page_scoped_user_id.length >= MIN_PSID_LENGTH;
-  if (!hasCtwa && !hasPsid) {
-    return { skipped: 'wam_requires_ctwa_clid_or_page_scoped_user_id' };
+  // business_messaging exige ctwa_clid OU psid (Meta spec); outros action_sources
+  // (system_generated, website) aceitam matching key normal (em/ph/external_id/etc).
+  const isBusinessMessaging = action_source === 'business_messaging';
+  if (isBusinessMessaging && !hasCtwa && !hasPsid) {
+    return { skipped: 'wam_business_messaging_requires_ctwa_clid_or_psid' };
   }
-  const enrichedUserData = {
-    ...ud,
-    page_id: ud.page_id || PAGE_ID,
-  };
-  if (WABA_ID && !enrichedUserData.whatsapp_business_account_id) {
+  // Qualquer action_source exige PELO MENOS UMA matching key.
+  const hasMatchingKey = !!(
+    ud.em || ud.ph || ud.external_id || ud.fbp || ud.fbc ||
+    (ud.fn && ud.ln) || ud.ctwa_clid || ud.page_scoped_user_id
+  );
+  if (!hasMatchingKey) {
+    return { skipped: 'wam_requires_matching_key' };
+  }
+  const enrichedUserData = { ...ud };
+  // page_id é obrigatório em business_messaging; opcional mas helpful em outros.
+  if (PAGE_ID && !enrichedUserData.page_id) {
+    enrichedUserData.page_id = PAGE_ID;
+  }
+  if (WABA_ID && !enrichedUserData.whatsapp_business_account_id && isBusinessMessaging) {
     enrichedUserData.whatsapp_business_account_id = WABA_ID;
   }
+  const eventObj = {
+    event_name,
+    event_time: event_time || Math.floor(Date.now() / 1000),
+    event_id,
+    action_source,
+    user_data: enrichedUserData,
+    custom_data: custom_data || {},
+  };
+  if (isBusinessMessaging) {
+    eventObj.messaging_channel = 'whatsapp';
+  }
   const payload = {
-    data: [{
-      event_name,
-      event_time: event_time || Math.floor(Date.now() / 1000),
-      event_id,
-      action_source: 'business_messaging',
-      messaging_channel: 'whatsapp',
-      user_data: enrichedUserData,
-      custom_data: custom_data || {},
-    }],
+    data: [eventObj],
     partner_agent: PARTNER_AGENT,
   };
   try {
