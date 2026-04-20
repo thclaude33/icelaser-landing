@@ -155,7 +155,7 @@ export function filterValidEvents(events) {
         console.warn(`[CAPI INVALID] ${evt.event_name} custom_data.value não é number finito: ${value}`);
         continue;
       }
-      if (currency !== undefined && (typeof currency !== 'string' || !/^[A-Z]{3}$/i.test(currency))) {
+      if (currency !== undefined && (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency))) {
         console.warn(`[CAPI INVALID] ${evt.event_name} custom_data.currency não é ISO 4217: ${currency}`);
         continue;
       }
