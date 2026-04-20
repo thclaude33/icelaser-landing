@@ -218,4 +218,10 @@ export default function middleware(request) {
     for (const c of cookiesToSet) response.headers.append('Set-Cookie', c);
     return response;
   }
+  // Fix AI audit 20/04/2026 (middleware.js:221): explicit return next() no
+  // fallthrough path. Antes: função terminava sem return quando nenhum cookie
+  // precisava setar → Vercel Edge retorna undefined → comportamento default é
+  // passar a request adiante, mas explicitar é mais claro + safer pra futuras
+  // mudanças. Retorna NextResponse.next() sem modificações pro fluxo normal.
+  return next();
 }
