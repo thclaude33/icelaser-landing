@@ -207,13 +207,14 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid) {
           console.error('[FLOW LeadSubmitted] CAPI error:', respBody.error.message);
         } else {
           // Fix CRITICAL 20/04/2026 (silent failure): log messages[] + silent drops.
+          const eventsReceived = respBody.events_received ?? 0;
           if (Array.isArray(respBody.messages) && respBody.messages.length > 0) {
-            console.warn(`[CAPI WARN FLOW] received=${respBody.events_received} messages=${JSON.stringify(respBody.messages)} fbtrace=${respBody.fbtrace_id || 'n/a'}`);
+            console.warn(`[CAPI WARN FLOW] received=${eventsReceived} messages=${JSON.stringify(respBody.messages)} fbtrace=${respBody.fbtrace_id || 'n/a'}`);
           }
-          if (respBody.events_received === 0) {
+          if (eventsReceived === 0) {
             console.error(`[CAPI SILENT_DROP FLOW] received=0 fbtrace=${respBody.fbtrace_id || 'n/a'}`);
           }
-          console.log(`[FLOW LeadSubmitted] ✅ ph=${maskPhone(from)} ctwa=${!!ctwaClid} received=${respBody.events_received}`);
+          console.log(`[FLOW LeadSubmitted] ✅ ph=${maskPhone(from)} ctwa=${!!ctwaClid} received=${eventsReceived}`);
         }
       }
     } catch (e) {
@@ -532,15 +533,16 @@ async function processarCTWA(from, message, referral, profileName) {
         console.warn(`[CTWA] ⚠️  CAPI rejected: code=${respBody.error.code} sub=${respBody.error.error_subcode} ${respBody.error.message}`);
       } else {
         // Fix CRITICAL 20/04/2026 (silent failure): log messages[] + silent drops.
+        const eventsReceived = respBody.events_received ?? 0;
         if (Array.isArray(respBody.messages) && respBody.messages.length > 0) {
-          console.warn(`[CAPI WARN CTWA] received=${respBody.events_received} messages=${JSON.stringify(respBody.messages)} fbtrace=${respBody.fbtrace_id || 'n/a'}`);
+          console.warn(`[CAPI WARN CTWA] received=${eventsReceived} messages=${JSON.stringify(respBody.messages)} fbtrace=${respBody.fbtrace_id || 'n/a'}`);
         }
-        if (respBody.events_received === 0) {
+        if (eventsReceived === 0) {
           console.error(`[CAPI SILENT_DROP CTWA] ph=${maskPhone(from)} received=0 fbtrace=${respBody.fbtrace_id || 'n/a'}`);
         }
         // Fix LOW AI review 20/04/2026 (L6): usar maskPhone em vez de slice(-4)
         // pra consistência com o resto do código (PII mascarado em logs).
-        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${maskPhone(from)} received=${respBody.events_received}`);
+        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${maskPhone(from)} received=${eventsReceived}`);
       }
     } catch (e) {
       console.warn('[CTWA] CAPI LeadSubmitted failed:', e.message);
