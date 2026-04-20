@@ -190,10 +190,49 @@
     onerror="window._paramBuilderReady=false;window._paramBuilderDone=true;"></script>
 
   <!-- fbp early generation (fallback manual) — garante _fbp se middleware/ParamBuilder ainda não rodou.
-       subdomainIndex=2 pro apex icelasers.com.br (.com.br é TLD composto; SDK Meta calcula split('.').length-1 = 3-1 = 2).
-       Verificado executando capi-param-builder-nodejs v1.2.1 contra o host real.
-       Usa 1e16 (alinhado com middleware.js pra formato consistente entre server e client). -->
-  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.2.'+Date.now()+'.'+Math.floor(Math.random()*1e16);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax;Secure';}}catch(e){}}());</script>
+       Fix MEDIUM AI deep v3 (index.html _fbp): computar subdomainIndex DINAMICAMENTE
+       alinhado com middleware.js (segments.length - 1). Antes hardcoded "fb.2." quebrava
+       se LP servida de www (3 segments → idx 2) vs apex (3 segments → idx 2; TLD composto).
+       Fix LOW: usar crypto.getRandomValues (CSPRNG) em vez de Math.random pra reduzir
+       collision em cold starts simultâneos.
+       Fix LOW: Set-Cookie do middleware chega ANTES deste inline script rodar — check
+       se já há _fbp antes de gerar (short-circuit middleware cookie). -->
+  <script>(function(){try{
+    if(document.cookie.match(/(?:^|;\s*)_fbp=/)) return;
+    var host = location.hostname || '';
+    var segs = host.split('.').filter(Boolean);
+    var idx = 2;
+    var multiPartTlds = [".com.br", ".co.uk", ".co.in", ".co.za", ".ac.uk", ".com.au", ".co.nz"];
+    var found = false;
+    for (var t = 0; t < multiPartTlds.length; t++) {
+      if (host.endsWith(multiPartTlds[t])) {
+        var tld = multiPartTlds[t];
+        var beforeTld = host.slice(0, -(tld.length));
+        var segs = (beforeTld.split(".").pop() + tld).split(".").filter(Boolean);
+        idx = Math.max(1, segs.length - 1);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      var segs = host.split(".").filter(Boolean);
+      if (segs.length > 0) idx = Math.max(1, segs.length - 1);
+    }
+    var rand;
+    if (window.crypto && crypto.getRandomValues) {
+      var arr = new Uint8Array(8);
+      crypto.getRandomValues(arr);
+      rand = 0;
+      for (var i=0;i<arr.length;i++) rand = rand * 256 + arr[i];
+      rand = rand % 1e16;
+    } else {
+      rand = Math.floor(Math.random() * 1e16);
+    }
+    var fbp = 'fb.' + idx + '.' + Date.now() + '.' + Math.floor(rand);
+    // Domain=.icelasers.com.br garante cross-subdomain (apex vs www).
+    var dom = host.endsWith('icelasers.com.br') ? '; Domain=.icelasers.com.br' : '';
+    document.cookie = '_fbp=' + fbp + ';path=/' + dom + ';max-age=15552000;SameSite=Lax;Secure';
+  }catch(e){}}());</script>
   <!-- IPv6 capture — cache 1h (IP residencial pode mudar em reconnect mobile; cache curto evita IP stale no CAPI).
        Secure flag adicionado: cookie só viaja em HTTPS (LP sempre é HTTPS, previne leak acidental). -->
   <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=3600;SameSite=Lax;Secure';}}).catch(function(){});}}catch(e){}}());</script>
@@ -208,7 +247,26 @@
     // LDU explícito: array vazio declara "sem Limited Data Use" (Brazil não entra
     // nas US state privacy laws que usam LDU). Meta prefere explícito a omissão.
     fbq('dataProcessingOptions', []);
-    fbq('init', window._PIXEL_ID, {country: 'br', st: 'pe', ct: 'recife'});
+    // Fix MEDIUM AI deep v3 (double fbq init): consolidar single init.
+    // Antes chamava init 2x (geo base + localStorage Advanced Matching re-init).
+    // Meta Pixel SDK comportamento: segundo init SUBSTITUI dados do primeiro →
+    // Advanced Matching do primeiro perde geo se localStorage só tem em/ph.
+    // Agora: única init que inclui geo + Advanced Matching quando disponível.
+    (function initPixel() {
+      var initParams = { country: 'br', st: 'pe', ct: 'recife', zp: '50000', ge: 'f' };
+      try {
+        var _lsEm = localStorage.getItem('ice_em');
+        var _lsPh = localStorage.getItem('ice_ph');
+        var _lsFn = localStorage.getItem('ice_fn');
+        var _lsLn = localStorage.getItem('ice_ln');
+        if (_lsEm) initParams.em = _lsEm;
+        if (_lsPh) initParams.ph = _lsPh;
+        if (_lsFn) initParams.fn = _lsFn;
+        if (_lsLn) initParams.ln = _lsLn;
+        if (_lsEm || _lsPh) initParams.external_id = _lsEm || _lsPh;
+      } catch(_e) {}
+      fbq('init', window._PIXEL_ID, initParams);
+    })();
     // fbc fallback: algoritmo IDÊNTICO ao Meta capi-param-builder oficial.
     // urlUtil.js da SDK: regex [?#&]fbclid(=([^&#]*)|&|#|$) + replace '+' por ' '
     // + decodeURIComponent. Consistente server-side (middleware) ↔ client-side.
@@ -229,28 +287,12 @@
         document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax;Secure';
       }
     }catch(e){}}());
-    // Advanced Matching 1ª init — se user visitou antes e submeteu form,
-    // temos email/phone em localStorage. Re-init com dados preservados
-    // DOBRA match quality em PV/VC iniciais (antes era só geo).
-    try {
-      var _lsEm = localStorage.getItem('ice_em');
-      var _lsPh = localStorage.getItem('ice_ph');
-      var _lsFn = localStorage.getItem('ice_fn');
-      var _lsLn = localStorage.getItem('ice_ln');
-      if (_lsEm || _lsPh) {
-        fbq('init', window._PIXEL_ID, {
-          em: _lsEm || undefined,
-          ph: _lsPh || undefined,
-          fn: _lsFn || undefined,
-          ln: _lsLn || undefined,
-          external_id: _lsEm || _lsPh,
-          country: 'br', st: 'pe', ct: 'recife', zp: '50000', ge: 'f',
-        });
-      }
-    } catch(_e) {}
+    // Advanced Matching consolidado no initPixel() acima — removido double init.
     var pvEventId = 'pv_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+    var pvEventTime = Math.floor(Date.now() / 1000);
     fbq('track', 'PageView', {}, {eventID: pvEventId});
     var vcEventId = 'vc_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+    var vcEventTime = Math.floor(Date.now() / 1000);
     // value=300 é proxy do ticket médio da avaliação gratuita convertida
     // (Meta recomenda value > 0 em ViewContent pra value optimization).
     fbq('track', 'ViewContent', {
@@ -261,12 +303,15 @@
     }, {eventID: vcEventId});
     // CAPI server-side PageView + ViewContent — mesmo event_id do browser = deduplicação 100%
     // Helper sendCapi com keepalive desde a 1ª tentativa + sendBeacon fallback.
-    // Fallback também em HTTP errors (4xx/5xx) além de network errors (fetch
-    // só rejeita em network; 4xx/5xx viam com r.ok=false — precisamos checar).
+    // Fix MEDIUM AI deep v3 (sendCapi): logar se sendBeacon falhou (retorna false).
+    // sendBeacon retorna false se payload > 64KB ou navegador bloqueou.
     window.sendCapi = function(payload) {
       var body = JSON.stringify(payload);
       var beacon = function() {
-        try { navigator.sendBeacon('/api/track', new Blob([body], {type: 'application/json'})); } catch(e){}
+        try {
+          var sent = navigator.sendBeacon && navigator.sendBeacon('/api/track', new Blob([body], {type: 'application/json'}));
+          if (sent === false) console.warn('[sendCapi] sendBeacon returned false — payload may exceed 64KB or browser blocked');
+        } catch(e) { console.warn('[sendCapi] beacon error:', e && e.message); }
       };
       return fetch('/api/track', {
         method: 'POST',
@@ -286,24 +331,53 @@
       var src = location.href;
       var urlParams = new URLSearchParams(location.search);
       // Captura TODAS as UTMs + Meta Ads tracking params (não só source/campaign).
-      // /api/track aceita utm_medium, utm_content, utm_term, ad_id, adset_id,
-      // campaign_id, placement, site_source_name, platform. Captura máxima =
-      // melhor attribution no email notification + Blob lead snapshot.
+      // Fix LOW AI deep v3 (baseData): inclui ad_name, adset_name, campaign_name,
+      // site_source_name, platform (antes só ad_id/adset_id/campaign_id/placement).
+      // /api/track já aceita todos — captura frontend estava parcial.
       var get = function(k) { return urlParams.get(k) || undefined; };
       var baseData = {
         event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
-        utm_source:   get('utm_source'),
-        utm_medium:   get('utm_medium'),
-        utm_campaign: get('utm_campaign'),
-        utm_content:  get('utm_content'),
-        utm_term:     get('utm_term'),
-        ad_id:        get('ad_id'),
-        adset_id:     get('adset_id'),
-        campaign_id:  get('campaign_id'),
-        placement:    get('placement'),
+        utm_source:       get('utm_source'),
+        utm_medium:       get('utm_medium'),
+        utm_campaign:     get('utm_campaign'),
+        utm_content:      get('utm_content'),
+        utm_term:         get('utm_term'),
+        ad_id:            get('ad_id'),
+        ad_name:          get('ad_name'),
+        adset_id:         get('adset_id'),
+        adset_name:       get('adset_name'),
+        campaign_id:      get('campaign_id'),
+        campaign_name:    get('campaign_name'),
+        placement:        get('placement'),
+        site_source_name: get('site_source_name'),
+        platform:         get('platform'),
       };
-      window.sendCapi(Object.assign({ event_name: 'PageView', event_id: pvEventId }, baseData));
-      window.sendCapi(Object.assign({ event_name: 'ViewContent', event_id: vcEventId }, baseData));
+      // Fix HIGH AI deep v3 (index.html:PageView event_time): incluir event_time
+      // explícito no CAPI payload (mesmo do browser Pixel). Antes /api/track gerava
+      // nowSec do lado server — divergência em redes lentas (Pixel T, CAPI T+Δ)
+      // piorava dedup Meta. Com event_time client-side idênticos, dedup é deterministic.
+      //
+      // Fix HIGH AI deep v3 (index.html:ViewContent value mismatch): browser Pixel
+      // envia value=300 currency=BRL pra Meta value optimization. Server /api/track
+      // usa CUSTOM_DATA_MAP com value=0 → divergência Pixel↔CAPI quebra dedup + ROAS.
+      // Enviamos custom_data aqui pra sobrescrever map server-side e casar com Pixel.
+      window.sendCapi(Object.assign({
+        event_name: 'PageView',
+        event_id: pvEventId,
+        event_time: pvEventTime,
+      }, baseData));
+      window.sendCapi(Object.assign({
+        event_name: 'ViewContent',
+        event_id: vcEventId,
+        event_time: vcEventTime,
+        // value/currency do browser Pixel — server /api/track aceita custom_data.* no body
+        // e substitui no CUSTOM_DATA_MAP quando frontend envia explícito (ver track.js
+        // após fix I1). Se track.js ignorar, ainda assim event_id dedup funciona.
+        value: 300,
+        currency: 'BRL',
+        content_name: 'LP Avaliacao Gratuita',
+        content_category: 'depilacao_laser',
+      }, baseData));
     })();
   </script>
 

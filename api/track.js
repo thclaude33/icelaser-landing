@@ -274,6 +274,13 @@ export default async function handler(req, res) {
     // Dados de qualificação do lead
     screen_width, screen_height, language, timezone, referrer,
     landing_url, time_on_page, scroll_depth,
+    // Fix HIGH AI deep v3 (track.js:CUSTOM_DATA override): accept frontend
+    // custom_data overrides pra alinhar Pixel browser↔CAPI server (ex: ViewContent
+    // value=300 no browser precisa espelhar no CAPI pra dedup 100%).
+    value: bodyValue,
+    currency: bodyCurrency,
+    content_name: bodyContentName,
+    content_category: bodyContentCategory,
   } = req.body || {};
 
   // IP: prioridade _cip cookie (IPv6 capturado pelo browser via api64.ipify.org)
@@ -384,6 +391,14 @@ export default async function handler(req, res) {
       ...baseData,
     });
   }
+  // Fix HIGH AI deep v3 (track.js:CUSTOM_DATA override): frontend explicit overrides.
+  // Quando Pixel browser envia value/currency/content_name pra match específico
+  // (ex: ViewContent value=300), honrar aqui evita divergência CAPI vs Pixel.
+  // Meta dedup melhor quando custom_data.value é IDÊNTICO em browser+server events.
+  if (typeof bodyValue === 'number' && Number.isFinite(bodyValue)) custom_data.value = bodyValue;
+  if (typeof bodyCurrency === 'string' && bodyCurrency.length === 3) custom_data.currency = bodyCurrency;
+  if (typeof bodyContentName === 'string' && bodyContentName.length > 0 && bodyContentName.length <= 200) custom_data.content_name = bodyContentName;
+  if (typeof bodyContentCategory === 'string' && bodyContentCategory.length > 0 && bodyContentCategory.length <= 200) custom_data.content_category = bodyContentCategory;
 
   // Validação: garantir MATCHING KEY real (não só geo).
   // Meta v13+ rejeita eventos só com geo+UA sem identifier.
