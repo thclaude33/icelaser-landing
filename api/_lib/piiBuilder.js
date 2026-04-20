@@ -21,6 +21,22 @@
 import crypto from 'crypto';
 import { sha256 as manualSha256, normalizePhoneBR } from './security.js';
 
+// Fix LOW AI deep v3 (piiBuilder.js:105): gender Sets em module scope.
+// Antes: criados a cada call de manualFallback. Agora: uma alocação só por cold start.
+const GENDER_MALE   = new Set(['m', 'male', 'man', 'boy', 'mr']);
+const GENDER_FEMALE = new Set(['f', 'female', 'woman', 'girl', 'mrs', 'ms']);
+
+// Fix LOW AI deep v3 (piiBuilder.js:81): regex mais estrito pra email.
+// Anterior `/^[^\s@]+@[^\s@]+\.[^\s@]+$/` aceita "a@b.c" e outros edge cases.
+// Novo: exige local >= 1, domain com dot, TLD >= 2 chars, sem chars espúrios.
+const EMAIL_STRICT = /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$/i;
+
+// Helper direto pra sha256 de valor já normalizado (evita SDK overhead e
+// ambiguidade do path 'external_id' pros partial matching keys fi/f5first/f5last).
+function sha256Hex(s) {
+  return crypto.createHash('sha256').update(String(s)).digest('hex');
+}
+
 let sdkParamBuilder = null;
 let sdkLoadAttempted = false;
 
@@ -82,7 +98,9 @@ function manualFallback(value, dataType) {
       if (!normalized) return null;
       break;
     case 'email':
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return null;
+      // Fix LOW AI deep v3 (piiBuilder.js:81): regex estrito que pega a maioria
+      // dos edge cases inválidos que o regex permissivo antigo aceitava.
+      if (!EMAIL_STRICT.test(normalized)) return null;
       break;
     case 'first_name':
     case 'last_name':
@@ -105,11 +123,9 @@ function manualFallback(value, dataType) {
       if (normalized.length < 2) return null;
       break;
     case 'gender':
-      // m/f only
-      const m = new Set(['m', 'male', 'man', 'boy', 'mr']);
-      const f = new Set(['f', 'female', 'woman', 'girl', 'mrs', 'ms']);
-      if (m.has(normalized)) normalized = 'm';
-      else if (f.has(normalized)) normalized = 'f';
+      // m/f only — usa Sets em module scope (evita alocar por call).
+      if (GENDER_MALE.has(normalized)) normalized = 'm';
+      else if (GENDER_FEMALE.has(normalized)) normalized = 'f';
       else return null;
       break;
     case 'date_of_birth':
@@ -168,35 +184,31 @@ export async function buildUserData(plain) {
     }
   }
 
-  // Advanced matching partial keys (derivados — não alteram fn/ln já enviados).
-  // Normalização Meta oficial: lowercase + strip whitespace_and_punctuation; slice chars só do valor normalizado.
-  // Usamos a mesma função hashPII via dataType 'first_name'/'last_name' pra reaproveitar a normalização do SDK.
+  // Advanced matching partial keys (Meta Java SDK oficial 2026 spec):
+  //   - fi: lowercase + strip ws+punct → primeiro char → sha256
+  //   - f5first: lowercase + strip ws+punct → primeiros 5 chars → sha256
+  //   - f5last:  lowercase + strip ws+punct → primeiros 5 chars → sha256
+  //   - dobd/dobm/doby: 2/2/4 dígitos do DOB, individualmente → sha256
+  //
+  // AI sanity deep v3 REVERT: manter path hashPII('external_id') em vez de
+  // sha256Hex direto. SDK path garante consistência com Pixel browser quando
+  // SDK aplica normalização interna (trim + sha256). sha256Hex puro pode diverger
+  // se SDK futuro mudar. hashPII fallback manual já é trim+sha256 (mesmo output).
+  // Fix LOW AI deep v3 (piiBuilder.js:171): remover await fnNormHash unused (mantido).
+  const PUNCT_WS = /[!"#$%&'()*+,\-./:;<=>?@ \[\]^_`{|}~\s]+/g;
   if (plain.first_name) {
-    const fnNormHash = await hashPII(plain.first_name, 'first_name');
-    // Não temos direct access ao valor normalizado antes do hash — a Meta Java SDK
-    // aceita o input bruto e aplica a mesma normalização internamente em f5first/fi.
-    // Aqui replicamos a normalização canônica Meta (lowercase + strip punct+ws) ANTES do slice.
-    const normFirst = String(plain.first_name)
-      .toLowerCase()
-      .replace(/[!"#$%&'()*+,\-./:;<=>?@ \[\]^_`{|}~\s]+/g, '');
+    const normFirst = String(plain.first_name).toLowerCase().replace(PUNCT_WS, '');
     if (normFirst.length > 0) {
-      const initial = normFirst.charAt(0);
-      const first5 = normFirst.slice(0, 5);
-      const fiHash = await hashPII(initial, 'external_id'); // reaproveita path sha256 puro
-      const f5Hash = await hashPII(first5, 'external_id');
+      const fiHash = await hashPII(normFirst.charAt(0), 'external_id');
+      const f5Hash = await hashPII(normFirst.slice(0, 5), 'external_id');
       if (fiHash) ud.fi = [fiHash];
       if (f5Hash) ud.f5first = [f5Hash];
     }
-    // Marca de uso pra lint (fn já setado via loop acima — sem duplicar).
-    void fnNormHash;
   }
   if (plain.last_name) {
-    const normLast = String(plain.last_name)
-      .toLowerCase()
-      .replace(/[!"#$%&'()*+,\-./:;<=>?@ \[\]^_`{|}~\s]+/g, '');
+    const normLast = String(plain.last_name).toLowerCase().replace(PUNCT_WS, '');
     if (normLast.length > 0) {
-      const last5 = normLast.slice(0, 5);
-      const f5lHash = await hashPII(last5, 'external_id');
+      const f5lHash = await hashPII(normLast.slice(0, 5), 'external_id');
       if (f5lHash) ud.f5last = [f5lHash];
     }
   }
@@ -204,13 +216,10 @@ export async function buildUserData(plain) {
   if (plain.date_of_birth) {
     const dobDigits = String(plain.date_of_birth).replace(/\D/g, '');
     if (dobDigits.length === 8) {
-      const yr = dobDigits.slice(0, 4);
-      const mo = dobDigits.slice(4, 6);
-      const dy = dobDigits.slice(6, 8);
       const [doyH, domH, dodH] = await Promise.all([
-        hashPII(yr, 'external_id'),
-        hashPII(mo, 'external_id'),
-        hashPII(dy, 'external_id'),
+        hashPII(dobDigits.slice(0, 4), 'external_id'),
+        hashPII(dobDigits.slice(4, 6), 'external_id'),
+        hashPII(dobDigits.slice(6, 8), 'external_id'),
       ]);
       if (doyH) ud.doby = [doyH];
       if (domH) ud.dobm = [domH];

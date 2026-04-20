@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
 import { PIXEL_ID, ALLOWED_ORIGINS, GRAPH_BASE } from './_lib/config.js';
-import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl } from './_lib/security.js';
+import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 
@@ -348,7 +348,9 @@ export default async function handler(req, res) {
         }
       }
       if (finalFbp !== fbp || finalFbc !== fbc) {
-        console.log(`[TRACK] Recovered from Blob: fbp=${!!finalFbp} fbc=${!!finalFbc} for ${telefone}`);
+        // Fix MEDIUM AI deep v3 (track.js:351): PII (telefone) no log em plaintext.
+        // maskPhone é consistente com resto do código (mesma sanitização em outros logs).
+        console.log(`[TRACK] Recovered from Blob: fbp=${!!finalFbp} fbc=${!!finalFbc} for ${maskPhoneLocal(telefone)}`);
       }
     } catch (e) {
       console.warn('[TRACK] Blob recovery failed:', e.message);

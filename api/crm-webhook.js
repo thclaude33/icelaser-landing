@@ -195,12 +195,19 @@ export default async function handler(req, res) {
     // Só processar mensagens do inbox WhatsApp (inbox 7)
     if (sourceId && sourceId.startsWith('wamid.') && phone) {
       // Buscar referral via Graph API (se a msg veio de anúncio CTWA, terá referral)
+      // Fix HIGH AI deep v3 (crm-webhook.js:199): Graph API por wamid nem sempre
+      // funciona — logar resposta (não só silenciar). Se Meta rejeitar com erro
+      // conhecido, útil pra saber se endpoint tá dando dados ou sempre 400.
       try {
         const msgResp = await fetch(
           `${GRAPH_BASE}/${sourceId}?fields=referral`,
           { headers: { 'Authorization': `Bearer ${token}` } }
         );
-        const msgData = await msgResp.json();
+        if (!msgResp.ok) {
+          const errTxt = (await msgResp.text()).substring(0, 150);
+          console.warn(`[CRM-WEBHOOK] Graph referral lookup ${msgResp.status} for ${sourceId.substring(0,20)}: ${errTxt}`);
+        }
+        const msgData = msgResp.ok ? await msgResp.json() : {};
 
         if (msgData.referral?.ctwa_clid) {
           const ctwaClid = msgData.referral.ctwa_clid;
@@ -259,8 +266,20 @@ export default async function handler(req, res) {
   // Fix 17/04/2026: procurar label_list (array) primeiro, fallback cached_label_list.
   // Fix MEDIUM AI review 20/04/2026 (M1): Chatwoot pode enviar changed_attributes
   // como objeto em vez de array. Array.isArray coerce previne TypeError em .some/.filter.
+  // Fix MEDIUM AI deep v3 (crm-webhook.js:262): changed_attributes pode vir como
+  // objeto com múltiplas chaves {label_list:{...}, status:{...}} — coerção pra
+  // array de entries preserva todas as keys (antes: [rawChanged] virava [{label_list,status}]
+  // e hasLabelChange funcionava, MAS em filter por label_list perdemos info contextual).
   const rawChanged = body.changed_attributes || [];
-  const changedAttributes = Array.isArray(rawChanged) ? rawChanged : [rawChanged];
+  let changedAttributes;
+  if (Array.isArray(rawChanged)) {
+    changedAttributes = rawChanged;
+  } else if (rawChanged && typeof rawChanged === 'object') {
+    // Converter {key1: val1, key2: val2} pra [{key1: val1}, {key2: val2}]
+    changedAttributes = Object.entries(rawChanged).map(([k, v]) => ({ [k]: v }));
+  } else {
+    changedAttributes = [];
+  }
   const hasLabelChange = changedAttributes.some(attr =>
     attr.label_list !== undefined || attr.labels !== undefined
   );

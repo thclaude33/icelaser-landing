@@ -50,8 +50,11 @@ const RETENTION_DAYS = {
 
 // Ordem de processamento: mais específico primeiro (webhooks/wa/ antes de webhooks/).
 // list({ prefix: 'webhooks/' }) matches TUDO incluindo webhooks/wa/ — pela ordem,
-// webhooks/wa/ é limpo com retenção curta (30d) PRIMEIRO; depois webhooks/ pega
-// o resto (60d) sem pegar os da wa/ já limpos.
+// webhooks/wa/ é limpo com retenção curta (7d) PRIMEIRO; depois webhooks/ pega
+// o resto (60d) sem pegar os da wa/ já limpos (via skipPrefixes).
+// Fix MEDIUM AI deep v3 (blob-gc.js:53): webhooks/ depois de webhooks/wa/ só
+// vai processar blobs antigos (60d cutoff) que restaram não-tratados. Mantém
+// ordem atual — skipPrefixes garante isolação.
 const ORDERED_PREFIXES = [
   'logs/',
   'webhooks/wa/',

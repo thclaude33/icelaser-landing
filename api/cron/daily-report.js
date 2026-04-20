@@ -12,10 +12,10 @@ import { list } from '@vercel/blob';
 import { sanitizeHeader } from '../_lib/security.js';
 import { brtPeriod, brtISO } from '../_lib/time.js';
 
-const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
-const EMAIL_PASS  = process.env.EMAIL_PASS;
-const EMAIL_TO    = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
-const CRON_SECRET = process.env.CRON_SECRET;
+// Fix MEDIUM AI deep v3 (daily-report.js:15/18): NÃO cache env vars em module scope.
+// Vercel instances warm podem viver dias — rotação de CRON_SECRET ou EMAIL_PASS
+// exigiria redeploy. Lazy getters evitam caching stale.
+function env(name, fallback) { return process.env[name] || fallback; }
 
 async function countBlobs(prefix, sinceMs = 0) {
   // Lista TODOS os blobs do prefix (paginado) e filtra por uploadedAt >= sinceMs.
@@ -55,12 +55,19 @@ async function recentBlobs(prefix, limit = 5) {
 }
 
 async function sendReport(pending, converted, period, totals = {}) {
-  if (!EMAIL_PASS) {
+  // Fix MEDIUM AI deep v3 (daily-report.js:58): retornar status pra handler saber
+  // se email foi enviado ou skipado. Antes return silent + handler retornava 200 ok
+  // mesmo sem email. Agora: boolean return + handler inclui `email_sent` na response.
+  const pass = env('EMAIL_PASS');
+  const from = env('EMAIL_FROM', 'espacoicelaserrecife2@gmail.com');
+  const toStr = env('EMAIL_TO', 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com');
+  const emailTo = toStr.split(',');
+  if (!pass) {
     console.warn('[CRON] EMAIL_PASS não configurado — email ignorado');
-    return;
+    return false;
   }
   const nodemailer = (await import('nodemailer')).default;
-  const t = nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_FROM, pass: EMAIL_PASS } });
+  const t = nodemailer.createTransport({ service: 'gmail', auth: { user: from, pass } });
   const total = pending + converted;
   const taxa  = total > 0 ? ((converted / total) * 100).toFixed(1) : '0';
   const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
@@ -123,14 +130,17 @@ async function sendReport(pending, converted, period, totals = {}) {
   // sanitizeHeader defense-in-depth — period é interno ('Manhã'/'Noite'),
   // converted é number, mas pattern consistente previne future regressions.
   await t.sendMail({
-    from: `"IceLaser Bot" <${EMAIL_FROM}>`,
-    to: EMAIL_TO.join(','),
+    from: `"IceLaser Bot" <${from}>`,
+    to: emailTo.join(','),
     subject: sanitizeHeader(`📊 Relatório ${period} — ${converted} conversões 24h | IceLaser`, 200),
     html,
   });
+  return true;
 }
 
 export default async function handler(req, res) {
+  // Fix MEDIUM AI deep v3 (daily-report.js:18): lazy-read env (não cache module scope).
+  const CRON_SECRET = env('CRON_SECRET');
   // Vercel Cron envia Authorization: Bearer <CRON_SECRET>.
   // SEGURANÇA: se CRON_SECRET não estiver configurado, REJEITAR acesso.
   // Antes: `if (CRON_SECRET && ...)` pulava auth quando env var ausente =
@@ -170,12 +180,13 @@ export default async function handler(req, res) {
     const lastConvertedTs = recentConverted[0]?.uploadedAt || 'none';
     console.log(`[CRON] ${period} (${brtISO()}) 24h: pending=${pending24h} converted=${converted24h} | total hist: pending=${pendingTotal} converted=${convertedTotal} | last_pending=${lastPendingTs} last_converted=${lastConvertedTs}`);
 
-    await sendReport(pending24h, converted24h, period, {
+    const emailSent = await sendReport(pending24h, converted24h, period, {
       pendingTotal, convertedTotal, recentPending, recentConverted,
     });
 
     return res.status(200).json({
       ok: true,
+      email_sent: !!emailSent,
       pending24h, converted24h, pendingTotal, convertedTotal,
       last_pending: lastPendingTs,
       last_converted: lastConvertedTs,

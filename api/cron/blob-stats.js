@@ -17,6 +17,9 @@
 
 import { list } from '@vercel/blob';
 
+// Fix MEDIUM AI deep v3 (blob-stats.js:48/blob-gc.js:48): dedup/wa/ + alerts/
+// estavam ausentes do KNOWN_PREFIXES. blob-gc.js limpa dedup/wa/, mas dashboard
+// via blob-stats não listava. Agora mostra cobertura completa.
 const KNOWN_PREFIXES = [
   'leads/pending/',
   'leads/converted/',
@@ -26,6 +29,8 @@ const KNOWN_PREFIXES = [
   'webhooks/',
   'webhooks/wa/',
   'media/',
+  'dedup/wa/',
+  'alerts/',
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -62,17 +67,25 @@ async function statsForPrefix(prefix, details = false, deadlineMs = 0) {
       break;
     }
     const result = await list({ prefix, cursor, limit: 1000 });
+    // Fix LOW AI deep v3 (blob-stats.js:84): cache Date parse em variáveis locais
+    // em vez de re-parsing `new Date(stats.oldest)` a cada iteração.
+    let oldestMs = stats.oldest ? new Date(stats.oldest).getTime() : null;
+    let newestMs = stats.newest ? new Date(stats.newest).getTime() : null;
     for (const blob of result.blobs) {
       stats.total++;
       stats.total_size_bytes += blob.size || 0;
 
       if (!blob.uploadedAt) {
         stats.uploadedAt_null++;
+        // Fix MEDIUM AI deep v3 (blob-stats.js:81): blobs com uploadedAt null
+        // devem contar em older_30d (conservative: assumir antigos se sem timestamp).
+        stats.older_30d++;
         continue;
       }
       const ms = new Date(blob.uploadedAt).getTime();
       if (!Number.isFinite(ms)) {
         stats.uploadedAt_null++;
+        stats.older_30d++;
         continue;
       }
 
@@ -81,8 +94,14 @@ async function statsForPrefix(prefix, details = false, deadlineMs = 0) {
       if (ms >= cutoff30d) stats.last_30d++;
       else stats.older_30d++;
 
-      if (!stats.oldest || ms < new Date(stats.oldest).getTime()) stats.oldest = blob.uploadedAt;
-      if (!stats.newest || ms > new Date(stats.newest).getTime()) stats.newest = blob.uploadedAt;
+      if (oldestMs === null || ms < oldestMs) {
+        oldestMs = ms;
+        stats.oldest = blob.uploadedAt;
+      }
+      if (newestMs === null || ms > newestMs) {
+        newestMs = ms;
+        stats.newest = blob.uploadedAt;
+      }
 
       if (details) allBlobs.push({ pathname: blob.pathname, uploadedAt: blob.uploadedAt, size: blob.size });
     }

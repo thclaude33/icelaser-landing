@@ -89,6 +89,12 @@ export default async function handler(req, res) {
     const response = await fetch(url, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
+    // Fix INFO AI deep v3 (emq-realtime.js:89): response.ok check antes json().
+    if (!response.ok) {
+      const txt = (await response.text()).substring(0, 200);
+      console.error(`[EMQ-REALTIME] Meta API ${response.status}: ${txt}`);
+      return res.status(502).json({ error: 'meta_api_upstream_error', status: response.status });
+    }
     const data = await response.json();
 
     if (data.error) {
