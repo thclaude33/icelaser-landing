@@ -861,7 +861,7 @@ export default async function handler(req, res) {
   // (se 1 evento inválido no batch, a Meta rejeita o batch INTEIRO)
   const validEvents = events.filter(evt => {
     if (!evt.event_name || !evt.event_time || !evt.action_source) {
-      console.warn(`[CRM-WEBHOOK] Evento inválido removido: ${JSON.stringify(evt).substring(0, 100)}`);
+      console.warn(`[CRM-WEBHOOK] Evento inválido removido: event_name=${evt.event_name} event_time=${evt.event_time} action_source=${evt.action_source} event_id=${evt.event_id}`);
       return false;
     }
     if (!evt.user_data || Object.keys(evt.user_data).length === 0) {
