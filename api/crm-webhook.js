@@ -13,6 +13,7 @@ import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } f
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
+import { sendWAMEvent } from './_lib/capi-wam.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -879,7 +880,30 @@ export default async function handler(req, res) {
   // Fix MEDIUM AI review 20/04/2026 (M4): events_received pode ser undefined se
   // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
   const eventsReceived = result?.events_received ?? 0;
-  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+
+  // WAM Dataset fan-out: quando ctwa_clid presente, enviar eventos compatíveis
+  // pro WhatsApp Marketing Event Sharing dataset EM PARALELO. Dedup cross-
+  // dataset via event_id idêntico. Só eventos com action_source ou derivaveis
+  // de business_messaging → mapear action_source para WAM.
+  let wamReceived = 0;
+  let wamSkipped = 0;
+  if (ctwaClid) {
+    const wamCompatibleEvents = validEvents.filter(e =>
+      ['Purchase', 'LeadSubmitted', 'Lead', 'CompleteRegistration', 'Subscribe', 'InitiateCheckout', 'AddPaymentInfo'].includes(e.event_name)
+    );
+    for (const evt of wamCompatibleEvents) {
+      const wamResp = await sendWAMEvent({
+        event_name: evt.event_name,
+        event_id: evt.event_id,
+        event_time: evt.event_time,
+        user_data: { ...evt.user_data },
+        custom_data: evt.custom_data,
+      });
+      if (wamResp?.skipped) wamSkipped++;
+      else if (wamResp?.events_received >= 1) wamReceived++;
+    }
+  }
+  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM: ${wamReceived} received / ${wamSkipped} skipped | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
   return res.status(200).json({
     ok: true,
     // Fix LOW AI review 20/04/2026 (L1): mask PII na response (pode vazar em
@@ -888,6 +912,8 @@ export default async function handler(req, res) {
     labels,
     events_sent: validEvents.length,
     events_received: eventsReceived,
+    wam_received: wamReceived,
+    wam_skipped: wamSkipped,
     ctwa_clid: !!ctwaClid,
     customer_segmentation: customerSeg,
   });
