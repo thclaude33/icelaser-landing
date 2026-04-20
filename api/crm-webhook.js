@@ -346,7 +346,10 @@ export default async function handler(req, res) {
     try {
       const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 50 });
       for (const blob of ctwaBlobs.blobs) {
-        if (blob.pathname.includes(telDigits.slice(-8))) {
+        // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
+        // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
+        // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
+        if (blob.pathname.includes(telDigits.slice(-11))) {
           const blobResp = await fetch(blob.url);
           const data = await blobResp.json();
           if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
@@ -384,7 +387,9 @@ export default async function handler(req, res) {
             for (const data of datas) {
               if (!data) continue;
               const blobTel = (data.telefone || '').replace(/\D/g, '');
-              if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
+              // Match 11-digit + guard blobTel.length >= 10 previne false positives em leads antigos.
+              // Phone BR: cel=11, fixo=10 chars. slice(-11) num fixo 10 retorna string inteira.
+              if (blobTel && blobTel.length >= 10 && telDigits.endsWith(blobTel.slice(-11))) {
                 if (!fbp && data.fbp) fbp = data.fbp;
                 if (!fbc && data.fbc) fbc = data.fbc;
                 // EMQ fix: recuperar client_ip + client_user_agent do form submit LP

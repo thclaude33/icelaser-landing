@@ -439,8 +439,10 @@ export default async function handler(req, res) {
       if (process.env.BLOB_READ_WRITE_TOKEN) {
       const ts = new Date().toISOString();
       // Sanitiza firstName pra evitar path traversal / chars inválidos no filename
-      const firstName = nome.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'anon';
-      const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${firstName}.json`;
+      // NOTA: renomeado pra safeFirstName — evita shadowing com `let firstName` (linha ~270)
+      // usado em buildUserData pra Meta Advanced Matching. Fix HIGH via AI review 19/04/2026.
+      const safeFirstName = nome.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'anon';
+      const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${safeFirstName}.json`;
       promises.push(
         put(fileName, JSON.stringify({
           nome,
@@ -462,7 +464,12 @@ export default async function handler(req, res) {
           landing_url, time_on_page, scroll_depth,
           converted: false,
         }), {
+          // LGPD mitigation: Vercel store é public-only, mas addRandomSuffix gera
+          // URL com sufixo aleatório não-adivinhável (serve como bearer token).
+          // Sem isso, path leads/pending/{ts}_{firstName}.json é enumerável.
+          // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
           access: 'public',
+          addRandomSuffix: true,
           contentType: 'application/json',
         }).catch(e => console.error('[BLOB LEAD]', e.message))
       );
@@ -497,6 +504,9 @@ export default async function handler(req, res) {
     }
 
     // Error handling com is_transient e blame_field_specs
+    // Rastrea success pós-retry pra response refletir realidade (fix HIGH 19/04/2026).
+    let finalResult = result;
+    let capiSuccess = !result.error;
     if (result.error) {
       const { code, error_subcode, message, is_transient } = result.error;
       const blame = result.error.blame_field_specs ? ` | blame: ${JSON.stringify(result.error.blame_field_specs)}` : '';
@@ -519,19 +529,34 @@ export default async function handler(req, res) {
         const retryResult = await retryRes.json();
         if (!retryResult.error) {
           console.log(`[TRACK] Retry succeeded for ${event_name}`);
+          finalResult = retryResult;
+          capiSuccess = true;
+        } else {
+          console.error(`[TRACK] Retry ALSO failed for ${event_name}:`, retryResult.error);
         }
       }
     }
 
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit
     // HTTP Set-Cookie headers persist up to 180 days even in Safari
+    // Cookies setados independente de CAPI success (benefit user mesmo se Meta errou)
     const cookieOpts = 'Path=/; SameSite=Lax; Secure; Max-Age=15552000'; // 180 days
     const setCookies = [];
     if (finalFbp) setCookies.push(`_fbp=${finalFbp}; ${cookieOpts}`);
     if (finalFbc) setCookies.push(`_fbc=${finalFbc}; ${cookieOpts}`);
     if (setCookies.length > 0) res.setHeader('Set-Cookie', setCookies);
 
-    return res.status(200).json({ ok: true, events_received: result.events_received });
+    // HIGH fix 19/04/2026: antes retornava 200 mesmo se CAPI errou não-transiente.
+    // LP não sabia que evento não chegou na Meta. Agora reflete realidade.
+    // 502 Bad Gateway é correto: proxy (nosso) recebeu erro do upstream (Meta).
+    if (!capiSuccess) {
+      return res.status(502).json({
+        ok: false,
+        error: 'capi_upstream_error',
+        details: finalResult.error?.message || 'CAPI non-transient error',
+      });
+    }
+    return res.status(200).json({ ok: true, events_received: finalResult.events_received });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
