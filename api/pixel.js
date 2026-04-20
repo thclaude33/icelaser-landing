@@ -10,7 +10,24 @@ import { ALLOWED_ORIGINS } from './_lib/config.js';
 const PIXEL_JS_URL = 'https://connect.facebook.net/en_US/fbevents.js';
 let cachedScript = null;
 let cacheTime = 0;
+// Fix LOW AI deep v3 (pixel.js:34): lock concurrent refresh. Antes N requests
+// simultâneos post-TTL disparavam N fetches pra connect.facebook.net (burst +
+// rate limit risk). Agora: single flight via Promise in-flight — todos os callers
+// aguardam o mesmo refresh.
+let refreshPromise = null;
 const CACHE_TTL = 3600000; // 1 hora
+
+async function refreshCache(ua) {
+  const resp = await fetch(PIXEL_JS_URL, {
+    headers: { 'User-Agent': ua || 'Mozilla/5.0' },
+  });
+  if (!resp.ok) throw new Error(`fbevents.js fetch failed: status=${resp.status}`);
+  const text = await resp.text();
+  if (!text || text.length < 10000) throw new Error(`fbevents.js too small: bytes=${text.length}`);
+  cachedScript = text;
+  cacheTime = Date.now();
+  return text;
+}
 
 export default async function handler(req, res) {
   // CORS — única fonte de origens permitidas em _lib/config.js
@@ -27,23 +44,15 @@ export default async function handler(req, res) {
 
   try {
     // Cache em memoria pra evitar buscar a cada request.
-    // VALIDA resp.ok + tamanho mínimo pra não cachear resposta vazia/erro
-    // (bug anterior: se Meta retornava 5xx, cacheScript ficava vazio por 1h
-    // e Pixel client-side parava de disparar PV/VC).
+    // VALIDA resp.ok + tamanho mínimo pra não cachear resposta vazia/erro.
     if (!cachedScript || Date.now() - cacheTime > CACHE_TTL) {
-      const resp = await fetch(PIXEL_JS_URL, {
-        headers: { 'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0' },
-      });
-      if (!resp.ok) {
-        throw new Error(`fbevents.js fetch failed: status=${resp.status}`);
+      // Single-flight: se já há refresh em andamento, aguarda ele.
+      if (!refreshPromise) {
+        refreshPromise = refreshCache(req.headers['user-agent']).finally(() => {
+          refreshPromise = null;
+        });
       }
-      const text = await resp.text();
-      // fbevents.js tem ~200KB — menor que 10KB = resposta inválida
-      if (!text || text.length < 10000) {
-        throw new Error(`fbevents.js too small: bytes=${text.length}`);
-      }
-      cachedScript = text;
-      cacheTime = Date.now();
+      await refreshPromise;
     }
 
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
