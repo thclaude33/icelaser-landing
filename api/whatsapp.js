@@ -1175,9 +1175,14 @@ export default async function handler(req, res) {
                 // Isso completa o funil Conversion Leads: Lead → CompleteRegistration (CRM
                 // quando stage avança) → Purchase (CRM compra).
                 //
-                // Fix AI review 20/04 CRITICAL #5: skip CAPI quando sem dados de contato
-                // (phone/email) — EMQ despenca pra 0, Meta degrada match rate.
-                if (CAPI_TOKEN && leadId && hasContactData) {
+                // Meta Conversion Leads spec: user_data.lead_id (Meta-generated 15-17
+                // digit leadgen_id) é matching key SUFICIENTE para events Lead originados
+                // de Lead Ads nativos — em/ph/fn/ln são reforço pra EMQ, não obrigatórios.
+                // Test leads do Events Manager têm phone/email dummy mas leadgen_id real:
+                // se skipamos CAPI, Events Manager nunca mostra Processado no wizard
+                // Conversion Leads CRM.
+                const hasValidLeadId = /^\d{15,17}$/.test(String(leadId));
+                if (CAPI_TOKEN && leadId && (hasContactData || hasValidLeadId)) {
                   try {
                     const telDigits = String(tel || '').replace(/\D/g, '');
                     let leadFirstName = null, leadLastName = null;
