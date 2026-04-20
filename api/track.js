@@ -477,8 +477,6 @@ export default async function handler(req, res) {
           client_user_agent: client_user_agent || req.headers['user-agent'],
           client_ip_address,
           fbp: fbp || undefined, fbc: fbc || undefined,
-          // Fix HIGH audit 20/04: persist geo/matching keys pra Purchase EMQ alto.
-          // gender omitido (M12 consistency — Meta penaliza mismatch > ausência).
           city: 'recife', state: 'pe', zip_code: '50000', country: 'br',
           external_id: externalIdRaw || undefined,
           utm_source, utm_medium, utm_campaign, utm_content, utm_term,

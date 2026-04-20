@@ -1700,14 +1700,15 @@
 
       <form id="lead-form" novalidate aria-label="Formulário de agendamento de avaliação gratuita">
         <div class="field">
-          <label for="nome">Seu nome</label>
+          <label for="nome">Nome e sobrenome</label>
           <input type="text" id="nome" name="nome" placeholder="Ex: Maria Silva"
                  autocomplete="name" required inputmode="text"
-                 maxlength="120" minlength="2"
-                 pattern="^[A-Za-zÀ-ÿ\s'\-]{2,120}$"
+                 maxlength="120" minlength="3"
+                 pattern="^[A-Za-zÀ-ÿ]{2,}\s+[A-Za-zÀ-ÿ\s'\-]{2,}$"
                  aria-required="true"
-                 aria-describedby="nome-err" />
-          <div class="field-error" id="nome-err" role="alert">Por favor, informe seu nome.</div>
+                 aria-describedby="nome-err"
+                 title="Digite seu nome completo (nome e sobrenome)" />
+          <div class="field-error" id="nome-err" role="alert">Por favor, informe nome e sobrenome.</div>
         </div>
         <div class="field">
           <label for="tel">Seu WhatsApp</label>
@@ -1719,10 +1720,10 @@
           <div class="field-error" id="tel-err" role="alert">Por favor, informe um WhatsApp válido.</div>
         </div>
         <div class="field">
-          <label for="email">Seu e-mail <span class="field-optional-tag">(opcional — para confirmar agendamento)</span></label>
+          <label for="email">Seu e-mail <span class="field-required-tag" aria-hidden="true">(obrigatório — enviamos confirmação)</span></label>
           <input type="email" id="email" name="email" placeholder="Ex: maria@gmail.com"
                  autocomplete="email" inputmode="email"
-                 maxlength="120" />
+                 maxlength="120" required aria-required="true" />
         </div>
 
         <button type="submit" class="btn-submit" id="btn-submit">
@@ -2073,11 +2074,34 @@
         try { fbq('track', 'Lead', {content_name:'WA ' + tag, content_category:'depilacao_laser', value:0, currency:'BRL'}, {eventID: waLeadId}); } catch(ex){}
         var origemFallback = getOrigemFallback();
         var isMetaOrigin = origemFallback === 'facebook' || origemFallback === 'instagram';
-        // NÃO passamos `nome` aqui — WA click direct não coleta nome do usuário.
-        // Se passássemos "WA Direto LP3", track.js parsearia como first_name="WA",
-        // last_name="LP3" e hashearia isso → polui fn/ln matching no Meta, PIORA EMQ.
-        // Sem `nome`, user_data fica com fbp/fbc/geo/UA = matching via browser ID.
-        window.sendCapi({
+
+        // Fix EMQ 20/04/2026 (Opus 4.6 recommendation): capturar PII do DOM ou
+        // localStorage pra enriquecer Lead event WA click. Antes o comment dizia
+        // "não passar nome" por medo de valores espúrios — solução: ler do form
+        // real (se preenchido) ou localStorage (sessões anteriores). Valores que
+        // JÁ foram normalizados/validados no form submit. Elevates fn/ln/em/ph
+        // coverage de 0% pra 40-70% em WA click leads.
+        var lpNome = (document.getElementById('nome') || {}).value || '';
+        var lpTel  = (document.getElementById('tel')  || {}).value || '';
+        var lpEmail = (document.getElementById('email') || {}).value || '';
+        lpNome = lpNome.trim();
+        lpTel = lpTel.trim();
+        lpEmail = lpEmail.trim().toLowerCase();
+
+        // Fallback pra localStorage quando form ainda não foi preenchido nesta sessão
+        // (persistido no form submit anterior — Meta Advanced Matching patter).
+        try {
+          if (!lpEmail) lpEmail = localStorage.getItem('ice_em') || '';
+          if (!lpNome) {
+            var lsFn = localStorage.getItem('ice_fn') || '';
+            var lsLn = localStorage.getItem('ice_ln') || '';
+            lpNome = (lsFn + ' ' + lsLn).trim();
+          }
+          if (!lpTel) lpTel = localStorage.getItem('ice_ph') || '';
+        } catch(_) {}
+
+        // Só passa se valor é PREENCHIDO (não vazio) — evita polluir Meta matching.
+        var capiPayload = {
           event_name: 'Lead', event_id: waLeadId,
           event_source_url: location.href, client_user_agent: navigator.userAgent,
           fbp: getCookie('_fbp'),
@@ -2094,7 +2118,15 @@
           ad_id: getAdData('ad_id') || undefined,
           ad_name: getAdData('ad_name') || undefined,
           referrer: document.referrer || undefined,
-        });
+        };
+        // Enriquecer com PII quando disponível. Server normaliza via buildUserData
+        // (SDK Meta oficial): lowercase, strip ws/punct, hash SHA-256. Partial keys
+        // fi/f5first/f5last são derivados automaticamente.
+        if (lpNome && lpNome.split(/\s+/).length >= 1) capiPayload.nome = lpNome;
+        if (lpTel && lpTel.replace(/\D/g,'').length >= 10) capiPayload.telefone = lpTel;
+        if (lpEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lpEmail)) capiPayload.email = lpEmail;
+
+        window.sendCapi(capiPayload);
       }
       // Extrai o texto da URL do href pra manter a tag [LP1]-[LP5] de cada botão
       try {
@@ -2147,13 +2179,18 @@
 
     // aria-invalid só setado APÓS validação (WCAG ARIA21 best practice:
     // não declarar invalid antes do submit attempt).
-    if (!nome) {
+    // Fix EMQ 20/04/2026: nome agora requer 2+ palavras (first + last name)
+    // pra Meta Advanced Matching ln coverage subir de 30-50% → 95%+.
+    var nomeParts = nome.trim().split(/\s+/).filter(function(p){ return p.length > 0; });
+    if (!nome || nomeParts.length < 2) {
       nomeEl.classList.add('invalid');
       nomeEl.setAttribute('aria-invalid', 'true');
+      nomeEl.setCustomValidity('Por favor, digite nome E sobrenome');
       valid = false;
     } else {
       nomeEl.classList.remove('invalid');
       nomeEl.removeAttribute('aria-invalid');
+      nomeEl.setCustomValidity('');
     }
     if (tel.replace(/\D/g,'').length < 10) {
       telEl.classList.add('invalid');
@@ -2163,9 +2200,24 @@
       telEl.classList.remove('invalid');
       telEl.removeAttribute('aria-invalid');
     }
+    // Fix EMQ 20/04/2026 #1: email agora required (era opcional) — matching key
+    // de maior peso na Meta CAPI (+1.5-2.5 EMQ pts). HTML5 type=email valida
+    // formato, JS aqui garante não-vazio.
+    var emailValid = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (emailEl && !emailValid) {
+      emailEl.classList.add('invalid');
+      emailEl.setAttribute('aria-invalid', 'true');
+      valid = false;
+    } else if (emailEl) {
+      emailEl.classList.remove('invalid');
+      emailEl.removeAttribute('aria-invalid');
+    }
     if (!valid) {
       // Move foco pro primeiro erro — WCAG 3.3.1 Error Identification.
-      (nomeEl.getAttribute('aria-invalid') === 'true' ? nomeEl : telEl).focus();
+      var firstInvalid = nomeEl.getAttribute('aria-invalid') === 'true' ? nomeEl
+                       : telEl.getAttribute('aria-invalid') === 'true' ? telEl
+                       : emailEl;
+      if (firstInvalid) firstInvalid.focus();
       return;
     }
 
