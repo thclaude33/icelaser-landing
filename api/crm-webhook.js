@@ -965,10 +965,20 @@ export default async function handler(req, res) {
   const wamSkipReasons = [];  // debug: capturar motivos do skip pra logar
   const wamCompatibleEvents = validEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name));
   for (const evt of wamCompatibleEvents) {
+    // Fix 21/04/2026 (wizard CRM WAM): FORÇAR action_source='system_generated'
+    // pro WAM dataset independente do action_source do evento principal.
+    // Meta CRM Integration Guide oficial (WAM) só classifica events como
+    // "Processado CRM" se action_source=system_generated + event_source=crm.
+    // CTWA attribution (business_messaging) é feita separadamente em
+    // whatsapp.js:processarCTWA. Aqui no crm-webhook os events são funnel
+    // progression (Chatwoot label change), não CTWA click.
+    // Validado via UI Events Manager > Eventos de Teste (CRM):
+    // "Concluir inscrição | Comprar → Processado crm Chatwoot".
     const wamResp = await sendWAMEvent({
       event_name: evt.event_name,
       event_id: evt.event_id,
       event_time: evt.event_time,
+      action_source: 'system_generated',
       user_data: { ...evt.user_data },
       custom_data: evt.custom_data,
     });
