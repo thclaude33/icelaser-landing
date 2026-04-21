@@ -24,6 +24,14 @@ const META_TOKEN      = process.env.META_ACCESS_TOKEN;       // broad scope — 
 const CAPI_TOKEN      = process.env.CAPI_DATASET_TOKEN || META_TOKEN;  // dataset-scoped — POST /events CAPI (LeadSubmitted)
 const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID;
 
+// ── AD ACCOUNT FILTER ────────────────────────────────────────────────────────
+// Meta BM (122447015946218) entrega webhook ad_account de TODAS as contas do BM.
+// IceLaser subscreveu no App nivel BM → recebe events de contas alheias.
+// Filtrar por account_id evita alerta/email pra ad de outra conta.
+// Ref: https://developers.facebook.com/docs/graph-api/webhooks/reference/ad-account
+// account_id vem como string numérica SEM prefixo `act_`.
+const ICELASER_ACCOUNT_ID = '790663154114264';
+
 // ── CORPO RAW (necessário para validar assinatura HMAC) ───────────────────────
 export const config = { api: { bodyParser: false } };
 
@@ -792,7 +800,13 @@ export default async function handler(req, res) {
         const fromPhone = firstMsg?.from || 'status';
         // Sanitiza phone no path (path traversal defense).
         const safePhone = String(fromPhone).replace(/[^0-9a-z]/gi, '').slice(0, 20) || 'unknown';
-        const filename = `webhooks/wa/${ts}_${safePhone}.json`;
+        // Fix 21/04/2026 (AI Gateway review): separar paths por object type.
+        // ad_account/page webhooks não são WA → blob-gc pode aplicar retention
+        // menor (7d vs 30d) e dashboards não misturam contextos.
+        const pathPrefix = body.object === 'ad_account' ? 'webhooks/ad_account'
+                        : body.object === 'page'       ? 'webhooks/page'
+                        : 'webhooks/wa';
+        const filename = `${pathPrefix}/${ts}_${safePhone}.json`;
         await put(filename, rawBody.toString(), {
           // Store Vercel Blob é public — `access:'private'` lança runtime error.
           // Segurança: addRandomSuffix gera URL não-adivinhável (bearer token),
@@ -862,6 +876,15 @@ export default async function handler(req, res) {
       if (objectType === 'ad_account') {
         for (const change of entry.changes || []) {
           const { field, value } = change;
+          // Fix 21/04/2026 (AI Gateway review): filtrar contas alheias ANTES
+          // de dedup/processamento. BM 122447015946218 entrega eventos de todas
+          // as ad accounts do Business → IceLaser só deve alertar sobre a dela.
+          // account_id vem string sem prefixo `act_` (Meta webhook schema).
+          const accId = value?.account_id ? String(value.account_id) : null;
+          if (accId && accId !== ICELASER_ACCOUNT_ID) {
+            console.log(`[WEBHOOK] Skip ad_account: conta ${accId} ≠ IceLaser`);
+            continue;
+          }
           const dedup = `${field}_${value?.id || entry.id}_${entry.time}`;
           if (await dedupCheck(dedup)) { console.log(`[DEDUP] ⏭️ Skip ad_account: ${dedup}`); continue; }
           await dedupMark(dedup);
@@ -898,7 +921,10 @@ export default async function handler(req, res) {
             const errCode = value?.error_code || '';
             const errSummary = value?.error_summary || '';
             const errMsg = value?.error_message || '';
-            console.error(`[WITH_ISSUES] ⚠️ ${level} ${objId}: ${errSummary}`);
+            // Fix 21/04/2026: warn em vez de error. Ad com issue é evento de
+            // negócio (criativo rejeitado/aspect ratio), não falha do webhook.
+            // `error` level poluía Dashboard/Log Drain misturando com 5xx reais.
+            console.warn(`[WITH_ISSUES] ⚠️ ${level} ${objId}: ${errSummary}`);
             const levelS = escapeHtml(level);
             const objIdS = escapeHtml(objId);
             const errCodeS = escapeHtml(errCode);

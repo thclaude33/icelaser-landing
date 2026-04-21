@@ -37,15 +37,20 @@ import { brtISO, isVercelCron } from '../_lib/time.js';
 // Retention policy (dias por prefix).
 // CHAVES PERIGOSAS (leads/, ctwa/, conversions/) INTENCIONALMENTE AUSENTES.
 const RETENTION_DAYS = {
-  'logs/':         30,   // log-drains
+  'logs/':                 30,   // log-drains
   // Fix MEDIUM AI review 20/04/2026 (M9): webhooks/wa/ contém PII (telefone,
   // nome, mensagem WA). Retenção 30d era excessiva pro uso (fallback Chatwoot
   // crash) e aumentava superfície LGPD. 7 dias cobre janela realista (se
   // Chatwoot cair e msg não chegar, reprocessing manual é em <1 semana).
-  'webhooks/wa/':   7,
-  'webhooks/':     60,   // vercel webhook events (deploys, firewall, alerts)
-  'media/':         7,   // media WA baixada da Meta pro Chatwoot
-  'dedup/wa/':      7,   // dedup keys persistentes (alinha com Meta webhook retry window)
+  'webhooks/wa/':           7,
+  // Fix 21/04/2026 (AI Gateway review): separar ad_account/page do /wa/ path.
+  // ad_account (creative_fatigue, with_issues) não tem PII sensível; 3d basta
+  // pra triagem. page (leadgen) precisa mais tempo (reprocessing DLQ).
+  'webhooks/ad_account/':   3,
+  'webhooks/page/':        14,
+  'webhooks/':             60,   // vercel webhook events (deploys, firewall, alerts)
+  'media/':                 7,   // media WA baixada da Meta pro Chatwoot
+  'dedup/wa/':              7,   // dedup keys persistentes (alinha com Meta webhook retry window)
 };
 
 // Ordem de processamento: mais específico primeiro (webhooks/wa/ antes de webhooks/).
@@ -58,6 +63,8 @@ const RETENTION_DAYS = {
 const ORDERED_PREFIXES = [
   'logs/',
   'webhooks/wa/',
+  'webhooks/ad_account/',
+  'webhooks/page/',
   'webhooks/',
   'media/',
   'dedup/wa/',
