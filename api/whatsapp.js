@@ -792,35 +792,28 @@ export default async function handler(req, res) {
 
     // ── BACKUP NO BLOB (salva ANTES de qualquer processamento — nunca perde msg) ─
     const backupBlob = async () => {
-      if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+      const hasToken = !!process.env.BLOB_READ_WRITE_TOKEN;
+      console.log(`[BACKUP] start: object=${body.object} hasToken=${hasToken}`);
+      if (!hasToken) { console.error('[BACKUP] ❌ BLOB_READ_WRITE_TOKEN ausente em runtime'); return; }
       try {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        // Extrair phone do primeiro message pra identificar o backup
         const firstMsg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
         const fromPhone = firstMsg?.from || 'status';
-        // Sanitiza phone no path (path traversal defense).
         const safePhone = String(fromPhone).replace(/[^0-9a-z]/gi, '').slice(0, 20) || 'unknown';
-        // Fix 21/04/2026 (AI Gateway review): separar paths por object type.
-        // ad_account/page webhooks não são WA → blob-gc pode aplicar retention
-        // menor (7d vs 30d) e dashboards não misturam contextos.
         const pathPrefix = body.object === 'ad_account' ? 'webhooks/ad_account'
                         : body.object === 'page'       ? 'webhooks/page'
                         : 'webhooks/wa';
         const filename = `${pathPrefix}/${ts}_${safePhone}.json`;
-        await put(filename, rawBody.toString(), {
-          // Store Vercel Blob é public — `access:'private'` lança runtime error.
-          // Segurança: addRandomSuffix gera URL não-adivinhável (bearer token),
-          // e o path prefix `webhooks/wa/<ts>_<phone>_<suffix>.json` não é
-          // enumerável externamente. Blob GC cron limpa após 30 dias.
+        console.log(`[BACKUP] trying put: ${filename} (${rawBody.length} bytes)`);
+        const result = await put(filename, rawBody.toString(), {
           access: 'public',
           contentType: 'application/json',
           cacheControlMaxAge: 0,
           addRandomSuffix: true,
         });
-        console.log(`[BACKUP] ✅ Salvo: ${filename}`);
+        console.log(`[BACKUP] ✅ OK: ${filename} url=${result?.url?.slice(0,60)}`);
       } catch (e) {
-        // Backup falhou mas não pode bloquear o fluxo principal
-        console.error(`[BACKUP] ❌ Falhou: ${e.message}`);
+        console.error(`[BACKUP] ❌ put() threw: name=${e.name} msg=${e.message} code=${e.code} stack=${e.stack?.slice(0,200)}`);
       }
     };
     // Dispara backup em paralelo (não bloqueia processamento)
