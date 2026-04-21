@@ -816,8 +816,11 @@ export default async function handler(req, res) {
         console.error(`[BACKUP] ❌ put() threw: name=${e.name} msg=${e.message} code=${e.code} stack=${e.stack?.slice(0,200)}`);
       }
     };
-    // Dispara backup em paralelo (não bloqueia processamento)
-    const backupPromise = backupBlob();
+    // Fix 21/04/2026: AWAIT direto (antes era `const backupPromise = backupBlob()`
+    // sem bloquear → Vercel serverless matava put() pra messages curtas como
+    // WhatsApp. ad_account funcionava por ter processing longo. Agora garante
+    // persistência antes de qualquer awaiting subsequente. Custo: +200-500ms.
+    await backupBlob();
 
     // ── DEDUPLICAÇÃO PERSISTENTE via Vercel Blob (sobrevive cold starts) ──────
     // Bug CRITICAL detectado via AI code review 19/04/2026 (Claude Opus 4.6):
@@ -1556,7 +1559,7 @@ export default async function handler(req, res) {
       console.error('[PROXY] ❌ Chatwoot falhou — msg salva no Blob backup');
     }
 
-    await backupPromise;
+    // backupBlob já awaited no início do handler (persistência garantida)
 
     return res.status(200).json({ ok: true });
   }
