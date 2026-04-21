@@ -6,7 +6,7 @@
  *  GET  /api/debug-blob?size=3000 → 1 path webhooks/wa/ com payload 3KB (simula webhook real)
  *  GET  /api/debug-blob?mode=replica → replica EXATA do backupBlob (mesmo pathPrefix + options)
  */
-import { put } from '@vercel/blob';
+import { put, head, list } from '@vercel/blob';
 
 export default async function handler(req, res) {
   const url = new URL(req.url, `https://${req.headers.host}`);
@@ -15,6 +15,50 @@ export default async function handler(req, res) {
   const envOk = !!process.env.BLOB_READ_WRITE_TOKEN;
   const tokenPreview = (process.env.BLOB_READ_WRITE_TOKEN || '').slice(0, 25);
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
+
+  if (mode === 'addsuffix-vs-overwrite') {
+    // Compara: put com addRandomSuffix:true vs allowOverwrite:true
+    const payload = JSON.stringify({test: 'compare', ts, size: 'medium'.repeat(50)});
+    const out = {};
+    // A: addRandomSuffix
+    try {
+      const t0 = Date.now();
+      const r = await put(`webhooks/wa/A_SUFFIX_${ts}.json`, payload, {
+        access: 'public', contentType: 'application/json',
+        cacheControlMaxAge: 0, addRandomSuffix: true,
+      });
+      const t1 = Date.now() - t0;
+      // Head imediato
+      let headOk = false, headErr = null;
+      try { await head(r.pathname); headOk = true; } catch (e) { headErr = e.message; }
+      out.addRandomSuffix = { put_ms: t1, pathname: r.pathname, head_ok: headOk, head_err: headErr };
+    } catch (e) { out.addRandomSuffix = { error: e.message }; }
+    // B: allowOverwrite
+    try {
+      const t0 = Date.now();
+      const r = await put(`webhooks/wa/B_OVERWRITE_${ts}.json`, payload, {
+        access: 'public', contentType: 'application/json',
+        cacheControlMaxAge: 0, allowOverwrite: true,
+      });
+      const t1 = Date.now() - t0;
+      let headOk = false, headErr = null;
+      try { await head(r.pathname); headOk = true; } catch (e) { headErr = e.message; }
+      out.allowOverwrite = { put_ms: t1, pathname: r.pathname, head_ok: headOk, head_err: headErr };
+    } catch (e) { out.allowOverwrite = { error: e.message }; }
+    // List prefix pra ver quais persistiram
+    await new Promise(r => setTimeout(r, 2000));
+    let listed = [];
+    try {
+      const ls = await list({ prefix: 'webhooks/wa/A_SUFFIX_', limit: 10 });
+      listed = ls.blobs.map(b => ({ pathname: b.pathname, size: b.size }));
+    } catch (e) { out._list_err = e.message; }
+    out._listed_A = listed;
+    try {
+      const ls = await list({ prefix: 'webhooks/wa/B_OVERWRITE_', limit: 10 });
+      out._listed_B = ls.blobs.map(b => ({ pathname: b.pathname, size: b.size }));
+    } catch (e) { out._list_err_B = e.message; }
+    return res.status(200).json(out);
+  }
 
   if (mode === 'replica') {
     // Replica EXATA do backupBlob em whatsapp.js:833-857
