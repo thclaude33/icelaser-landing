@@ -855,11 +855,13 @@ export default async function handler(req, res) {
         console.error(`[BACKUP] ❌ put() threw: name=${e.name} msg=${e.message} code=${e.code} stack=${e.stack?.slice(0,200)}`);
       }
     };
-    // Fix 21/04/2026: AWAIT direto (antes era `const backupPromise = backupBlob()`
-    // sem bloquear → Vercel serverless matava put() pra messages curtas como
-    // WhatsApp. ad_account funcionava por ter processing longo. Agora garante
-    // persistência antes de qualquer awaiting subsequente. Custo: +200-500ms.
-    await backupBlob();
+    // Fix 21/04/2026 v2 (AI Gateway Opus 4): backupBlob MOVIDO pro FINAL do
+    // handler (antes do res.json). Hipótese: Vercel serverless pode terminar
+    // async ops entre await inicial e res.status(200). dedupMark funciona pq
+    // é chamado DURANTE o loop (zona "quente"). backupBlob antes de tudo
+    // ficava órfão. Isolando execução no final garante co-habitação com
+    // dedupMark na mesma zona de execução. Ver final da função.
+    // (disparo real no final do handler)
 
     // ── DEDUPLICAÇÃO PERSISTENTE via Vercel Blob (sobrevive cold starts) ──────
     // Bug CRITICAL detectado via AI code review 19/04/2026 (Claude Opus 4.6):
@@ -1598,7 +1600,10 @@ export default async function handler(req, res) {
       console.error('[PROXY] ❌ Chatwoot falhou — msg salva no Blob backup');
     }
 
-    // backupBlob já awaited no início do handler (persistência garantida)
+    // Fix 21/04/2026 v2 (AI Gateway review): backupBlob MOVIDO pra cá.
+    // dedupMark salva OK dentro do loop; backupBlob no início ficava órfão.
+    // Agora executa junto com outras async ops, imediatamente antes do res.
+    await backupBlob();
 
     return res.status(200).json({ ok: true });
   }
