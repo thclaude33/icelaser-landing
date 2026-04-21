@@ -467,11 +467,33 @@ async function processarCTWA(from, message, referral, profileName) {
       const ts = new Date().toISOString();
       const safeFrom = String(from).replace(/[^0-9]/g, '').slice(0, 20);
       if (!safeFrom) throw new Error('invalid phone');
+
+      // Enriquecimento 21/04/2026 (Fix 22→30 campos per checkup):
+      // - hour_brt / day_of_week: janela de engajamento (Recife UTC-3)
+      // - f5first / fi: advanced matching partials (Meta CAPI user_data) derivados do profile_name
+      // - page_id: top-level (antes só em ad_metadata.promoted_page_id)
+      // Docs: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters
+      const nowBrt = new Date(Date.now() - 3 * 60 * 60 * 1000); // UTC→BRT (UTC-3)
+      const hourBrt = nowBrt.getUTCHours();
+      const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+      const dayOfWeek = dayNames[nowBrt.getUTCDay()];
+      const profileClean = (profileName || '').toLowerCase().trim().replace(/\s+/g, ' ');
+      const f5first = profileClean ? profileClean.slice(0, 5) : null;
+      const fi = profileClean ? profileClean.charAt(0) : null;
+      const pageId = adMetadata?.promoted_page_id || null;
+
       await put(`ctwa/${safeFrom}.json`, JSON.stringify({
         ctwa_clid: clid,
         phone: safeFrom,
         profile_name: profileName || null,
         state: stateFromPhone(safeFrom),  // inferido do DDD brasileiro
+        // ── TIME ENRICHMENT (BRT) ──
+        hour_brt: hourBrt,                          // 0-23 horário Recife
+        day_of_week: dayOfWeek,                     // monday..sunday
+        // ── CAPI ADVANCED MATCHING PARTIALS (user_data) ──
+        f5first: f5first,                           // primeiros 5 chars nome (EMQ boost)
+        fi: fi,                                     // first initial
+        // ── REFERRAL CTWA (Meta schema) ──
         source_url: sourceUrl,
         source_type: sourceType,
         source_id: sourceId,
@@ -489,6 +511,23 @@ async function processarCTWA(from, message, referral, profileName) {
         click_to_whatsapp_call: isCall,             // CTWA Call ad (vs chat)
         first_msg_type: firstMsgType,
         first_msg_text: firstMsgText.slice(0, 500),
+        // ── PAGE ID top-level ──
+        page_id: pageId,
+        // ── GRAPH API METADATA (spread top-level dos campos-chave) ──
+        // ad_metadata continua aninhado pra detalhes, mas expomos os principais
+        // pra query direta no Blob.
+        publisher_platforms: adMetadata?.publisher_platforms || null,
+        facebook_positions: adMetadata?.facebook_positions || null,
+        instagram_positions: adMetadata?.instagram_positions || null,
+        optimization_goal: adMetadata?.optimization_goal || null,   // CONVERSATIONS, LEAD_GENERATION
+        destination_type: adMetadata?.destination_type || null,     // WHATSAPP, ON_AD
+        campaign_objective: adMetadata?.campaign_objective || null, // OUTCOME_ENGAGEMENT
+        campaign_id: adMetadata?.campaign_id || null,
+        campaign_name: adMetadata?.campaign_name || null,
+        adset_id: adMetadata?.adset_id || null,
+        adset_name: adMetadata?.adset_name || null,
+        ad_id: adMetadata?.ad_id || sourceId || null,
+        ad_name: adMetadata?.ad_name || null,
         ad_metadata: adMetadata,
         timestamp: ts,
         // Fix MEDIUM AI review 20/04/2026 (M10): addRandomSuffix:true cria path
