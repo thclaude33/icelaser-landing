@@ -962,6 +962,7 @@ export default async function handler(req, res) {
   let wamReceived = 0;
   let wamSkipped = 0;
   let wamErrors = 0;
+  const wamSkipReasons = [];  // debug: capturar motivos do skip pra logar
   const wamCompatibleEvents = validEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name));
   for (const evt of wamCompatibleEvents) {
     const wamResp = await sendWAMEvent({
@@ -973,11 +974,15 @@ export default async function handler(req, res) {
     });
     if (wamResp?.skipped) {
       wamSkipped++;
+      wamSkipReasons.push(`${evt.event_name}:${wamResp.skipped}`);
     } else if (wamResp?.events_received >= 1) {
       wamReceived++;
     } else if (wamResp?.error) {
       wamErrors++;
     }
+  }
+  if (wamSkipReasons.length > 0) {
+    console.warn(`[CRM-WEBHOOK WAM] skipped reasons: ${wamSkipReasons.join(' | ')}`);
   }
   console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM: ${wamReceived} received / ${wamSkipped} skipped / ${wamErrors} errors | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
   return res.status(200).json({
