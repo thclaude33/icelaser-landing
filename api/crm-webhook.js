@@ -944,34 +944,39 @@ export default async function handler(req, res) {
   // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
   const eventsReceived = result?.events_received ?? 0;
 
-  // WAM Dataset fan-out: quando ctwa_clid presente, enviar eventos compatíveis
-  // pro WhatsApp Marketing Event Sharing dataset EM PARALELO. Dedup cross-
-  // dataset via event_id idêntico. Só eventos com action_source ou derivaveis
-  // de business_messaging → mapear action_source para WAM.
+  // WAM Dataset fan-out: enviar TODOS events compatíveis pro WhatsApp Marketing
+  // Event Sharing. Helper sendWAMEvent auto-detecta action_source:
+  //   - ctwa_clid/psid presente → business_messaging (otimização CTWA Meta)
+  //   - sem ambos → system_generated (CRM direct — Fabyanna/Viviane/etc)
+  // Dedup cross-dataset via event_id idêntico ao enviado pro pixel principal.
+  //
+  // Fix 20/04/2026: removido gate `if (ctwaClid)` que bloqueava leads CRM
+  // direct (organic WhatsApp sem ad). Dataset WAM aceita system_generated
+  // sem CTWA — Meta validou events_received=1 em Purchase de Fabyanna/Viviane.
+  const WAM_SUPPORTED_EVENTS = new Set([
+    'Purchase', 'LeadSubmitted', 'Lead', 'CompleteRegistration', 'Subscribe',
+    'InitiateCheckout', 'AddToCart', 'AddPaymentInfo', 'ViewContent',
+    'OrderCreated', 'Shipped', 'Delivered', 'Canceled', 'Returned',
+    'CartAbandoned', 'QualifiedLead', 'RatingProvided', 'ReviewProvided',
+  ]);
   let wamReceived = 0;
   let wamSkipped = 0;
   let wamErrors = 0;
-  if (ctwaClid) {
-    const wamCompatibleEvents = validEvents.filter(e =>
-      ['Purchase', 'LeadSubmitted', 'InitiateCheckout', 'AddToCart', 'ViewContent', 'OrderCreated', 'Shipped', 'Delivered', 'Canceled', 'Returned', 'CartAbandoned', 'QualifiedLead', 'RatingProvided', 'ReviewProvided'].includes(e.event_name)
-    );
-    for (const evt of wamCompatibleEvents) {
-      const wamResp = await sendWAMEvent({
-        event_name: evt.event_name,
-        event_id: evt.event_id,
-        event_time: evt.event_time,
-        user_data: { ...evt.user_data },
-        custom_data: evt.custom_data,
-      });
-      if (wamResp?.skipped) {
-        wamSkipped++;
-      } else if (wamResp?.events_received >= 1) {
-        wamReceived++;
-      } else if (wamResp?.error) {
-        // Handle error case: network failures (wam_exception) or Meta rejections (error codes)
-        // Error already logged in sendWAMEvent; count it separately to distinguish from skips
-        wamErrors++;
-      }
+  const wamCompatibleEvents = validEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name));
+  for (const evt of wamCompatibleEvents) {
+    const wamResp = await sendWAMEvent({
+      event_name: evt.event_name,
+      event_id: evt.event_id,
+      event_time: evt.event_time,
+      user_data: { ...evt.user_data },
+      custom_data: evt.custom_data,
+    });
+    if (wamResp?.skipped) {
+      wamSkipped++;
+    } else if (wamResp?.events_received >= 1) {
+      wamReceived++;
+    } else if (wamResp?.error) {
+      wamErrors++;
     }
   }
   console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM: ${wamReceived} received / ${wamSkipped} skipped / ${wamErrors} errors | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
