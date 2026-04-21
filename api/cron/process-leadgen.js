@@ -61,6 +61,16 @@ export default async function handler(req, res) {
       }
       const leadId = blob.pathname.split('/').pop().replace('.json', '');
       if (processedIds.has(leadId)) {
+        // Fix 21/04/2026: auto-cleanup de órfãos. Se leadgen/pending/ contém blob
+        // que já está em leadgen/processed/, significa que o del() no whatsapp.js
+        // falhou (swallow catch). Deletar aqui previne skipped recorrente cada
+        // 5min. Safe: o lead JÁ foi processado com sucesso (tem processed entry).
+        try {
+          await del(blob.url);
+          console.log(`[DLQ-CRON] 🧹 órfão deletado: ${blob.pathname} (já processed)`);
+        } catch (e) {
+          console.warn(`[DLQ-CRON] órfão delete falhou: ${blob.pathname} — ${e.message}`);
+        }
         report.skipped++;
         continue;
       }
