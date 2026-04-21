@@ -6,6 +6,7 @@ import { ALLOWED_ORIGINS } from './_lib/config.js';
 import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
+import { sendWAMEvent } from './_lib/capi-wam.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -506,6 +507,26 @@ export default async function handler(req, res) {
     if (result.error) {
       const { code, error_subcode, message, is_transient } = result.error;
       console.error(`[TRACK CAPI ERROR] code=${code} subcode=${error_subcode} transient=${is_transient} event=${event_name} msg=${message}`);
+    }
+
+    // Fix 21/04/2026: FAN-OUT WAM Dataset. Browser já envia via fbq duplo
+    // (Pixel + WAM) mas server-side só ia pro Pixel → WAM perdia server
+    // redundancy e EMQ do event_id server. Helper skipa eventos não suportados
+    // (PageView) e envia ViewContent/Lead/CompleteRegistration/Purchase/IC.
+    try {
+      const wamResp = await sendWAMEvent({
+        event_name,
+        event_id,
+        event_time: eventTime,
+        user_data: { ...userData },
+        custom_data,
+        action_source: 'website',
+      });
+      if (wamResp?.skipped) console.log(`[WAM TRACK] skipped ${event_name}: ${wamResp.skipped}`);
+      else if (wamResp?.error) console.warn(`[WAM TRACK] err ${event_name}: ${wamResp.error.message}`);
+      else console.log(`[WAM TRACK] ✅ ${event_name} received=${wamResp?.events_received}`);
+    } catch (wamErr) {
+      console.warn('[WAM TRACK] exception:', wamErr.message);
     }
 
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit

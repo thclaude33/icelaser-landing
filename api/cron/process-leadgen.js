@@ -22,6 +22,7 @@ import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
 import { PARTNER_AGENT } from '../_lib/capi.js';
 import { buildUserData } from '../_lib/piiBuilder.js';
 import { brtISO, isVercelCron } from '../_lib/time.js';
+import { sendWAMEvent } from '../_lib/capi-wam.js';
 
 const META_TOKEN = process.env.META_ACCESS_TOKEN;
 const CAPI_TOKEN = process.env.CAPI_DATASET_TOKEN || META_TOKEN;
@@ -236,31 +237,43 @@ export default async function handler(req, res) {
               });
               if (/^\d{15,17}$/.test(String(leadId))) userData.lead_id = String(leadId);
               if (process.env.META_PAGE_ID) userData.page_id = process.env.META_PAGE_ID;
+              const eventTime = Math.floor(Date.now() / 1000);
+              const customData = {
+                event_source: 'crm',
+                lead_event_source: 'Chatwoot',
+                leadgen_form_id: String(payload.form_id || ''),
+                ...(payload.ad_id ? { ad_id: String(payload.ad_id) } : {}),
+                content_name: 'Meta Lead Ad Form Submission',
+                content_category: 'depilacao_laser',
+                currency: 'BRL',
+                value: 0,
+                customer_segmentation: 'new_customer_to_business',
+              };
               await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CAPI_TOKEN}` },
                 body: JSON.stringify({
                   data: [{
                     event_name: 'Lead',
-                    event_time: Math.floor(Date.now() / 1000),
+                    event_time: eventTime,
                     event_id: `leadgen_${leadId}`,  // idempotent
                     action_source: 'system_generated',
                     user_data: userData,
-                    custom_data: {
-                      event_source: 'crm',
-                      lead_event_source: 'Chatwoot',
-                      leadgen_form_id: String(payload.form_id || ''),
-                      ...(payload.ad_id ? { ad_id: String(payload.ad_id) } : {}),
-                      content_name: 'Meta Lead Ad Form Submission',
-                      content_category: 'depilacao_laser',
-                      currency: 'BRL',
-                      value: 0,
-                      customer_segmentation: 'new_customer_to_business',
-                    },
+                    custom_data: customData,
                   }],
                   partner_agent: PARTNER_AGENT,
                 }),
               });
+              // Fix 21/04/2026: FAN-OUT WAM dataset. Helper decide skipar se sem ctwa_clid+page_id.
+              try {
+                await sendWAMEvent({
+                  event_name: 'Lead',
+                  event_id: `leadgen_${leadId}`,
+                  event_time: eventTime,
+                  user_data: { ...userData },
+                  custom_data: customData,
+                });
+              } catch { /* WAM falha não bloqueia DLQ success */ }
             } catch { /* CAPI falha não bloqueia DLQ success */ }
           }
 

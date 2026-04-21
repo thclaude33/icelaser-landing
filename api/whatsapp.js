@@ -695,6 +695,39 @@ async function processarCTWA(from, message, referral, profileName) {
         // pra consistência com o resto do código (PII mascarado em logs).
         console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${maskPhone(from)} received=${eventsReceived}`);
       }
+
+      // Fix 21/04/2026: FAN-OUT pro WAM Dataset.
+      // Antes CTWA só enviava pro Pixel principal (PIXEL_ID). WAM LeadSubmitted
+      // ficava órfão — user viu Lead count 2 via Browser, nenhum via CAPI CTWA.
+      // WAM é CAPI oficial Meta pra business_messaging → dedup cross-dataset
+      // via mesmo event_id. Custom_data + user_data idênticos.
+      try {
+        const wamResp = await sendWAMEvent({
+          event_name: 'LeadSubmitted',
+          event_id: eventId,
+          event_time: eventTime,
+          user_data: { ...userData },
+          custom_data: {
+            event_source: 'crm',
+            lead_event_source: 'Chatwoot',
+            ctwa_source: 'WhatsApp CTWA',
+            source_url: sourceUrl,
+            content_name: 'CTWA Contact Started - WhatsApp',
+            content_category: 'depilacao_laser',
+            customer_segmentation: 'new_customer_to_business',
+            ...(adMetadata?.ad_id ? { ad_id: adMetadata.ad_id } : {}),
+            ...(adMetadata?.adset_id ? { adset_id: adMetadata.adset_id } : {}),
+            ...(adMetadata?.campaign_id ? { campaign_id: adMetadata.campaign_id } : {}),
+            ...(adMetadata?.optimization_goal ? { optimization_goal: adMetadata.optimization_goal } : {}),
+            ...(adMetadata?.campaign_objective ? { campaign_objective: adMetadata.campaign_objective } : {}),
+          },
+        });
+        if (wamResp?.skipped) console.log(`[WAM CTWA] skipped: ${wamResp.skipped}`);
+        else if (wamResp?.error) console.warn(`[WAM CTWA] error: ${wamResp.error.message}`);
+        else console.log(`[WAM CTWA] ✅ received=${wamResp?.events_received} trace=${wamResp?.fbtrace_id}`);
+      } catch (wamErr) {
+        console.error('[WAM CTWA] exception:', wamErr.message);
+      }
     } catch (e) {
       console.warn('[CTWA] CAPI LeadSubmitted failed:', e.message);
     }
@@ -1386,6 +1419,34 @@ export default async function handler(req, res) {
                         console.warn(`[CAPI WARN LEADGEN] received=${leadJson.events_received} messages=${JSON.stringify(leadJson.messages)} fbtrace=${leadJson.fbtrace_id}`);
                       }
                       console.log(`[LEADGEN CAPI] ✅ Lead event fired: lead_id=${leadId} received=${leadJson.events_received}`);
+                    }
+
+                    // Fix 21/04/2026: FAN-OUT WAM dataset. Antes só Pixel principal.
+                    // sendWAMEvent helper decide skipar se não tem ctwa_clid+page_id
+                    // (WAM requer business_messaging action_source).
+                    try {
+                      const wamResp = await sendWAMEvent({
+                        event_name: 'Lead',
+                        event_id: `leadgen_${leadId}`,
+                        event_time: Math.floor(Date.now() / 1000),
+                        user_data: { ...leadUserData },
+                        custom_data: {
+                          event_source: 'crm',
+                          lead_event_source: 'Chatwoot',
+                          leadgen_form_id: String(formId || ''),
+                          ...(adId ? { ad_id: String(adId) } : {}),
+                          content_name: 'Meta Lead Ad Form Submission',
+                          content_category: 'depilacao_laser',
+                          currency: 'BRL',
+                          value: 0,
+                          customer_segmentation: 'new_customer_to_business',
+                        },
+                      });
+                      if (wamResp?.skipped) console.log(`[WAM LEADGEN] skipped: ${wamResp.skipped}`);
+                      else if (wamResp?.error) console.warn(`[WAM LEADGEN] error: ${wamResp.error.message}`);
+                      else console.log(`[WAM LEADGEN] ✅ received=${wamResp?.events_received}`);
+                    } catch (wamErr) {
+                      console.error('[WAM LEADGEN] exception:', wamErr.message);
                     }
                   } catch (capiErr) {
                     console.error('[LEADGEN CAPI] exception:', capiErr.message);
