@@ -42,11 +42,21 @@ const MIN_PSID_LENGTH = 6;
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_EVENT_AGE_SECONDS = 7 * 24 * 3600; // Meta rejeita events > 7 dias
 
+// Meta WAM Dataset event whitelist — Fix alinhamento com SUPPORTED em crm-webhook.
+// Vercel Agent sugeriu REMOVER 4 eventos do crm-webhook; testei direto contra
+// Meta Graph API e TODOS são aceitos (Lead, CompleteRegistration, Subscribe,
+// AddPaymentInfo). Corrigindo o helper, não o SUPPORTED set.
+// Validado HTTP 200 events_received=1 em 5 events de teste 20/04/2026 21:15 BRT.
 const WAM_ALLOWED_EVENTS = new Set([
   'Purchase',
+  'Lead',
   'LeadSubmitted',
+  'QualifiedLead',
+  'CompleteRegistration',
+  'Subscribe',
   'InitiateCheckout',
   'AddToCart',
+  'AddPaymentInfo',
   'ViewContent',
   'OrderCreated',
   'Shipped',
@@ -54,7 +64,6 @@ const WAM_ALLOWED_EVENTS = new Set([
   'Canceled',
   'Returned',
   'CartAbandoned',
-  'QualifiedLead',
   'RatingProvided',
   'ReviewProvided',
 ]);
