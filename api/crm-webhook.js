@@ -559,6 +559,19 @@ export default async function handler(req, res) {
   // (não é matching key, só identificador interno pra investigar no Meta Events Manager).
   const crmContactId = contact.id ? String(contact.id) : null;
 
+  // Fix 21/04/2026 (wizard CRM Conversion Leads): recuperar leadgen_id REAL Meta
+  // do contact.custom_attributes (setado em whatsapp.js:1225 quando lead chega via
+  // leadgen webhook). Meta docs payload-specification:
+  //   "lead_id: 15-17 digit number from leadgen_id webhook field. HIGHEST priority
+  //    matching key."
+  // Sem lead_id, wizard CRM Integration trava em 20% (Etapa 2) mesmo com events
+  // corretos — Meta exige match com leadgen_id da Lead Ad pra progredir.
+  const leadgenId = customAttrs?.leadgen_id || contact?.custom_attributes?.leadgen_id;
+  const isValidLeadgenId = leadgenId && /^\d{15,17}$/.test(String(leadgenId));
+  if (isValidLeadgenId) {
+    userData.lead_id = String(leadgenId);
+  }
+
   if (ctwaClid) {
     userData.ctwa_clid = ctwaClid; // user_data — posição oficial Meta para CTWA
     // NOTA: `whatsapp_business_account_id` REMOVIDO em 25ª passada (18/04/2026).
