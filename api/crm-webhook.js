@@ -812,6 +812,7 @@ export default async function handler(req, res) {
         event_name: 'Lead',
         event_time: now,
         event_id: `${eventId}_disqualified`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
         custom_data: disqCustomData,
       },
       // 2) Custom LeadDesqualificado event — audience creation (exclude list)
@@ -821,6 +822,7 @@ export default async function handler(req, res) {
         event_name: 'LeadDesqualificado',
         event_time: now,
         event_id: `${eventId}_disqualified_audience`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
         custom_data: disqCustomData,
       },
     );
@@ -833,6 +835,7 @@ export default async function handler(req, res) {
       event_name: 'Lead',
       event_time: now,
       event_id: `${eventId}_cold_lead`,
+      ...(originalLeadData && { original_event_data: originalLeadData }),
       custom_data: {
         ...crmBase,
         content_name: 'Lead Frio - CRM',
@@ -859,6 +862,7 @@ export default async function handler(req, res) {
         // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
         event_time: now,
         event_id: `${eventId}_hot_lead`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
         custom_data: {
           ...crmBase,
           content_name: 'Lead Quente - CRM',
@@ -874,6 +878,7 @@ export default async function handler(req, res) {
         event_name: 'CompleteRegistration',
         event_time: now,
         event_id: `${eventId}_hot_cr`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
         custom_data: {
           ...crmBase,
           content_name: 'Lead Quente - CRM',
@@ -902,6 +907,7 @@ export default async function handler(req, res) {
       event_name: 'InitiateCheckout',
       event_time: now,
       event_id: `${eventId}_ic`,
+      ...(originalLeadData && { original_event_data: originalLeadData }),
       custom_data: {
         ...crmBase,
         currency: 'BRL',
@@ -922,6 +928,7 @@ export default async function handler(req, res) {
         event_name: 'InitiateCheckout',
         event_time: now - 1800,
         event_id: `${eventId}_purchase_ic`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
         custom_data: {
           ...crmBase,
           currency: 'BRL',
@@ -1016,6 +1023,10 @@ export default async function handler(req, res) {
       action_source: 'system_generated',
       user_data: { ...evt.user_data },
       custom_data: evt.custom_data,
+      // Fix 22/04/2026 (diagnostic "server events not deduplicated"):
+      // Propagar link pro Lead browser original (Blob leads/) pra Meta entender
+      // que events CRM são continuação, não duplicatas.
+      original_event_data: evt.original_event_data,
     });
     if (wamResp?.skipped) {
       wamSkipped++;

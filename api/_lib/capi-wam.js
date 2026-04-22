@@ -80,7 +80,7 @@ export const WAM_ALLOWED_EVENTS = new Set([
  * @param {object} [opts.custom_data] - Purchase exige currency + value
  * @returns {Promise<object>} resposta Meta ou { skipped: 'reason' }
  */
-export async function sendWAMEvent({ event_name, event_id, event_time, user_data, custom_data, action_source }) {
+export async function sendWAMEvent({ event_name, event_id, event_time, user_data, custom_data, action_source, original_event_data }) {
   if (!WAM_DATASET_ID) return { skipped: 'wam_dataset_not_configured' };
   if (!WAM_TOKEN) return { skipped: 'wam_token_missing' };
   if (!event_name || !WAM_ALLOWED_EVENTS.has(event_name)) {
@@ -147,6 +147,12 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
     user_data: enrichedUserData,
     // Fix MEDIUM (AI review M3): omitir custom_data vazio (Meta documenta).
     ...(custom_data && Object.keys(custom_data).length > 0 ? { custom_data } : {}),
+    // Fix 22/04/2026 (WAM diagnostic "server events not deduplicated"):
+    // Linka Lead/CR/IC CRM subsequentes ao Lead Pixel browser original via
+    // original_event_data.event_id. Meta entende como "continuação" do Lead
+    // original, não como duplicata. Resolve o diagnostico sem quebrar matching.
+    // Ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/original-event/
+    ...(original_event_data && typeof original_event_data === 'object' ? { original_event_data } : {}),
   };
   if (isBusinessMessaging) {
     eventObj.messaging_channel = 'whatsapp';
