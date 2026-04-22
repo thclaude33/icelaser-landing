@@ -749,7 +749,15 @@ export default async function handler(req, res) {
   const contactKey = contact.id || (telefone ? telefone.replace(/\D/g, '') : 'unk');
   const labelsKey = [...labels].sort().join(',').replace(/[^a-z0-9,_-]/gi, '').slice(0, 60);
   const eventId = `crm_${contactKey}_${now}_${labelsKey}`;
-  const orderId = `order_${contactKey}_${now}`;
+  // Fix 22/04/2026: orderId ESTÁVEL por venda (não por webhook firing).
+  // Antes: `order_${contactKey}_${now}` → mudava a cada webhook → Meta
+  // tratava retries como orders distintos → cobertura order_id = 0% no painel.
+  // Agora: usa conversation.id do Chatwoot (imutável, único por venda).
+  // Fallback: contact.id (também imutável). Jamais usar `now` no orderId.
+  const conversationId = conversation?.id ? String(conversation.id) : null;
+  const orderId = conversationId
+    ? `order_cw${conversationId}`
+    : `order_contact${contactKey}`;
 
   // customerSeg: 3 sinais combinados pra detectar existing customer
   //   1. previousLabels tinha compra_realizada (label já estava)
@@ -894,7 +902,14 @@ export default async function handler(req, res) {
       event_name: 'InitiateCheckout',
       event_time: now,
       event_id: `${eventId}_ic`,
-      custom_data: { ...crmBase, currency: 'BRL', value: valor, content_name: 'Link Pagamento - CRM', customer_segmentation: customerSeg },
+      custom_data: {
+        ...crmBase,
+        currency: 'BRL',
+        value: valor,
+        content_name: 'Link Pagamento - CRM',
+        customer_segmentation: customerSeg,
+        order_id: orderId,
+      },
     });
   }
 
@@ -907,7 +922,14 @@ export default async function handler(req, res) {
         event_name: 'InitiateCheckout',
         event_time: now - 1800,
         event_id: `${eventId}_purchase_ic`,
-        custom_data: { ...crmBase, currency: 'BRL', value: valor, content_name: 'Compra CRM', customer_segmentation: customerSeg },
+        custom_data: {
+          ...crmBase,
+          currency: 'BRL',
+          value: valor,
+          content_name: 'Compra CRM',
+          customer_segmentation: customerSeg,
+          order_id: orderId,
+        },
       },
       {
         ...mkBaseEvent(),
