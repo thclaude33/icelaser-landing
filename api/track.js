@@ -6,7 +6,7 @@ import { ALLOWED_ORIGINS } from './_lib/config.js';
 import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
-import { sendWAMEvent } from './_lib/capi-wam.js';
+import { sendWAMEvent, WAM_ALLOWED_EVENTS } from './_lib/capi-wam.js';
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -511,22 +511,29 @@ export default async function handler(req, res) {
 
     // Fix 21/04/2026: FAN-OUT WAM Dataset. Browser já envia via fbq duplo
     // (Pixel + WAM) mas server-side só ia pro Pixel → WAM perdia server
-    // redundancy e EMQ do event_id server. Helper skipa eventos não suportados
-    // (PageView) e envia ViewContent/Lead/CompleteRegistration/Purchase/IC.
-    try {
-      const wamResp = await sendWAMEvent({
-        event_name,
-        event_id,
-        event_time: eventTime,
-        user_data: { ...userData },
-        custom_data,
-        action_source: 'website',
-      });
-      if (wamResp?.skipped) console.log(`[WAM TRACK] skipped ${event_name}: ${wamResp.skipped}`);
-      else if (wamResp?.error) console.warn(`[WAM TRACK] err ${event_name}: ${wamResp.error.message}`);
-      else console.log(`[WAM TRACK] ✅ ${event_name} received=${wamResp?.events_received}`);
-    } catch (wamErr) {
-      console.warn('[WAM TRACK] exception:', wamErr.message);
+    // redundancy e EMQ do event_id server.
+    //
+    // Fix 22/04/2026: GATE por WAM_ALLOWED_EVENTS ANTES de chamar sendWAMEvent.
+    // Antes, todo /api/track POST (ex: PageView) gerava skip log ruído +
+    // latência desnecessária de function call. Agora só dispara pra events
+    // whitelist (ViewContent/Lead/CR/Purchase/IC etc). PageView fica fora
+    // silenciosamente — é evento web Pixel-only, não tem equivalente no WAM.
+    if (WAM_ALLOWED_EVENTS.has(event_name)) {
+      try {
+        const wamResp = await sendWAMEvent({
+          event_name,
+          event_id,
+          event_time: eventTime,
+          user_data: { ...userData },
+          custom_data,
+          action_source: 'website',
+        });
+        if (wamResp?.skipped) console.log(`[WAM TRACK] skipped ${event_name}: ${wamResp.skipped}`);
+        else if (wamResp?.error) console.warn(`[WAM TRACK] err ${event_name}: ${wamResp.error.message}`);
+        else console.log(`[WAM TRACK] ✅ ${event_name} received=${wamResp?.events_received}`);
+      } catch (wamErr) {
+        console.warn('[WAM TRACK] exception:', wamErr.message);
+      }
     }
 
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit

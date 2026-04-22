@@ -47,7 +47,9 @@ const MAX_EVENT_AGE_SECONDS = 7 * 24 * 3600; // Meta rejeita events > 7 dias
 // Meta Graph API e TODOS são aceitos (Lead, CompleteRegistration, Subscribe,
 // AddPaymentInfo). Corrigindo o helper, não o SUPPORTED set.
 // Validado HTTP 200 events_received=1 em 5 events de teste 20/04/2026 21:15 BRT.
-const WAM_ALLOWED_EVENTS = new Set([
+// EXPORTADA (22/04/2026) pra track.js usar como gate antes do fan-out, evitando
+// log ruído de PageView (único event não-suportado disparado em alta frequência).
+export const WAM_ALLOWED_EVENTS = new Set([
   'Purchase',
   'Lead',
   'LeadSubmitted',
