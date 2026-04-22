@@ -78,6 +78,9 @@ export default async function handler(req, res) {
   // Hardcoded fallback pro valor atual IceLaser (13/04/2026) — se rotacionar,
   // setar VERCEL_LOG_DRAIN_VERIFY env var sem redeploy.
   // Sem este header, Vercel rejeita handshake inicial + re-validação.
+  // NOTA: VERCEL_LOG_DRAIN_VERIFY não está setado em prod (22/04/2026) —
+  // o fallback literal ABAIXO é o que mantém o drain funcionando. Se remover,
+  // quebra handshake. Setar env var no dashboard antes de remover fallback.
   const verifyToken = process.env.VERCEL_LOG_DRAIN_VERIFY
     || 'dc04cc178d4addf38b1a252e26f92b0f7b1d0f64';
   res.setHeader('x-vercel-verify', verifyToken);
