@@ -433,6 +433,12 @@ export default async function handler(req, res) {
     : nowSec;
 
   // partner_agent adicionado automaticamente por sendCapiEvents (_lib/capi.js).
+  // Fix 22/04/2026 (WAM diagnostic "server events ViewContent not deduplicated"):
+  // original_event_data self-reference explicita pro Meta que esse CAPI server
+  // event é a versão server do MESMO event browser (mesmo event_id). Hint oficial
+  // Meta pra reforçar dedup Pixel↔CAPI alem do match event_name+event_id padrao.
+  // Ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/original-event/
+  const originalEventData = { event_name, event_id };
   const eventPayload = {
     event_name,
     event_time: eventTime,
@@ -441,6 +447,7 @@ export default async function handler(req, res) {
     action_source: 'website',
     user_data: userData,
     ...(Object.keys(custom_data).length > 0 && { custom_data }),
+    original_event_data: originalEventData,
   };
 
   // Prefer dataset-scoped CAPI_DATASET_TOKEN (Events Manager > API de Conversões token)
@@ -527,6 +534,11 @@ export default async function handler(req, res) {
           user_data: { ...userData },
           custom_data,
           action_source: 'website',
+          // Fix 22/04/2026: original_event_data self-reference — ajuda Meta
+          // consolidar server-side WAM event com Pixel browser WAM event
+          // (ambos com mesmo event_id). Sem isso, diagnostic "server events
+          // not deduplicated" aparece mesmo com event_id batendo.
+          original_event_data: originalEventData,
         });
         if (wamResp?.skipped) console.log(`[WAM TRACK] skipped ${event_name}: ${wamResp.skipped}`);
         else if (wamResp?.error) console.warn(`[WAM TRACK] err ${event_name}: ${wamResp.error.message}`);
