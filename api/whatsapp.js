@@ -1413,12 +1413,40 @@ export default async function handler(req, res) {
                     });
                     const leadJson = await leadResp.json();
                     if (leadJson.error) {
-                      console.error(`[LEADGEN CAPI] ⚠️ Rejected: code=${leadJson.error.code} msg=${leadJson.error.message}`);
+                      console.error(`[LEADGEN CAPI] ⚠️ Rejected: code=${leadJson.error.code} subcode=${leadJson.error.error_subcode} msg=${leadJson.error.message} lead_id=${leadId}`);
+                      // Fix 23/04/2026: persist em Blob alerts pra cron capi-alerts detectar.
+                      // Silent reject no Pixel LP seria invisivel pro wizard Conversion Leads.
+                      try {
+                        if (process.env.BLOB_READ_WRITE_TOKEN) {
+                          const alertKey = `alerts/capi-errors/${Date.now()}-${leadJson.error.error_subcode || leadJson.error.code || 'unknown'}-${Math.random().toString(36).slice(2, 8)}.json`;
+                          await put(alertKey, JSON.stringify({
+                            at: new Date().toISOString(),
+                            source: 'pixel_lp_leadgen_handler',
+                            pixel_id: PIXEL_ID,
+                            event_name: 'Lead',
+                            event_id: `leadgen_${leadId}`,
+                            lead_id: String(leadId),
+                            action_source: 'system_generated',
+                            error_code: leadJson.error.code,
+                            error_subcode: leadJson.error.error_subcode,
+                            error_type: leadJson.error.type,
+                            error_message: leadJson.error.message,
+                            fbtrace_id: leadJson.fbtrace_id,
+                          }), {
+                            access: 'public', addRandomSuffix: false,
+                            contentType: 'application/json', cacheControlMaxAge: 0,
+                          });
+                        }
+                      } catch { /* alert persist não pode quebrar handler */ }
                     } else {
+                      const received = leadJson.events_received ?? 0;
                       if (Array.isArray(leadJson.messages) && leadJson.messages.length > 0) {
-                        console.warn(`[CAPI WARN LEADGEN] received=${leadJson.events_received} messages=${JSON.stringify(leadJson.messages)} fbtrace=${leadJson.fbtrace_id}`);
+                        console.warn(`[CAPI WARN LEADGEN] received=${received} messages=${JSON.stringify(leadJson.messages)} fbtrace=${leadJson.fbtrace_id}`);
                       }
-                      console.log(`[LEADGEN CAPI] ✅ Lead event fired: lead_id=${leadId} received=${leadJson.events_received}`);
+                      if (received === 0) {
+                        console.error(`[LEADGEN CAPI SILENT_DROP] received=0 fbtrace=${leadJson.fbtrace_id || 'n/a'} lead_id=${leadId}`);
+                      }
+                      console.log(`[LEADGEN CAPI] ✅ Lead event fired: lead_id=${leadId} received=${received}`);
                     }
 
                     // Fix 21/04/2026: FAN-OUT WAM dataset. Antes só Pixel principal.

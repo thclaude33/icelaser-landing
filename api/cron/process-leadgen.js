@@ -249,7 +249,14 @@ export default async function handler(req, res) {
                 value: 0,
                 customer_segmentation: 'new_customer_to_business',
               };
-              await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
+              // Fix CRITICAL 23/04/2026 (silent error investigation): antes o fetch
+              // era fire-and-forget — qualquer erro Meta (subcode X, events_received=0,
+              // messages=[...]) passava silencioso. Causa: user reportou coverage Lead 0%
+              // no wizard Pixel LP mesmo com 2 leadgens reais processados hoje. Sem log
+              // de response, impossível diagnosticar se Meta estava dropping.
+              // Agora: parse response, loga subcode/messages, persist em Blob alerts/
+              // pra cron capi-alerts enviar email se acumular erros.
+              const leadCapiResp = await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CAPI_TOKEN}` },
                 body: JSON.stringify({
@@ -264,17 +271,58 @@ export default async function handler(req, res) {
                   partner_agent: PARTNER_AGENT,
                 }),
               });
+              const leadCapiJson = await leadCapiResp.json().catch(() => ({}));
+              if (leadCapiJson.error) {
+                console.error(`[DLQ-CRON CAPI] ⚠️ Rejected: code=${leadCapiJson.error.code} subcode=${leadCapiJson.error.error_subcode} msg=${leadCapiJson.error.message} lead_id=${leadId}`);
+                // Persist em Blob alerts/capi-errors/ pra cron capi-alerts detectar
+                try {
+                  const alertKey = `alerts/capi-errors/${Date.now()}-${leadCapiJson.error.error_subcode || leadCapiJson.error.code || 'unknown'}-${Math.random().toString(36).slice(2, 8)}.json`;
+                  await put(alertKey, JSON.stringify({
+                    at: new Date().toISOString(),
+                    source: 'pixel_lp_dlq_leadgen',
+                    pixel_id: PIXEL_ID,
+                    event_name: 'Lead',
+                    event_id: `leadgen_${leadId}`,
+                    lead_id: String(leadId),
+                    action_source: 'system_generated',
+                    error_code: leadCapiJson.error.code,
+                    error_subcode: leadCapiJson.error.error_subcode,
+                    error_type: leadCapiJson.error.type,
+                    error_message: leadCapiJson.error.message,
+                    fbtrace_id: leadCapiJson.fbtrace_id,
+                  }), {
+                    access: 'public', addRandomSuffix: false,
+                    contentType: 'application/json', cacheControlMaxAge: 0,
+                  });
+                } catch { /* alert persistence não pode quebrar DLQ */ }
+              } else {
+                const received = leadCapiJson.events_received ?? 0;
+                if (Array.isArray(leadCapiJson.messages) && leadCapiJson.messages.length > 0) {
+                  console.warn(`[DLQ-CRON CAPI WARN] received=${received} messages=${JSON.stringify(leadCapiJson.messages)} lead_id=${leadId}`);
+                }
+                if (received === 0) {
+                  console.error(`[DLQ-CRON CAPI SILENT_DROP] received=0 fbtrace=${leadCapiJson.fbtrace_id || 'n/a'} lead_id=${leadId}`);
+                }
+                console.log(`[DLQ-CRON CAPI] ✅ Lead fired lead_id=${leadId} received=${received}`);
+              }
               // Fix 21/04/2026: FAN-OUT WAM dataset. Helper decide skipar se sem ctwa_clid+page_id.
               try {
-                await sendWAMEvent({
+                const wamResp = await sendWAMEvent({
                   event_name: 'Lead',
                   event_id: `leadgen_${leadId}`,
                   event_time: eventTime,
                   user_data: { ...userData },
                   custom_data: customData,
                 });
-              } catch { /* WAM falha não bloqueia DLQ success */ }
-            } catch { /* CAPI falha não bloqueia DLQ success */ }
+                if (wamResp?.skipped) {
+                  console.log(`[DLQ-CRON WAM] skipped: ${wamResp.skipped} lead_id=${leadId}`);
+                } else if (wamResp?.error) {
+                  console.warn(`[DLQ-CRON WAM] error: ${wamResp.error.message} lead_id=${leadId}`);
+                } else {
+                  console.log(`[DLQ-CRON WAM] ✅ received=${wamResp?.events_received} lead_id=${leadId}`);
+                }
+              } catch (wamErr) { console.error(`[DLQ-CRON WAM] exception: ${wamErr.message} lead_id=${leadId}`); }
+            } catch (capiErr) { console.error(`[DLQ-CRON CAPI] exception: ${capiErr.message} lead_id=${leadId}`); }
           }
 
           // Mark processed + delete pending (fix MEDIUM #5)
