@@ -72,9 +72,28 @@ describe('decideTargetDataset — regra explícita via payment_method', () => {
 });
 
 describe('decideTargetDataset — inferência automática sem payment_method', () => {
-  test('ctwa_clid presente sem payment_method → WAM (veio de ad CTWA)', () => {
-    const r = decideTargetDataset({ customAttrs: {}, ctwa_clid: 'Abc123'.repeat(8) });
+  test('ctwa_clid presente (≥32 chars) sem payment_method → WAM (veio de ad CTWA)', () => {
+    const r = decideTargetDataset({ customAttrs: {}, ctwa_clid: 'Abc123'.repeat(8) }); // 48 chars
     assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.action_source, 'business_messaging');
+    assert.equal(r.reason, 'ctwa_clid_inferred');
+  });
+
+  test('ctwa_clid curto (16 chars) → NÃO qualifica business_messaging (fake/invalid)', () => {
+    // Fix AI Opus CRITICAL #2: threshold 32 chars (era 16, permitia fakes)
+    const r = decideTargetDataset({ customAttrs: {}, ctwa_clid: 'x'.repeat(16) });
+    assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.action_source, 'system_generated'); // fallback: ctwa não é válido
+    assert.equal(r.reason, 'fallback_default_wam');
+  });
+
+  test('ctwa_clid limítrofe (31 chars) → ainda NÃO qualifica', () => {
+    const r = decideTargetDataset({ customAttrs: {}, ctwa_clid: 'x'.repeat(31) });
+    assert.equal(r.action_source, 'system_generated');
+  });
+
+  test('ctwa_clid exatamente 32 chars → QUALIFICA business_messaging', () => {
+    const r = decideTargetDataset({ customAttrs: {}, ctwa_clid: 'x'.repeat(32) });
     assert.equal(r.action_source, 'business_messaging');
     assert.equal(r.reason, 'ctwa_clid_inferred');
   });

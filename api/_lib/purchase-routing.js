@@ -66,10 +66,15 @@ export function decideTargetDataset({ customAttrs, ctwa_clid } = {}) {
   const attrs = customAttrs || {};
   const pmNorm = normalize(attrs.payment_method);
 
-  // IMPORTANTE: business_messaging EXIGE ctwa_clid ou PSID (Meta spec 2804071).
+  // business_messaging EXIGE ctwa_clid ou PSID (Meta subcode 2804071 quando ausente).
   // Se target=WAM mas sem ctwa_clid real, usamos system_generated (CRM direct).
-  // WAM aceita system_generated pra events CRM (validado no histórico Fabyanna/Viviane).
-  const hasValidCtwa = ctwa_clid && typeof ctwa_clid === 'string' && ctwa_clid.length >= 16;
+  // WAM aceita system_generated pra events CRM (validado LIVE 23/04/2026 wam_received=1).
+  //
+  // Fix AI Review Opus 4.5 (CRITICAL #2): threshold 16 → 32 chars. Real ctwa_clid
+  // tem formato Base64-like ~40-60 chars. Threshold baixo deixava passar strings
+  // fake como "xxxxxxxxxxxxxxxx" que Meta rejeita com subcode 2804087.
+  // Alinhado com MIN_CTWA_CLID_LENGTH já definido em api/_lib/capi-wam.js.
+  const hasValidCtwa = ctwa_clid && typeof ctwa_clid === 'string' && ctwa_clid.length >= 32;
   const wamActionSource = hasValidCtwa ? 'business_messaging' : 'system_generated';
 
   // 1. payment_method explícito (atendente marcou)
