@@ -233,9 +233,11 @@
     var dom = host.endsWith('icelasers.com.br') ? '; Domain=.icelasers.com.br' : '';
     document.cookie = '_fbp=' + fbp + ';path=/' + dom + ';max-age=15552000;SameSite=Lax;Secure';
   }catch(e){}}());</script>
-  <!-- IPv6 capture — cache 1h (IP residencial pode mudar em reconnect mobile; cache curto evita IP stale no CAPI).
-       Secure flag adicionado: cookie só viaja em HTTPS (LP sempre é HTTPS, previne leak acidental). -->
-  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=3600;SameSite=Lax;Secure';}}).catch(function(){});}}catch(e){}}());</script>
+  <!-- IPv6 capture — cache 2h (JARVIS regra #10, fix 16/04 Multi-IP bug no Events Manager).
+       TTL 1h era agressivo demais e gerava "IP associado a múltiplos users" na Meta
+       quando mobile troca de rede (WiFi→4G). 2h = balanço entre freshness e stability.
+       Secure flag: cookie só viaja em HTTPS (LP sempre é HTTPS). -->
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=7200;SameSite=Lax;Secure';}}).catch(function(){});}}catch(e){}}());</script>
 
   <!-- Meta Pixel — disparo imediato -->
   <script>
@@ -1611,21 +1613,13 @@
   </style>
 
   <!-- Meta Pixel Code — WAM Dataset 967048725669499 (WhatsApp Marketing Event Sharing) -->
-  <!-- Snippet oficial Meta wizard. Init pixel WAM (paralelo ao 2774496306216737).
-       PageView dispara via linha 298 (com event_id pra dedup CAPI server-side).
-       Re-init com Advanced Matching também acontece no initPixel() IIFE acima. -->
-  <script>
-  !function(f,b,e,v,n,t,s)
-  {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-  n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-  if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-  n.queue=[];t=b.createElement(e);t.async=!0;
-  t.src=v;s=b.getElementsByTagName(e)[0];
-  s.parentNode.insertBefore(t,s)}(window, document,'script',
-  'https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', '967048725669499');
-  fbq('track', 'PageView');
-  </script>
+  <!-- Fix M-1 (22/04/2026 audit linha-a-linha): snippet standalone REMOVIDO.
+       IIFE initPixel() linhas 255-274 já inicializa Pixel LP 2774 + WAM 967 com
+       Advanced Matching via localStorage (MERGE por campo, não override). PageView
+       dispara linha 340 com eventID pra dedup CAPI server-side em AMBOS pixels
+       (docs oficiais Meta: fbq('track','PageView') sem pixelId dispara pra todos
+       pixels inicializados). Este snippet duplicava PageView SEM eventID quebrando
+       dedup pro 2º PV. Noscript fallback preservado abaixo. -->
   <noscript><img height="1" width="1" style="display:none"
   src="https://www.facebook.com/tr?id=967048725669499&ev=PageView&noscript=1"
   /></noscript>

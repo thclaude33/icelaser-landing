@@ -433,12 +433,14 @@ export default async function handler(req, res) {
         // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
         // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
         // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
-        // Fix CRITICAL: usar startsWith() com delimitador '.' ao invés de includes()
-        // para evitar false positives. Ex: '8133331234' em includes() também match
-        // 'ctwa/prefix8133331234suffix.json' (errado). startsWith('ctwa/8133331234.')
-        // garante match estruturado apenas no padrão correto.
-        const phonePattern = `ctwa/${telDigits.slice(-11)}.`;
-        if (blob.pathname.startsWith(phonePattern)) {
+        // Fix H-2 (22/04/2026 audit linha-a-linha): pathnames reais em prod são
+        // `ctwa/55{DDD}{phone}.json` (safeFrom em whatsapp.js:468 = 12-13 digits
+        // começando com "55"). slice(-11) remove os "55" → pattern `ctwa/{11d}.`
+        // NUNCA bate (char[5] "5" vs "8"). Validado LIVE 30 blobs amostrados = 0
+        // matches, attribution CRM quebrada 100% desde que safeFrom começou com 55.
+        // Fix: ancora em `ctwa/` + includes(11d-key) nos últimos 11 digits do path.
+        const phoneKey = telDigits.slice(-11);
+        if (blob.pathname.startsWith('ctwa/') && blob.pathname.slice(5).includes(phoneKey)) {
           const blobResp = await fetch(blob.url);
           const data = await blobResp.json();
           if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
@@ -640,11 +642,17 @@ export default async function handler(req, res) {
   // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
   const ctwaAdMeta = ctwaData && ctwaData.ad_metadata ? ctwaData.ad_metadata : null;
 
-  // action_source dinâmico baseado em CTWA presence (Meta Conversion Leads spec):
-  //  - 'business_messaging' quando ctwaClid presente (CTWA ad → WhatsApp conversation)
-  //  - 'system_generated' quando lead vem via CRM label update sem CTWA origin
-  // Fix MEDIUM AI review 20/04/2026 (M3).
-  const actionSource = ctwaClid ? 'business_messaging' : 'system_generated';
+  // Fix M-3 (22/04/2026 audit linha-a-linha): action_source SEMPRE system_generated
+  // no Pixel LP. Antes variava pra business_messaging quando ctwaClid presente, mas:
+  //  (1) Pixel LP 2774... é dataset WEBSITE, não messaging → business_messaging é
+  //      action_source EXCLUSIVO de datasets messaging (WAM 967...)
+  //  (2) mkBaseEvent não adicionava messaging_channel quando business_messaging →
+  //      Meta silent drop potencial (spec 2026 exige messaging_channel obrigatório)
+  //  (3) Attribution CTWA já é feita EXCLUSIVAMENTE no WAM via processarCTWA em
+  //      whatsapp.js (LeadSubmitted com action_source=business_messaging + messaging_channel=whatsapp)
+  // Semântica correta: events CRM são label updates (system_generated), events CTWA
+  // nativos são business_messaging (só via WAM).
+  const actionSource = 'system_generated';
 
   // Factory: cada chamada retorna novo objeto com shallow clone de user_data,
   // evitando referência compartilhada que poluiria todos os eventos do batch.
@@ -922,6 +930,57 @@ export default async function handler(req, res) {
   // 💰 COMPRA REALIZADA
   if (hasLabel('compra_realizada', '💰 Compra Realizada', '💰_compra_realizada', 'purchase', 'compra realizada', 'comprou', 'vendido', 'sold')) {
     const valor = safeValorParse(customAttrs.purchase_value);
+    // Fix H-3 (22/04/2026 audit linha-a-linha): CLAUDE.md documenta funil
+    // `compra_realizada → Lead + CR + IC + Purchase` (4 eventos). Código antigo
+    // só disparava IC+Purchase → atendente que pulava lead_quente direto pra
+    // compra (caso real Suellen conv 314) deixava funil Meta incompleto →
+    // Andromeda AI otimizava com dados pobres. Guard previne duplicata:
+    //  - Se lead_quente está nas labels ATUAIS: block hot_lead acima já dispara Lead+CR
+    //  - Se lead_quente rodou antes (previousLabels): Lead+CR já chegaram no Meta
+    //  - Se lead_frio rodou antes: só Lead chegou, CR falta → dispara CR
+    const hasHotNow = hasLabel('lead_quente', '🔥 Lead Quente', '🔥_lead_quente', 'hot_lead', 'lead quente', 'quente');
+    const hadHotBefore = previousLabels.some(l =>
+      /hot_lead|lead.quente|quente/i.test(String(l).toLowerCase()));
+    const hadColdBefore = previousLabels.some(l =>
+      /cold_lead|lead.frio|lead_frio|frio/i.test(String(l).toLowerCase()));
+    const needLead = !hasHotNow && !hadHotBefore && !hadColdBefore;
+    const needCR = !hasHotNow && !hadHotBefore;
+    if (needLead) {
+      events.push({
+        ...mkBaseEvent(),
+        event_name: 'Lead',
+        event_time: now - 3600,
+        event_id: `${eventId}_compra_lead`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
+        custom_data: {
+          ...crmBase,
+          content_name: 'Lead (inferido via Compra) - CRM',
+          lead_type: 'hot_lead',
+          currency: 'BRL',
+          value: 300,
+          predicted_ltv: DEFAULT_PREDICTED_LTV,
+          customer_segmentation: customerSeg,
+        },
+      });
+    }
+    if (needCR) {
+      events.push({
+        ...mkBaseEvent(),
+        event_name: 'CompleteRegistration',
+        event_time: now - 2400,
+        event_id: `${eventId}_compra_cr`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
+        custom_data: {
+          ...crmBase,
+          content_name: 'Lead (inferido via Compra) - CRM',
+          status: 'converted',
+          currency: 'BRL',
+          value: 300,
+          predicted_ltv: DEFAULT_PREDICTED_LTV,
+          customer_segmentation: customerSeg,
+        },
+      });
+    }
     events.push(
       {
         ...mkBaseEvent(),

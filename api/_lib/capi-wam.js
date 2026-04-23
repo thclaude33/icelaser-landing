@@ -131,16 +131,27 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   if (!hasMatchingKey) {
     return { skipped: 'wam_requires_matching_key' };
   }
+  // Fix C-1 (22/04/2026 audit linha-a-linha): Meta v25 REJEITA event_name='Lead'
+  // com action_source=business_messaging (subcode 2804066 — validado LIVE Graph API).
+  // Valid events pra business_messaging: Purchase, LeadSubmitted, CompleteRegistration,
+  // InitiateCheckout, AddToCart, ViewContent, Subscribe, AddPaymentInfo, Contact,
+  // Schedule etc. "Lead" é aceito SÓ em system_generated/website. Safety net preventivo.
+  let finalEventName = event_name;
+  if (isBusinessMessaging && finalEventName === 'Lead') {
+    finalEventName = 'LeadSubmitted';
+  }
   const enrichedUserData = { ...ud };
   // page_id é obrigatório em business_messaging; opcional mas helpful em outros.
   if (PAGE_ID && !enrichedUserData.page_id) {
     enrichedUserData.page_id = PAGE_ID;
   }
-  if (WABA_ID && !enrichedUserData.whatsapp_business_account_id && isBusinessMessaging) {
-    enrichedUserData.whatsapp_business_account_id = WABA_ID;
-  }
+  // Fix C-2 (22/04/2026 audit): WABA_ID REMOVIDO — Meta v25 REJEITA
+  // `whatsapp_business_account_id` em user_data quando presente com ctwa_clid —
+  // retorna OAuthException code=1 "An unknown error has occurred". Confirma via
+  // memory feedback_meta_capi_waba_id_rejected.md (18/04) + LIVE WAM 24h=0
+  // LeadSubmitted vs Pixel LP=11 (attribution CTWA zerada). NÃO reintroduzir.
   const eventObj = {
-    event_name,
+    event_name: finalEventName,
     event_time: finalEventTime,
     event_id,
     action_source: finalActionSource,
