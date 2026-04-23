@@ -151,6 +151,26 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   if (PAGE_ID && !enrichedUserData.page_id) {
     enrichedUserData.page_id = PAGE_ID;
   }
+  // Fix CRITICAL (23/04/2026 LIVE Graph API reproduction): Meta v25 REJEITA
+  // `fbc`, `fbp`, `client_ip_address`, `client_user_agent` em user_data quando
+  // action_source=business_messaging. Subcode 2804064 com error_user_msg:
+  //   "Remova todos os argumentos inválidos para os eventos LeadSubmitted com
+  //    a fonte da ação business_messaging: fbc [ou fbp, ou client_ip_address
+  //    client_user_agent]."
+  // Validado LIVE com 4 testes isolados (T3/T7/T8) contra WAM Dataset
+  // 967048725669499 às 14:11 UTC 23/04/2026. Callers (whatsapp.js:250,705 e
+  // crm-webhook.js:1096) espalham userData completo — strip defensivo aqui
+  // evita atribuição CTWA silenciosamente perdida (erro no Blob alerts).
+  // NOTA: esses campos são VÁLIDOS em website/system_generated — só banidos
+  // em business_messaging. Pixel LP CTWA LeadSubmitted (whatsapp.js:615) já
+  // envia fbc corretamente pro PIXEL_ID com action_source=business_messaging,
+  // mas Meta aceita porque PIXEL é website dataset. WAM é messaging-only.
+  if (isBusinessMessaging) {
+    delete enrichedUserData.fbc;
+    delete enrichedUserData.fbp;
+    delete enrichedUserData.client_ip_address;
+    delete enrichedUserData.client_user_agent;
+  }
   // Fix C-2 (22/04/2026 audit): WABA_ID REMOVIDO — Meta v25 REJEITA
   // `whatsapp_business_account_id` em user_data quando presente com ctwa_clid —
   // retorna OAuthException code=1 "An unknown error has occurred". Confirma via

@@ -87,3 +87,77 @@ describe('wamIsConfigured helper', () => {
     assert.equal(mod.wamIsConfigured(), true);
   });
 });
+
+describe('business_messaging strip banned fields (fix 2804064)', () => {
+  let originalFetch, originalEnv, capturedBody;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalEnv = { ...process.env };
+    capturedBody = null;
+    process.env.WAM_DATASET_ID = '967048725669499';
+    process.env.WAM_ACCESS_TOKEN = 'EAATestToken123';
+    process.env.META_PAGE_ID = '111790301665816';
+    globalThis.fetch = async (_url, opts) => {
+      capturedBody = JSON.parse(opts.body);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ events_received: 1, fbtrace_id: 'test_trace' }),
+      };
+    };
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    process.env = originalEnv;
+  });
+
+  test('strips fbc/fbp/client_ip_address/client_user_agent quando business_messaging', async () => {
+    const mod = await import(`../api/_lib/capi-wam.js?v=${Date.now()}_a`);
+    const fakeCtwa = 'x'.repeat(40);
+    await mod.sendWAMEvent({
+      event_name: 'LeadSubmitted',
+      event_id: 'test_strip_1',
+      user_data: {
+        ctwa_clid: fakeCtwa,
+        page_id: '111',
+        ph: ['hashed_ph'],
+        fbc: `fb.2.${Date.now()}.${fakeCtwa}`,      // DEVE ser removido
+        fbp: 'fb.1.1234567890.987654321',           // DEVE ser removido
+        client_ip_address: '1.2.3.4',               // DEVE ser removido
+        client_user_agent: 'Mozilla/5.0',           // DEVE ser removido
+        external_id: ['hashed_ext'],                // DEVE permanecer
+      },
+      action_source: 'business_messaging',
+    });
+    assert.ok(capturedBody, 'fetch foi chamado');
+    const ud = capturedBody.data[0].user_data;
+    assert.equal(ud.fbc, undefined, 'fbc DEVE ser removido');
+    assert.equal(ud.fbp, undefined, 'fbp DEVE ser removido');
+    assert.equal(ud.client_ip_address, undefined, 'client_ip_address DEVE ser removido');
+    assert.equal(ud.client_user_agent, undefined, 'client_user_agent DEVE ser removido');
+    assert.ok(ud.ctwa_clid, 'ctwa_clid preservado');
+    assert.ok(ud.ph, 'ph preservado');
+    assert.ok(ud.external_id, 'external_id preservado');
+  });
+
+  test('preserva fbc/fbp quando system_generated (CRM)', async () => {
+    const mod = await import(`../api/_lib/capi-wam.js?v=${Date.now()}_b`);
+    await mod.sendWAMEvent({
+      event_name: 'Purchase',
+      event_id: 'test_preserve_1',
+      user_data: {
+        ph: ['hashed_ph'],
+        fbc: `fb.2.1234.xyz`,
+        fbp: 'fb.1.5678.abc',
+        external_id: ['hashed_ext'],
+      },
+      custom_data: { currency: 'BRL', value: 497 },
+      action_source: 'system_generated',
+    });
+    assert.ok(capturedBody);
+    const ud = capturedBody.data[0].user_data;
+    assert.ok(ud.fbc, 'fbc preservado em system_generated');
+    assert.ok(ud.fbp, 'fbp preservado em system_generated');
+  });
+});
