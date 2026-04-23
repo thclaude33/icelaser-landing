@@ -32,11 +32,22 @@ describe('decideTargetDataset — regra explícita via payment_method', () => {
     assert.equal(r.reason, 'payment_method_presencial');
   });
 
-  test('payment_method=wa_link → WAM', () => {
+  test('payment_method=wa_link SEM ctwa_clid → WAM system_generated', () => {
+    // Sem ctwa_clid real, WAM rejeita business_messaging. Usa system_generated.
     const r = decideTargetDataset({ customAttrs: { payment_method: 'wa_link' } });
     assert.equal(r.target, DATASET_WAM);
-    assert.equal(r.action_source, 'business_messaging');
+    assert.equal(r.action_source, 'system_generated');
     assert.equal(r.reason, 'payment_method_wa_link');
+  });
+
+  test('payment_method=wa_link COM ctwa_clid → WAM business_messaging', () => {
+    const r = decideTargetDataset({
+      customAttrs: { payment_method: 'wa_link' },
+      ctwa_clid: 'x'.repeat(40),
+    });
+    assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.action_source, 'business_messaging');
+    assert.equal(r.reason, 'payment_method_wa_link_ctwa');
   });
 
   test('payment_method=outros (caso excepcional) → Pixel LP (seguro)', () => {
@@ -48,7 +59,9 @@ describe('decideTargetDataset — regra explícita via payment_method', () => {
   test('payment_method com variação de caso (Presencial, PRESENCIAL)', () => {
     assert.equal(decideTargetDataset({ customAttrs: { payment_method: 'Presencial' } }).target, DATASET_PIXEL_LP);
     assert.equal(decideTargetDataset({ customAttrs: { payment_method: 'PRESENCIAL' } }).target, DATASET_PIXEL_LP);
-    assert.equal(decideTargetDataset({ customAttrs: { payment_method: ' WA_LINK ' } }).target, DATASET_WAM);
+    const r = decideTargetDataset({ customAttrs: { payment_method: ' WA_LINK ' } });
+    assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.action_source, 'system_generated'); // sem ctwa_clid
   });
 
   test('payment_method com emoji/label Chatwoot (ex: "💰 WA Link")', () => {
@@ -66,15 +79,18 @@ describe('decideTargetDataset — inferência automática sem payment_method', (
     assert.equal(r.reason, 'ctwa_clid_inferred');
   });
 
-  test('leadgen_id presente sem payment_method → WAM (Lead Ad Instant Form)', () => {
+  test('leadgen_id presente sem payment_method → WAM system_generated', () => {
+    // Lead Ad native = CRM system_generated (não messaging)
     const r = decideTargetDataset({ customAttrs: { leadgen_id: '1902453593797849' } });
     assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.action_source, 'system_generated');
     assert.equal(r.reason, 'leadgen_id_inferred');
   });
 
-  test('sem payment_method, sem ctwa_clid, sem leadgen → fallback WAM (80% default)', () => {
+  test('sem payment_method, sem ctwa_clid, sem leadgen → fallback WAM system_generated', () => {
     const r = decideTargetDataset({ customAttrs: {} });
     assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.action_source, 'system_generated');
     assert.equal(r.reason, 'fallback_default_wam');
   });
 

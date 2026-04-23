@@ -66,6 +66,12 @@ export function decideTargetDataset({ customAttrs, ctwa_clid } = {}) {
   const attrs = customAttrs || {};
   const pmNorm = normalize(attrs.payment_method);
 
+  // IMPORTANTE: business_messaging EXIGE ctwa_clid ou PSID (Meta spec 2804071).
+  // Se target=WAM mas sem ctwa_clid real, usamos system_generated (CRM direct).
+  // WAM aceita system_generated pra events CRM (validado no histórico Fabyanna/Viviane).
+  const hasValidCtwa = ctwa_clid && typeof ctwa_clid === 'string' && ctwa_clid.length >= 16;
+  const wamActionSource = hasValidCtwa ? 'business_messaging' : 'system_generated';
+
   // 1. payment_method explícito (atendente marcou)
   if (pmNorm) {
     const isPresencial = PRESENCIAL_KEYWORDS.some(kw => pmNorm.includes(kw));
@@ -81,8 +87,8 @@ export function decideTargetDataset({ customAttrs, ctwa_clid } = {}) {
     if (isWaLink) {
       return {
         target: DATASET_WAM,
-        action_source: 'business_messaging',
-        reason: 'payment_method_wa_link',
+        action_source: wamActionSource,  // business_messaging só se ctwa real
+        reason: hasValidCtwa ? 'payment_method_wa_link_ctwa' : 'payment_method_wa_link',
       };
     }
     if (pmNorm.includes('outros') || pmNorm.includes('other')) {
@@ -97,7 +103,7 @@ export function decideTargetDataset({ customAttrs, ctwa_clid } = {}) {
   }
 
   // 2. Inferência por ctwa_clid (CTWA click — user veio de ad)
-  if (ctwa_clid && typeof ctwa_clid === 'string' && ctwa_clid.length >= 16) {
+  if (hasValidCtwa) {
     return {
       target: DATASET_WAM,
       action_source: 'business_messaging',
@@ -109,15 +115,16 @@ export function decideTargetDataset({ customAttrs, ctwa_clid } = {}) {
   if (attrs.leadgen_id && /^\d{15,17}$/.test(String(attrs.leadgen_id))) {
     return {
       target: DATASET_WAM,
-      action_source: 'business_messaging',
+      action_source: 'system_generated',  // Lead Ad native é CRM system_generated (não messaging)
       reason: 'leadgen_id_inferred',
     };
   }
 
   // 4. Fallback — WAM é 80% do volume IceLaser (vendas via WA link)
+  //    Sem ctwa_clid, usa system_generated (WAM aceita events CRM direct)
   return {
     target: DATASET_WAM,
-    action_source: 'business_messaging',
+    action_source: 'system_generated',
     reason: 'fallback_default_wam',
   };
 }
