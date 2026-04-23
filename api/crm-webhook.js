@@ -303,7 +303,15 @@ export default async function handler(req, res) {
   const hasLabelChange = changedAttributes.some(attr =>
     attr.label_list !== undefined || attr.labels !== undefined
   );
+  // DEBUG temp 23/04/2026: user reportou labels não disparando CAPI. Logs mostram
+  // conversation_updated com changed_attributes contendo cached_label_list mas
+  // sem label_list. Confirmar via log completo keys antes de aplicar fix.
   if (event === 'conversation_updated' && !hasLabelChange) {
+    try {
+      const keys = changedAttributes.map(a => Object.keys(a || {})).flat().slice(0, 10);
+      const hasCached = changedAttributes.some(a => a?.cached_label_list !== undefined);
+      console.log(`[CRM-WEBHOOK DEBUG] skipped no_label_change | keys=${JSON.stringify(keys)} | hasCached=${hasCached}`);
+    } catch { /* debug não pode quebrar */ }
     return res.status(200).json({ ok: true, skipped: true, reason: 'no_label_change' });
   }
 
