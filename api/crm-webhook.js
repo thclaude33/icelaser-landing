@@ -16,6 +16,7 @@ import { PARTNER_AGENT } from './_lib/capi.js';
 import { sendWAMEvent } from './_lib/capi-wam.js';
 import { computeCompraRealizadaGuards } from './_lib/funnel-guards.js';
 import { normalizeChangedAttributes, hasLabelChange, extractPreviousLabels, extractCurrentLabels } from './_lib/label-change.js';
+import { decideTargetDataset, parsePurchaseValue, isRoutingEnabled, DATASET_PIXEL_LP, DATASET_WAM } from './_lib/purchase-routing.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -926,9 +927,17 @@ export default async function handler(req, res) {
 
   // Helper: parse seguro. `parseFloat(0) || DEFAULT` cai no DEFAULT — bug.
   // Usar Number.isFinite + >0 pra detectar zero-by-error de real 0.
+  // Fix 23/04/2026: usa parsePurchaseValue (handles BR format "R$ 1.018,80")
+  // com fallback DEFAULT_PURCHASE_VALUE pra backward-compat.
   const safeValorParse = (raw) => {
-    const n = parseFloat(raw);
-    return Number.isFinite(n) && n > 0 ? n : DEFAULT_PURCHASE_VALUE;
+    try {
+      const n = parsePurchaseValue(raw);
+      return n !== null && n > 0 ? n : DEFAULT_PURCHASE_VALUE;
+    } catch {
+      // Fail-safe: se nova lib falhar, usa método antigo
+      const n = parseFloat(raw);
+      return Number.isFinite(n) && n > 0 ? n : DEFAULT_PURCHASE_VALUE;
+    }
   };
 
   // 💳 LINK DE PAGAMENTO (atendente enviou link / cliente vai pagar)
@@ -1067,7 +1076,47 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, skipped: true, reason: 'all_events_invalid' });
   }
 
-  const result = await sendCAPI(validEvents, token);
+  // ═════════════════════════════════════════════════════════════════════
+  // ROTEAMENTO BINÁRIO DATASETS (fix 23/04/2026 double counting)
+  // ═════════════════════════════════════════════════════════════════════
+  // Problema descoberto LIVE: Meta NÃO faz dedup cross-dataset. Creative
+  // Testing contou 2× Purchase da Bruna (R$ 2.037,60 = R$ 1.018,80 × 2)
+  // pq fan-out enviava pros 2 datasets simultaneamente.
+  //
+  // Solução: decidir UM dataset por evento baseado em:
+  //   1. customAttrs.payment_method (atendente marca no Chatwoot)
+  //   2. ctwa_clid presente (inferência: veio de CTWA)
+  //   3. leadgen_id presente (inferência: Lead Ad nativo)
+  //   4. Fallback → WAM (80% vendas IceLaser via WA link)
+  //
+  // SAFETY:
+  //   - Feature flag PURCHASE_ROUTING_ENABLED=0 desabilita (fallback: envio aos 2)
+  //   - Try/catch defensivo — se routing falhar, mantém comportamento antigo
+  //   - Log explícito do target + reason pra auditoria
+  let routingDecision = null;
+  try {
+    if (isRoutingEnabled()) {
+      routingDecision = decideTargetDataset({ customAttrs, ctwa_clid: ctwaClid });
+      console.log(`[CRM-WEBHOOK ROUTING] target=${routingDecision.target} reason=${routingDecision.reason} ctwa=${!!ctwaClid} payment_method="${customAttrs?.payment_method || '(none)'}"`);
+    } else {
+      console.log('[CRM-WEBHOOK ROUTING] DISABLED via env — fallback fan-out');
+    }
+  } catch (routingErr) {
+    console.error('[CRM-WEBHOOK ROUTING] error → fail-safe fan-out:', routingErr.message);
+    routingDecision = null;
+  }
+  const shouldSendPixelLP = !routingDecision || routingDecision.target === DATASET_PIXEL_LP;
+  const shouldSendWAM = !routingDecision || routingDecision.target === DATASET_WAM;
+
+  // ═════════════════════════════════════════════════════════════════════
+  // ENVIO PIXEL LP (só se target=pixel_lp OU routing desabilitado)
+  // ═════════════════════════════════════════════════════════════════════
+  let result = { events_received: 0 };
+  if (shouldSendPixelLP) {
+    result = await sendCAPI(validEvents, token);
+  } else {
+    console.log(`[CRM-WEBHOOK] Pixel LP SKIPPED (routing → WAM)`);
+  }
   // Fix MEDIUM AI review 20/04/2026 (M4): events_received pode ser undefined se
   // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
   const eventsReceived = result?.events_received ?? 0;
@@ -1091,22 +1140,25 @@ export default async function handler(req, res) {
   let wamSkipped = 0;
   let wamErrors = 0;
   const wamSkipReasons = [];  // debug: capturar motivos do skip pra logar
-  const wamCompatibleEvents = validEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name));
+  // Fix 23/04/2026: só enviar pro WAM se routing decidir ou se routing desabilitado (fallback).
+  const wamCompatibleEvents = shouldSendWAM
+    ? validEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name))
+    : [];
+  if (!shouldSendWAM) {
+    console.log(`[CRM-WEBHOOK] WAM SKIPPED (routing → Pixel LP)`);
+  }
   for (const evt of wamCompatibleEvents) {
-    // Fix 21/04/2026 (wizard CRM WAM): FORÇAR action_source='system_generated'
-    // pro WAM dataset independente do action_source do evento principal.
-    // Meta CRM Integration Guide oficial (WAM) só classifica events como
-    // "Processado CRM" se action_source=system_generated + event_source=crm.
-    // CTWA attribution (business_messaging) é feita separadamente em
-    // whatsapp.js:processarCTWA. Aqui no crm-webhook os events são funnel
-    // progression (Chatwoot label change), não CTWA click.
-    // Validado via UI Events Manager > Eventos de Teste (CRM):
-    // "Concluir inscrição | Comprar → Processado crm Chatwoot".
+    // Fix 23/04/2026 (double counting fix): action_source do WAM vem do
+    // routingDecision. Se target=WAM, usar 'business_messaging' (venda via WA link,
+    // 80% dos casos). Se routing desabilitado (fallback), manter 'system_generated'
+    // antigo pra compatibilidade. Helper capi-wam.js strip fbc/fbp/_cip/_cua
+    // automaticamente quando business_messaging (regra Meta 2804064).
+    const wamActionSource = routingDecision?.action_source || 'system_generated';
     const wamResp = await sendWAMEvent({
       event_name: evt.event_name,
       event_id: evt.event_id,
       event_time: evt.event_time,
-      action_source: 'system_generated',
+      action_source: wamActionSource,
       user_data: { ...evt.user_data },
       custom_data: evt.custom_data,
       // Fix 22/04/2026 (diagnostic "server events not deduplicated"):
