@@ -12,6 +12,7 @@
     { "path": "/api/cron/daily-report",     "schedule": "5 11 * * *" },
     { "path": "/api/cron/emq-monitor",      "schedule": "35 13 * * *" },
     { "path": "/api/cron/emq-alert",        "schedule": "45 * * * *" },
+    { "path": "/api/cron/capi-alerts",      "schedule": "5 * * * *" },
     { "path": "/api/cron/daily-report",     "schedule": "25 23 * * *" },
     { "path": "/api/cron/process-leadgen",  "schedule": "*/5 * * * *" }
   ],

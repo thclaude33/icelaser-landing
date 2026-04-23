@@ -23,6 +23,7 @@
  * ctwa_clid disponível. Dedup natural via event_id idêntico.
  */
 
+import { put } from '@vercel/blob';
 import { PARTNER_AGENT } from './capi.js';
 import { GRAPH_BASE } from './config.js';
 
@@ -136,9 +137,14 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   // Valid events pra business_messaging: Purchase, LeadSubmitted, CompleteRegistration,
   // InitiateCheckout, AddToCart, ViewContent, Subscribe, AddPaymentInfo, Contact,
   // Schedule etc. "Lead" é aceito SÓ em system_generated/website. Safety net preventivo.
+  //
+  // Fix Q4 (23/04/2026 AI review Opus 4.6): logar conversão pra observability.
+  // Sem log, conversão silenciosa pode MASCARAR bug futuro em algum caller que
+  // enviou 'Lead' por erro (deveria ser system_generated). Warning facilita audit.
   let finalEventName = event_name;
   if (isBusinessMessaging && finalEventName === 'Lead') {
     finalEventName = 'LeadSubmitted';
+    console.warn(`[WAM] Auto-convert Lead→LeadSubmitted (business_messaging spec Meta v25; caller should use LeadSubmitted directly). event_id=${event_id}`);
   }
   const enrichedUserData = { ...ud };
   // page_id é obrigatório em business_messaging; opcional mas helpful em outros.
@@ -195,9 +201,39 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
     }
     const ctwaTrunc = ud.ctwa_clid ? `${ud.ctwa_clid.slice(0, 12)}...` : 'none';
     if (json.error) {
-      console.error(`[WAM] ⚠️ Rejected event=${event_name} code=${json.error.code} subcode=${json.error.error_subcode} msg=${json.error.message} ctwa=${ctwaTrunc} event_id=${event_id}`);
+      console.error(`[WAM] ⚠️ Rejected event=${event_name}→${finalEventName} code=${json.error.code} subcode=${json.error.error_subcode} msg=${json.error.message} ctwa=${ctwaTrunc} event_id=${event_id}`);
+      // Fix VA-5 (23/04/2026 AI review): persist CAPI errors em Blob pra cron
+      // capi-alerts.js processar e enviar email se count>0 na hora seguinte.
+      // Antes, errors subcode 2804066/OAuthException ficavam dias em prod sem
+      // detecção — só auditoria manual achou. Agora alerta automático.
+      try {
+        if (process.env.BLOB_READ_WRITE_TOKEN) {
+          const alertKey = `alerts/capi-errors/${Date.now()}-${json.error.error_subcode || json.error.code || 'unknown'}-${Math.random().toString(36).slice(2, 8)}.json`;
+          await put(alertKey, JSON.stringify({
+            at: new Date().toISOString(),
+            source: 'wam',
+            dataset_id: WAM_DATASET_ID,
+            event_name_requested: event_name,
+            event_name_sent: finalEventName,
+            event_id,
+            action_source: finalActionSource,
+            error_code: json.error.code,
+            error_subcode: json.error.error_subcode,
+            error_type: json.error.type,
+            error_message: json.error.message,
+            fbtrace_id: json.fbtrace_id,
+            has_ctwa: !!ud.ctwa_clid,
+            has_page_id: !!(ud.page_id || PAGE_ID),
+          }), {
+            access: 'public',
+            contentType: 'application/json',
+            allowOverwrite: false,
+            cacheControlMaxAge: 0,
+          });
+        }
+      } catch { /* alert persistence não pode quebrar o fluxo principal */ }
     } else {
-      console.log(`[WAM] ✅ ${event_name} received=${json.events_received} trace=${json.fbtrace_id} event_id=${event_id} ctwa=${ctwaTrunc}`);
+      console.log(`[WAM] ✅ ${finalEventName} received=${json.events_received} trace=${json.fbtrace_id} event_id=${event_id} ctwa=${ctwaTrunc}`);
     }
     return json;
   } catch (e) {
