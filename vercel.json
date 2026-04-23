@@ -12,6 +12,7 @@
     { "path": "/api/cron/daily-report",     "schedule": "5 11 * * *" },
     { "path": "/api/cron/emq-monitor",      "schedule": "35 13 * * *" },
     { "path": "/api/cron/emq-alert",        "schedule": "45 * * * *" },
+    { "path": "/api/cron/capi-alerts",      "schedule": "5 * * * *" },
     { "path": "/api/cron/daily-report",     "schedule": "25 23 * * *" },
     { "path": "/api/cron/process-leadgen",  "schedule": "*/5 * * * *" }
   ],
@@ -65,6 +66,18 @@
       "regions": ["gru1"]
     },
     "api/cron/emq-alert.js": {
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/cron/capi-alerts.js": {
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/cron/capi-alerts.js": {
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/cron/process-leadgen.js": {
       "maxDuration": 30,
       "regions": ["gru1"]
     },

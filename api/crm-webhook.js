@@ -14,6 +14,7 @@ import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqua
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 import { sendWAMEvent } from './_lib/capi-wam.js';
+import { computeCompraRealizadaGuards } from './_lib/funnel-guards.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -438,10 +439,25 @@ export default async function handler(req, res) {
         // começando com "55"). slice(-11) remove os "55" → pattern `ctwa/{11d}.`
         // NUNCA bate (char[5] "5" vs "8"). Validado LIVE 30 blobs amostrados = 0
         // matches, attribution CRM quebrada 100% desde que safeFrom começou com 55.
-        // Fix: ancora em `ctwa/` + includes(11d-key) nos últimos 11 digits do path.
+        //
+        // Fix Q1 (23/04/2026 AI review Opus 4.6): trocar `includes()` por
+        // `endsWith()` ancorado à direita. `includes()` permite substring match
+        // em qualquer posição — risco teórico de false positive se dois phones
+        // distintos compartilham os 11 últimos dígitos via substring (improvável
+        // com DDD+celular BR, mas defensivo). `endsWith()` garante match exato
+        // apenas quando phoneKey termina o path (sem o .json/suffix random).
+        // Formato esperado: `ctwa/55XXXXXXXXXXX.json` ou `ctwa/55XXXXXXXXXXX-abc.json`.
         const phoneKey = telDigits.slice(-11);
-        if (blob.pathname.startsWith('ctwa/') && blob.pathname.slice(5).includes(phoneKey)) {
-          const blobResp = await fetch(blob.url);
+        const blobPhoneStr = blob.pathname
+          .slice(5)                          // remove 'ctwa/'
+          .replace(/\.json$/, '')            // remove .json extension
+          .replace(/-[A-Za-z0-9]+$/, '');    // remove -suffix random (se addRandomSuffix)
+        if (blob.pathname.startsWith('ctwa/') && blobPhoneStr.endsWith(phoneKey)) {
+          // Fix VA-1 (23/04/2026 AI review Opus 4.6): AbortSignal.timeout(5s) pra
+          // proteger handler. Blob store latência alta pode travar webhook up to
+          // 60s (Pro timeout) e Chatwoot retenta → webhook storm. 5s é generoso
+          // pra fetch JSON <10KB do Blob CDN.
+          const blobResp = await fetch(blob.url, { signal: AbortSignal.timeout(5000) });
           const data = await blobResp.json();
           if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
             ctwaData = data;
@@ -934,17 +950,19 @@ export default async function handler(req, res) {
     // `compra_realizada → Lead + CR + IC + Purchase` (4 eventos). Código antigo
     // só disparava IC+Purchase → atendente que pulava lead_quente direto pra
     // compra (caso real Suellen conv 314) deixava funil Meta incompleto →
-    // Andromeda AI otimizava com dados pobres. Guard previne duplicata:
-    //  - Se lead_quente está nas labels ATUAIS: block hot_lead acima já dispara Lead+CR
-    //  - Se lead_quente rodou antes (previousLabels): Lead+CR já chegaram no Meta
-    //  - Se lead_frio rodou antes: só Lead chegou, CR falta → dispara CR
-    const hasHotNow = hasLabel('lead_quente', '🔥 Lead Quente', '🔥_lead_quente', 'hot_lead', 'lead quente', 'quente');
-    const hadHotBefore = previousLabels.some(l =>
-      /hot_lead|lead.quente|quente/i.test(String(l).toLowerCase()));
-    const hadColdBefore = previousLabels.some(l =>
-      /cold_lead|lead.frio|lead_frio|frio/i.test(String(l).toLowerCase()));
-    const needLead = !hasHotNow && !hadHotBefore && !hadColdBefore;
-    const needCR = !hasHotNow && !hadHotBefore;
+    // Andromeda AI otimizava com dados pobres.
+    //
+    // Fix Q2 (23/04/2026 AI review Opus 4.6): adicionar `hasColdNow` no guard
+    // needLead. Cenário regressão detectado: operador adiciona lead_frio +
+    // compra_realizada SIMULTANEAMENTE no mesmo webhook. previousLabels vazio
+    // (primeiro contato). Block lead_frio acima dispara Lead com event_id
+    // `_cold_lead`. Sem `hasColdNow` no guard, needLead=true → dispara Lead com
+    // event_id `_compra_lead` (diferente) → Meta NÃO dedupa → 2 Leads enviados
+    // por 1 conversão real → infla CPL, corrompe Andromeda optimization.
+    //
+    // Regra completa: ver api/_lib/funnel-guards.js com tabela de verdade.
+    // Função extraída pra ser testável em isolamento (tests/funnel-guards.test.js).
+    const { needLead, needCR } = computeCompraRealizadaGuards(labels, previousLabels);
     if (needLead) {
       events.push({
         ...mkBaseEvent(),
