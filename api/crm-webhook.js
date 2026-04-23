@@ -15,7 +15,7 @@ import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 import { sendWAMEvent } from './_lib/capi-wam.js';
 import { computeCompraRealizadaGuards } from './_lib/funnel-guards.js';
-import { normalizeChangedAttributes, hasLabelChange, extractPreviousLabels } from './_lib/label-change.js';
+import { normalizeChangedAttributes, hasLabelChange, extractPreviousLabels, extractCurrentLabels } from './_lib/label-change.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -317,7 +317,15 @@ export default async function handler(req, res) {
   // Extrai dados — Chatwoot pode enviar em body.conversation, body.data ou flat (body é a conversa)
   const conversation = body.conversation || body.data || body;
   const contact = conversation.meta?.sender || conversation.contact || body.sender || {};
-  const allLabels = conversation.labels || body.labels || [];
+  // Fix CRITICAL 23/04/2026 (parte 2): quando Chatwoot envia payload com
+  // cached_label_list no changed_attributes mas SEM conversation.labels replicado,
+  // fallback pra extrair labels atuais do changed_attributes.cached_label_list.current_value.
+  // Observado em prod hoje: conversation_updated com cached_label_list trigger hasLabelChange=true
+  // mas conversation.labels vinha vazio → allLabels=[] → events=[] → skipped no_matching_labels.
+  const allLabelsFromBody = conversation.labels || body.labels;
+  const allLabels = (Array.isArray(allLabelsFromBody) && allLabelsFromBody.length > 0)
+    ? allLabelsFromBody
+    : extractCurrentLabels(changedAttributes);
 
   // Labels a processar: APENAS os novos (adicionados neste evento)
   // Se não temos previousLabels (ex: conversation_created), processar todos
@@ -335,6 +343,7 @@ export default async function handler(req, res) {
   const email = contact.email || '';
 
   if (!nome && !telefone) {
+    console.log(`[CRM-WEBHOOK] skipped no_contact_data | event=${event} has_body_sender=${!!body.sender} has_conv_contact=${!!conversation.contact} has_meta_sender=${!!conversation.meta?.sender}`);
     return res.status(200).json({ ok: true, skipped: true, reason: 'no_contact_data' });
   }
 
@@ -1036,6 +1045,7 @@ export default async function handler(req, res) {
   }
 
   if (events.length === 0) {
+    console.log(`[CRM-WEBHOOK] skipped no_matching_labels | event=${event} allLabels=${JSON.stringify(allLabels)} newLabels=${JSON.stringify(labels)} previousLabels=${JSON.stringify(previousLabels)}`);
     return res.status(200).json({ ok: true, skipped: true, reason: 'no_matching_labels' });
   }
 

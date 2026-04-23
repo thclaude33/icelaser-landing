@@ -1,0 +1,2040 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Depilação Laser Recife | Pele Lisa para Sempre — 1ª Sessão Grátis | IceLaser</title>
+  <meta name="description" content="Chega de cera. 3.000+ clientes em Recife, nas Graças. Laser Crystal 3D Plus — resultado desde a 1ª sessão, sem dor. Garanta sua 1ª sessão grátis nas axilas." />
+
+  <!-- Vercel Web Analytics -->
+  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+  <script defer src="/_vercel/insights/script.js"></script>
+
+  <!-- Vercel Speed Insights (Core Web Vitals) -->
+  <script>window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };</script>
+  <script defer src="/_vercel/speed-insights/script.js"></script>
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Chega de Cera — 1ª Sessão Grátis nas Axilas | IceLaser Recife">
+  <meta property="og:description" content="3.000+ clientes em Recife. Laser Crystal 3D Plus — sem dor, sem ingrown, resultado desde a 1ª sessão. Apenas 3 vagas gratuitas esta semana.">
+  <meta property="og:image" content="https://icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
+  <meta property="og:url" content="https://icelasers.com.br/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="pt_BR">
+
+  <!-- Schema: BeautySalon -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BeautySalon",
+    "name": "IceLaser Recife",
+    "url": "https://icelasers.com.br/",
+    "telephone": "+5581995749947",
+    "priceRange": "$$",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "Graças",
+      "addressLocality": "Recife",
+      "addressRegion": "PE",
+      "addressCountry": "BR"
+    },
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "5",
+      "reviewCount": 3000
+    },
+    "description": "Clínica de depilação a laser em Recife nas Graças. Tecnologia Crystal 3D Plus. Primeira sessão gratuita.",
+    "openingHours": "Mo-Sa 09:00-19:00"
+  }
+  </script>
+
+  <!-- Schema: FAQPage -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Dói fazer depilação a laser?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Nossa tecnologia Crystal 3D Plus causa desconforto mínimo — a maioria das clientes descreve como um leve beliscão. Nada comparado à cera!"
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Funciona para minha cor de pele e tipo de pelo?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "O Crystal 3D Plus tem 3 comprimentos de onda que atendem todos os fototipos de pele, inclusive peles negras, e diferentes espessuras de pelo. Na avaliação gratuita fazemos um teste de pele personalizado."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Quantas sessões vou precisar?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Em média 6 a 8 sessões para uma redução permanente de 90%+ dos pelos, com intervalo de 30-45 dias entre elas. O resultado começa a aparecer já na 1ª sessão."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Quanto custa o pacote? Tem parcelamento?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "O valor varia conforme as áreas escolhidas. Na avaliação gratuita você recebe um orçamento personalizado. Parcelamos em até 12x sem juros no cartão."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "A avaliação é realmente gratuita? Tem alguma obrigação?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "100% gratuita e sem nenhum compromisso. Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento. A decisão de iniciar o tratamento é inteiramente sua."
+        }
+      }
+    ]
+  }
+  </script>
+
+  <!-- Meta CAPI Parameter Builder (oficial Meta) — captura fbc/fbp com formato correto
+       Docs: https://developers.facebook.com/docs/marketing-api/conversions-api/parameter-builder-library
+       Fallback manual garante funcionamento mesmo se CDN falhar -->
+  <script>window._paramBuilderReady=false;</script>
+  <script async src="https://unpkg.com/meta-capi-param-builder-clientjs/dist/clientParamBuilder.bundle.js"
+    onload="window._paramBuilderReady=true;try{clientParamBuilder.processAndCollectAllParams();}catch(e){}"
+    onerror="window._paramBuilderReady=false;"></script>
+
+  <!-- fbp early generation (fallback manual) — garante _fbp se ParamBuilder ainda não carregou -->
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_fbp=/)){var fbp='fb.1.'+Date.now()+'.'+Math.floor(Math.random()*1e15);document.cookie='_fbp='+fbp+';path=/;max-age=15552000;SameSite=Lax';}}catch(e){}}());</script>
+  <!-- IPv6 capture — Meta Parameter Configurator pattern: captura IP real do browser (IPv6 se disponível) -->
+  <script>(function(){try{if(!document.cookie.match(/(?:^|;\s*)_cip=/)){fetch('https://api64.ipify.org?format=json').then(function(r){return r.json();}).then(function(d){if(d&&d.ip){document.cookie='_cip='+d.ip+';path=/;max-age=3600;SameSite=Lax';}}).catch(function(){});}}catch(e){}}());</script>
+
+  <!-- Meta Pixel — disparo imediato -->
+  <script>
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+    document,'script','/api/pixel');
+    fbq('init', '2774496306216737', {country: 'br', st: 'pe', ct: 'recife'});
+    // fbc: captura fbclid da URL — ParamBuilder se disponível, fallback manual
+    (function(){try{
+      // Se ParamBuilder já carregou (script síncrono rápido), usa ele — senão fallback manual
+      if(window._paramBuilderReady && window.clientParamBuilder){
+        // Já executado no onload acima — só garante que rodou
+        try{ clientParamBuilder.processAndCollectAllParams(); }catch(e){}
+      } else {
+        // Fallback manual: formato oficial Meta fb.1.{ms}.{fbclid}
+        var p=new URLSearchParams(window.location.search);
+        var cl=p.get('fbclid');
+        if(cl){
+          var existingFbc=(document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/)||[])[1]||'';
+          var existingFbclid=existingFbc.split('.').slice(3).join('.');
+          if(!existingFbc || existingFbclid!==cl){
+            var fbc='fb.1.'+Date.now()+'.'+cl;
+            document.cookie='_fbc='+fbc+';path=/;max-age=7776000;SameSite=Lax';
+          }
+        }
+      }
+    }catch(e){}}());
+    var pvEventId = 'pv_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+    fbq('track', 'PageView', {}, {eventID: pvEventId});
+    var vcEventId = 'vc_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+    fbq('track', 'ViewContent', {
+      content_name: 'LP Avaliacao Gratuita',
+      content_category: 'depilacao_laser',
+      value: 0,
+      currency: 'BRL'
+    }, {eventID: vcEventId});
+    // CAPI server-side PageView + ViewContent — mesmo event_id do browser = deduplicação 100%
+    (function(){
+      var fbp = (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined;
+      var fbc = (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined;
+      var ua = navigator.userAgent;
+      var src = location.href;
+      var utmSrc = new URLSearchParams(location.search).get('utm_source') || undefined;
+      var utmCamp = new URLSearchParams(location.search).get('utm_campaign') || undefined;
+
+      // PageView CAPI — mesmo pvEventId do fbq acima (retry + sendBeacon = cobertura máxima)
+      var pvPayload = JSON.stringify({ event_name: 'PageView', event_id: pvEventId,
+        event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
+        utm_source: utmSrc, utm_campaign: utmCamp });
+      fetch('/api/track', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: pvPayload,
+      }).then(function(r){
+        if(!r.ok) throw new Error(r.status);
+      }).catch(function(){
+        fetch('/api/track', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: pvPayload, keepalive: true,
+        }).catch(function(){
+          try { navigator.sendBeacon('/api/track', new Blob([pvPayload], {type: 'application/json'})); } catch(e){}
+        });
+      });
+
+      // ViewContent CAPI — mesmo vcEventId do fbq acima
+      var vcPayload = JSON.stringify({ event_name: 'ViewContent', event_id: vcEventId,
+        event_source_url: src, client_user_agent: ua, fbp: fbp, fbc: fbc,
+        utm_source: utmSrc, utm_campaign: utmCamp });
+      fetch('/api/track', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: vcPayload,
+      }).then(function(r){
+        if(!r.ok) throw new Error(r.status);
+      }).catch(function(){
+        fetch('/api/track', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: vcPayload, keepalive: true,
+        }).catch(function(){
+          try { navigator.sendBeacon('/api/track', new Blob([vcPayload], {type: 'application/json'})); } catch(e){}
+        });
+      });
+    })();
+  </script>
+
+  <!-- Fonts: Fraunces (display serif variable) + DM Sans (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&display=swap" rel="stylesheet">
+
+  <style>
+    /* ═══════════════════════════════════════════════════
+       ICELASER — LUXURY CLINIC (editorial feminino premium)
+       design-direction: Luxury Clinic
+       fonts: Fraunces (display) · DM Sans (body)
+    ═══════════════════════════════════════════════════ */
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      /* BRAND — rosa profundo + champagne + gold */
+      --ink:         #1A0A12;       /* near-black quente (texto principal) */
+      --ink-muted:   #5C4752;       /* texto secundário */
+      --brand:       #640039;       /* rosa brand profundo */
+      --brand-deep:  #3D0023;       /* rosa mais profundo (acento) */
+      --accent:      #D4A574;       /* gold */
+      --accent-deep: #A37840;       /* gold profundo */
+      --champagne:   #F5E6D3;       /* champagne */
+      --cream:       #FAF7F2;       /* cream off-white */
+      --surface:     #FFFFFF;       /* branco puro */
+      --surface-alt: #F7F1EA;       /* off-white quente */
+      --line:        rgba(26,10,18,.12);  /* divisor sutil */
+      --success:     #16A34A;       /* verde WhatsApp (funcional) */
+
+      /* ELEVAÇÃO — 3 níveis sistemáticos */
+      --shadow-1: 0 1px 3px rgba(26,10,18,.06), 0 1px 2px rgba(26,10,18,.04);
+      --shadow-2: 0 12px 32px -12px rgba(26,10,18,.16), 0 4px 16px -8px rgba(26,10,18,.08);
+      --shadow-3: 0 32px 64px -24px rgba(100,0,57,.28), 0 12px 32px -16px rgba(26,10,18,.12);
+
+      /* ESCALA tipográfica — razão 1.25 (minor third) */
+      --fs-xs:   12px;
+      --fs-sm:   14px;
+      --fs-base: 16px;
+      --fs-md:   19px;
+      --fs-lg:   24px;
+      --fs-xl:   30px;
+      --fs-2xl:  38px;
+      --fs-3xl:  48px;
+      --fs-4xl:  60px;
+      --fs-5xl:  76px;
+      --fs-6xl:  96px;
+
+      /* SPACING — escala 4px */
+      --space-1:   4px;
+      --space-2:   8px;
+      --space-3:  12px;
+      --space-4:  16px;
+      --space-5:  24px;
+      --space-6:  32px;
+      --space-7:  48px;
+      --space-8:  64px;
+      --space-9:  96px;
+
+      /* RAIOS */
+      --r-xs: 6px;
+      --r-sm: 10px;
+      --r-md: 14px;
+      --r-lg: 20px;
+      --r-xl: 28px;
+
+      /* MOTION */
+      --ease: cubic-bezier(.22, 1, .36, 1);
+      --ease-out: cubic-bezier(.16, 1, .3, 1);
+      --dur-fast: 180ms;
+      --dur-base: 320ms;
+      --dur-slow: 560ms;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+      text-rendering: optimizeLegibility;
+    }
+
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: var(--fs-base);
+      font-weight: 400;
+      line-height: 1.55;
+      color: var(--ink);
+      background: var(--cream);
+      overflow-x: hidden;
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* GRAIN overlay global — textura sutil que dá atmosfera */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 1;
+      opacity: .35;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .1 0 0 0 0 .04 0 0 0 0 .07 0 0 0 .18 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+      mix-blend-mode: multiply;
+    }
+
+    /* Display face — Fraunces para headlines */
+    .display {
+      font-family: 'Fraunces', Georgia, serif;
+      font-weight: 400;
+      font-variation-settings: "opsz" 144, "SOFT" 30;
+      letter-spacing: -0.02em;
+      line-height: 0.98;
+    }
+    .display em {
+      font-style: italic;
+      font-variation-settings: "opsz" 144, "SOFT" 60;
+      color: var(--brand);
+    }
+
+    .eyebrow {
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    /* ═══ STICKY HEADER ═══ */
+    .header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(250, 247, 242, 0.88);
+      backdrop-filter: saturate(140%) blur(12px);
+      -webkit-backdrop-filter: saturate(140%) blur(12px);
+      border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px;
+    }
+    .header-logo {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: 20px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+    }
+    .header-logo span {
+      font-style: italic;
+      color: var(--brand);
+    }
+    .header-cta {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px; min-height: 44px;
+      background: var(--ink); color: var(--cream);
+      font-size: var(--fs-sm); font-weight: 500;
+      text-decoration: none;
+      border-radius: 999px;
+      border: 1px solid var(--ink);
+      transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+      touch-action: manipulation;
+    }
+    .header-cta:hover { transform: translateY(-1px); background: var(--brand); border-color: var(--brand); }
+    .header-cta::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* ═══ URGENCY BAR ═══ */
+    .urgency-bar {
+      position: relative;
+      background: var(--ink);
+      color: var(--cream);
+      text-align: center;
+      padding: 10px 20px;
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--brand-deep);
+    }
+    .urgency-bar .red {
+      color: var(--accent);
+      font-weight: 700;
+      font-family: 'Fraunces', serif;
+      font-size: 14px;
+      font-variation-settings: "opsz" 144;
+    }
+
+    /* ═══ HERO ═══ */
+    .hero {
+      position: relative;
+      padding: 32px 20px 0;
+      background:
+        radial-gradient(ellipse at 20% 0%, rgba(245, 230, 211, 0.65) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 30%, rgba(100, 0, 57, 0.12) 0%, transparent 50%),
+        linear-gradient(180deg, var(--cream) 0%, var(--surface-alt) 100%);
+      overflow: hidden;
+    }
+    /* SVG decorativo — ponteira Crystal 3D Plus abstrata com beam dourado */
+    .hero-art {
+      position: absolute;
+      pointer-events: none;
+      right: -40px; top: 80px;
+      width: 280px; height: 280px;
+      opacity: 0.9;
+      z-index: 0;
+    }
+    .hero > * { position: relative; z-index: 2; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 8px 16px 8px 8px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      color: var(--ink-muted);
+      box-shadow: var(--shadow-1);
+      margin-bottom: 24px;
+      letter-spacing: 0.02em;
+    }
+    .badge-dot {
+      width: 20px; height: 20px;
+      background: var(--brand);
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--accent);
+      font-size: 10px;
+      font-family: 'Fraunces', serif;
+      font-style: italic;
+      font-weight: 600;
+    }
+
+    .hero h1.display {
+      font-size: clamp(42px, 10vw, 62px);
+      margin-bottom: 20px;
+      max-width: 14ch;
+    }
+
+    .hero-sub {
+      font-size: var(--fs-md);
+      line-height: 1.5;
+      color: var(--ink-muted);
+      max-width: 52ch;
+      margin-bottom: 28px;
+    }
+    .hero-sub strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    /* Hero bullets — elegant list */
+    .hero-checks {
+      display: flex; flex-direction: column;
+      gap: 12px;
+      margin-bottom: 28px;
+      padding: 20px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .hero-check {
+      display: flex; align-items: baseline; gap: 14px;
+      font-size: var(--fs-sm);
+      color: var(--ink);
+    }
+    .hero-check::before {
+      content: '';
+      width: 18px; height: 1px;
+      background: var(--accent);
+      flex-shrink: 0;
+      transform: translateY(-5px);
+    }
+
+    /* Hero stats — editorial numbers */
+    .hero-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 28px;
+      margin-bottom: 32px;
+    }
+    .hero-stat {
+      display: flex; flex-direction: column;
+      gap: 2px;
+    }
+    .hero-stat-num {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-2xl);
+      font-weight: 400;
+      line-height: 1;
+      color: var(--brand);
+    }
+    .hero-stat-label {
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      color: var(--ink-muted);
+      letter-spacing: 0.04em;
+    }
+
+    /* CTA WA Hero — botão primário editorial */
+    .btn-wa-hero {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; max-width: 420px;
+      padding: 18px 26px;
+      background: var(--success);
+      color: var(--surface);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-md);
+      font-weight: 600;
+      border: none;
+      border-radius: 999px;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 10px 30px -10px rgba(22,163,74,.45);
+      transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+      min-height: 56px;
+      touch-action: manipulation;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-wa-hero:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -12px rgba(22,163,74,.55); }
+    .btn-wa-hero::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.25) 50%, transparent 70%);
+      transform: translateX(-100%);
+      animation: shimmer 4s var(--ease) infinite;
+    }
+    @keyframes shimmer { 0%, 60% { transform: translateX(-100%); } 70%, 100% { transform: translateX(100%); } }
+
+    .hero-wa-sub {
+      margin-top: 10px;
+      font-size: var(--fs-xs);
+      color: var(--ink-muted);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+    }
+
+    /* Mini prova social inline */
+    .hero-social-proof {
+      display: inline-flex; align-items: center; gap: 12px;
+      margin-top: 24px;
+      padding: 10px 16px 10px 10px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      box-shadow: var(--shadow-1);
+      font-size: var(--fs-sm);
+    }
+    .sp-dots {
+      display: flex;
+    }
+    .sp-dots span {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      border: 2px solid var(--surface);
+      margin-right: -8px;
+      background-size: cover;
+      background-position: center;
+    }
+    .sp-dots span:nth-child(1) { background: linear-gradient(135deg, #E8C4B0, #C89882); }
+    .sp-dots span:nth-child(2) { background: linear-gradient(135deg, #F5D5C0, #D4A08C); }
+    .sp-dots span:nth-child(3) { background: linear-gradient(135deg, #E4A98C, #B07858); }
+    .sp-dots span:nth-child(4) { background: linear-gradient(135deg, #F0D0B8, #C89070); }
+    .sp-dots span:last-child { margin-right: 0; }
+    .hero-sp-text { color: var(--ink); font-weight: 500; }
+    .hero-sp-text strong { color: var(--brand); font-weight: 600; }
+
+    /* Countdown bar */
+    .countdown-bar {
+      display: inline-flex; align-items: center; gap: 10px;
+      margin-top: 16px;
+      padding: 10px 16px;
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      color: var(--ink);
+      letter-spacing: 0.04em;
+    }
+    .countdown-num {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-base);
+      color: var(--brand);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ═══ FORM CARD ═══ */
+    .card {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-lg);
+      margin: 40px -20px 0;
+      padding: 32px 24px;
+      box-shadow: var(--shadow-3);
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: 24px; right: 24px; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+
+    .card-eyebrow {
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-deep);
+      margin-bottom: 8px;
+    }
+    .card-title {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-xl);
+      font-weight: 500;
+      line-height: 1.05;
+      color: var(--ink);
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
+    }
+    .card-title em { font-style: italic; color: var(--brand); }
+    .card-sub {
+      font-size: var(--fs-sm);
+      color: var(--ink-muted);
+      margin-bottom: 22px;
+    }
+
+    /* Price anchor — editorial framed */
+    .price-anchor {
+      padding: 14px 16px;
+      background: var(--cream);
+      border-left: 2px solid var(--accent);
+      border-radius: 4px;
+      font-size: var(--fs-sm);
+      color: var(--ink);
+      line-height: 1.55;
+      margin-bottom: 22px;
+    }
+    .price-anchor strong { color: var(--brand); font-weight: 600; }
+
+    .field { margin-bottom: 16px; }
+    .field label {
+      display: block;
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 6px;
+    }
+    .field input {
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--cream);
+      border: 1px solid var(--line);
+      border-radius: var(--r-sm);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-base);
+      color: var(--ink);
+      transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+      -webkit-appearance: none;
+    }
+    .field input::placeholder { color: rgba(26,10,18,.35); }
+    .field input:focus {
+      outline: none;
+      border-color: var(--brand);
+      background: var(--surface);
+      box-shadow: 0 0 0 4px rgba(100,0,57,.08);
+    }
+    .field-error {
+      display: none;
+      font-size: var(--fs-xs);
+      color: #B01B3F;
+      margin-top: 6px;
+      font-weight: 500;
+    }
+    .field input.invalid { border-color: #B01B3F; background: #FDF2F5; }
+    .field input.invalid + .field-error { display: block; }
+
+    .btn-submit {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%;
+      padding: 18px 24px;
+      background: var(--ink);
+      color: var(--cream);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-md);
+      font-weight: 600;
+      border: none;
+      border-radius: var(--r-md);
+      cursor: pointer;
+      transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+      min-height: 56px;
+      touch-action: manipulation;
+      font-family: inherit;
+    }
+    .btn-submit:hover { transform: translateY(-1px); background: var(--brand); }
+    .btn-submit:active { transform: scale(.98); }
+
+    .trust-badges {
+      display: flex; justify-content: center; gap: 16px;
+      margin-top: 16px; flex-wrap: wrap;
+    }
+    .trust-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: var(--fs-xs);
+      color: var(--ink-muted);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .trust-badge::before {
+      content: '';
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* Success message */
+    #success-msg {
+      display: none;
+      padding: 32px 20px; text-align: center;
+    }
+    #success-msg .ok-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: var(--cream);
+      border: 2px solid var(--accent);
+      margin-bottom: 18px;
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: 28px;
+      color: var(--brand);
+      font-style: italic;
+    }
+    #success-msg strong {
+      display: block;
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-xl);
+      font-weight: 500;
+      color: var(--ink);
+      margin-bottom: 10px;
+      font-style: normal;
+    }
+    #success-msg p { font-size: var(--fs-sm); color: var(--ink-muted); line-height: 1.6; }
+
+    /* ═══ SEÇÃO BASE ═══ */
+    section {
+      padding: 80px 20px;
+      position: relative;
+    }
+    .section-eyebrow {
+      display: block;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent-deep);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .section-title {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(32px, 6vw, 48px);
+      font-weight: 400;
+      line-height: 1.05;
+      color: var(--ink);
+      text-align: center;
+      max-width: 20ch;
+      margin: 0 auto 48px;
+      letter-spacing: -0.01em;
+    }
+    .section-title em { font-style: italic; color: var(--brand); }
+
+    /* ═══ COMPARATIVO LASER vs CERA ═══ */
+    .compare-section {
+      background: var(--cream);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .compare-grid {
+      max-width: 880px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    .compare-col {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-lg);
+      padding: 28px;
+      box-shadow: var(--shadow-1);
+    }
+    .compare-col.cera { opacity: 0.88; }
+    .compare-col.laser {
+      background: linear-gradient(180deg, var(--surface) 0%, var(--champagne) 100%);
+      border-color: var(--accent);
+      box-shadow: var(--shadow-2);
+    }
+    .compare-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: 20px; padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .compare-label {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-xl);
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .compare-col.laser .compare-label { color: var(--brand); font-style: italic; }
+    .compare-tag {
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--cream);
+      color: var(--ink-muted);
+    }
+    .compare-col.laser .compare-tag { background: var(--brand); color: var(--accent); }
+    .compare-list {
+      list-style: none;
+      display: flex; flex-direction: column;
+      gap: 14px;
+    }
+    .compare-list li {
+      display: flex; justify-content: space-between; gap: 12px;
+      padding-bottom: 14px;
+      border-bottom: 1px dashed var(--line);
+      font-size: var(--fs-sm);
+    }
+    .compare-list li:last-child { border-bottom: none; }
+    .compare-key { color: var(--ink-muted); }
+    .compare-val { color: var(--ink); font-weight: 600; text-align: right; }
+    .compare-col.laser .compare-val { color: var(--brand); }
+
+    /* ═══ COMO FUNCIONA ═══ */
+    .como-funciona {
+      background: var(--surface-alt);
+    }
+    .steps {
+      max-width: 880px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    .step {
+      display: flex; gap: 20px; align-items: flex-start;
+      padding: 24px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      transition: transform var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
+    }
+    .step:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+    .step-num {
+      flex-shrink: 0;
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: var(--cream);
+      border: 1px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-lg);
+      font-weight: 500;
+      font-style: italic;
+      color: var(--brand);
+    }
+    .step-content h3 {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-md);
+      font-weight: 500;
+      color: var(--ink);
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
+    }
+    .step-content p {
+      font-size: var(--fs-sm);
+      color: var(--ink-muted);
+      line-height: 1.55;
+    }
+
+    /* ═══ PROVA SOCIAL ═══ */
+    .proof {
+      background: var(--cream);
+    }
+    .stats {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      max-width: 720px; margin: 0 auto 56px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      overflow: hidden;
+    }
+    .stat {
+      background: var(--surface);
+      padding: 28px 16px;
+      text-align: center;
+    }
+    .stat-num {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(32px, 6vw, 48px);
+      font-weight: 400;
+      line-height: 1;
+      color: var(--brand);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-label {
+      font-size: var(--fs-xs);
+      color: var(--ink-muted);
+      margin-top: 10px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .depoimentos {
+      max-width: 880px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    .dep {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      padding: 28px;
+      position: relative;
+      box-shadow: var(--shadow-1);
+    }
+    .dep-quote {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: 44px;
+      line-height: 0.6;
+      color: var(--accent);
+      position: absolute;
+      top: 24px; left: 28px;
+      opacity: 0.5;
+    }
+    .dep-stars {
+      display: inline-block;
+      font-size: 12px;
+      color: var(--accent-deep);
+      letter-spacing: 0.1em;
+      margin-bottom: 14px;
+    }
+    .dep-text {
+      font-size: var(--fs-md);
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-weight: 400;
+      font-style: italic;
+      line-height: 1.4;
+      color: var(--ink);
+      margin-bottom: 18px;
+      letter-spacing: -0.01em;
+    }
+    .dep-autor {
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .dep-bairro {
+      font-size: var(--fs-xs);
+      color: var(--ink-muted);
+      font-weight: 400;
+      margin-left: 4px;
+    }
+
+    /* ═══ FAQ ═══ */
+    .faq-section {
+      background: var(--surface-alt);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .faq-list {
+      max-width: 720px; margin: 0 auto;
+      display: flex; flex-direction: column;
+      gap: 0;
+    }
+    .faq-item {
+      border-bottom: 1px solid var(--line);
+    }
+    .faq-item:first-child { border-top: 1px solid var(--line); }
+    .faq-q {
+      width: 100%;
+      background: none; border: none; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 24px 0;
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-md);
+      font-weight: 500;
+      color: var(--ink);
+      text-align: left;
+      gap: 16px;
+      letter-spacing: -0.01em;
+      transition: color var(--dur-fast) var(--ease);
+    }
+    .faq-q:hover { color: var(--brand); }
+    .faq-q .chevron {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--cream);
+      border: 1px solid var(--line);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-style: normal;
+      font-size: 12px;
+      color: var(--brand);
+      transition: transform var(--dur-base) var(--ease), background var(--dur-base) var(--ease);
+    }
+    .faq-item.open .faq-q .chevron {
+      transform: rotate(180deg);
+      background: var(--brand);
+      color: var(--accent);
+    }
+    .faq-a {
+      max-height: 0; overflow: hidden;
+      transition: max-height var(--dur-base) var(--ease), padding var(--dur-base) var(--ease);
+      font-size: var(--fs-sm);
+      color: var(--ink-muted);
+      line-height: 1.65;
+    }
+    .faq-item.open .faq-a {
+      max-height: 400px;
+      padding-bottom: 24px;
+      padding-right: 44px;
+    }
+
+    /* ═══ GARANTIA ═══ */
+    .garantia-section {
+      background: var(--ink);
+      color: var(--cream);
+      text-align: center;
+    }
+    .garantia-eyebrow {
+      color: var(--accent);
+      display: block;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    .garantia-section h3 {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(28px, 5vw, 40px);
+      font-weight: 400;
+      max-width: 20ch;
+      margin: 0 auto 18px;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+    .garantia-section h3 em { font-style: italic; color: var(--accent); }
+    .garantia-section p {
+      font-size: var(--fs-md);
+      color: rgba(250, 247, 242, 0.75);
+      max-width: 50ch;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* ═══ CTA FINAL ═══ */
+    .cta-final {
+      background: var(--champagne);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .cta-final::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 0%, rgba(100, 0, 57, 0.08) 0%, transparent 55%);
+      pointer-events: none;
+    }
+    .cta-final > * { position: relative; }
+    .cta-final h2 {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(38px, 7vw, 64px);
+      font-weight: 400;
+      line-height: 1.02;
+      color: var(--ink);
+      max-width: 16ch;
+      margin: 0 auto 20px;
+      letter-spacing: -0.02em;
+    }
+    .cta-final h2 em { font-style: italic; color: var(--brand); }
+    .cta-final p {
+      font-size: var(--fs-md);
+      color: var(--ink-muted);
+      max-width: 44ch;
+      margin: 0 auto 36px;
+      line-height: 1.55;
+    }
+    .cta-final p strong { color: var(--brand); font-weight: 600; }
+    .btn-cta2 {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 20px 36px;
+      background: var(--brand);
+      color: var(--cream);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-md);
+      font-weight: 600;
+      border-radius: 999px;
+      text-decoration: none;
+      border: 1px solid var(--brand);
+      box-shadow: 0 16px 40px -12px rgba(100, 0, 57, 0.35);
+      transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+      min-height: 56px;
+      touch-action: manipulation;
+    }
+    .btn-cta2:hover { transform: translateY(-2px); background: var(--brand-deep); }
+
+    /* ═══ FOOTER ═══ */
+    footer {
+      background: var(--ink);
+      color: rgba(250, 247, 242, 0.6);
+      padding: 56px 20px 40px;
+      border-top: 1px solid var(--brand-deep);
+    }
+    .footer-grid {
+      max-width: 880px; margin: 0 auto;
+      display: grid; grid-template-columns: 1fr;
+      gap: 32px;
+    }
+    .footer-brand {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: "opsz" 144;
+      font-size: var(--fs-xl);
+      font-weight: 500;
+      color: var(--cream);
+      letter-spacing: 0.02em;
+      margin-bottom: 8px;
+    }
+    .footer-brand em { font-style: italic; color: var(--accent); }
+    .footer-tagline {
+      font-size: var(--fs-sm);
+      color: rgba(250, 247, 242, 0.5);
+      max-width: 40ch;
+      line-height: 1.55;
+    }
+    .footer-col h4 {
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+    .footer-col p { font-size: var(--fs-sm); line-height: 1.8; color: rgba(250, 247, 242, 0.7); }
+    .footer-col a { color: inherit; text-decoration: none; transition: color var(--dur-fast) var(--ease); }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-copy {
+      max-width: 880px; margin: 40px auto 0;
+      padding-top: 24px;
+      border-top: 1px solid rgba(250, 247, 242, 0.08);
+      font-size: var(--fs-xs);
+      color: rgba(250, 247, 242, 0.4);
+      text-align: center;
+      letter-spacing: 0.02em;
+    }
+
+    /* ═══ FAB ═══ */
+    .fab {
+      position: fixed;
+      bottom: 20px; right: 16px;
+      z-index: 200;
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 22px;
+      background: var(--success);
+      color: var(--surface);
+      font-family: 'DM Sans', sans-serif;
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      border: none;
+      border-radius: 999px;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 12px 32px -8px rgba(22,163,74,0.45);
+      transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+      min-height: 48px;
+      touch-action: manipulation;
+    }
+    .fab:hover { transform: translateY(-2px); box-shadow: 0 16px 40px -8px rgba(22,163,74,0.55); }
+    .fab.hidden { display: none; }
+
+    /* ═══ ACESSIBILIDADE — motion reduced ═══ */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+      .btn-wa-hero::after { animation: none; }
+    }
+
+    /* ═══ STAGGERED REVEAL on load ═══ */
+    @media (prefers-reduced-motion: no-preference) {
+      .hero > *:not(.hero-art) {
+        opacity: 0;
+        transform: translateY(16px);
+        animation: rise 800ms var(--ease-out) forwards;
+      }
+      .hero .badge           { animation-delay: 100ms; }
+      .hero h1.display       { animation-delay: 180ms; }
+      .hero-sub              { animation-delay: 260ms; }
+      .hero-checks           { animation-delay: 340ms; }
+      .hero-stats            { animation-delay: 420ms; }
+      .hero .btn-wa-hero     { animation-delay: 500ms; }
+      .hero-wa-sub           { animation-delay: 560ms; }
+      .hero-social-proof     { animation-delay: 620ms; }
+      .countdown-bar         { animation-delay: 680ms; }
+      .hero .card            { animation-delay: 360ms; animation-duration: 900ms; }
+      @keyframes rise {
+        to { opacity: 1; transform: translateY(0); }
+      }
+    }
+
+    /* ═══════════════════════════════════════════════════
+       DESKTOP — layout asymmetric a partir de 880px
+    ═══════════════════════════════════════════════════ */
+    @media (min-width: 880px) {
+      .header { padding: 18px 48px; }
+      .header-logo { font-size: 24px; }
+      .header-cta { font-size: var(--fs-sm); padding: 12px 22px; }
+      .urgency-bar { font-size: var(--fs-sm); padding: 12px 24px; }
+
+      /* HERO — asymmetric 7fr 5fr */
+      .hero {
+        padding: 72px 56px 120px;
+        display: grid;
+        grid-template-columns: 1.2fr 440px;
+        column-gap: 72px;
+        align-items: start;
+        min-height: 640px;
+      }
+      .hero-art { width: 360px; height: 360px; right: 420px; top: 140px; }
+
+      .hero h1.display {
+        font-size: clamp(64px, 7vw, 92px);
+        margin-bottom: 24px;
+        max-width: 12ch;
+      }
+      .hero-sub { font-size: var(--fs-lg); max-width: 48ch; }
+      .hero-checks { padding: 24px 0; }
+      .hero-check { font-size: var(--fs-base); }
+
+      .hero-stats { gap: 40px; }
+      .hero-stat-num { font-size: var(--fs-3xl); }
+
+      /* Form card — sticky na coluna direita */
+      .card {
+        grid-column: 2;
+        grid-row: 1 / span 11;
+        border-radius: var(--r-lg);
+        margin: 0;
+        padding: 36px 32px;
+        align-self: start;
+        position: sticky;
+        top: 96px;
+      }
+
+      /* Badge + checks + stats não afetam form */
+      section { padding: 112px 56px; }
+      .section-title { margin-bottom: 64px; }
+
+      /* Compare 2 cols no desktop */
+      .compare-grid { grid-template-columns: 1fr 1fr; gap: 24px; }
+
+      /* Steps 2 cols no desktop */
+      .steps { grid-template-columns: 1fr 1fr; gap: 24px; }
+
+      /* Depoimentos 2 cols */
+      .depoimentos { grid-template-columns: 1fr 1fr; gap: 24px; }
+
+      /* Footer grid 3 cols */
+      .footer-grid { grid-template-columns: 2fr 1fr 1fr; gap: 56px; padding: 0 24px; }
+
+      /* FAB no desktop */
+      .fab { bottom: 32px; right: 32px; font-size: var(--fs-base); padding: 16px 26px; }
+    }
+
+    @media (min-width: 1200px) {
+      .hero { padding: 96px 80px 140px; column-gap: 96px; grid-template-columns: 1.3fr 460px; }
+      section { padding: 128px 80px; }
+      .footer-grid, .footer-copy { padding: 0; max-width: 1040px; }
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- STICKY HEADER -->
+<header class="header">
+  <div class="header-logo">Ice<span>Laser</span> · Recife</div>
+  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP1%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="header-cta" id="btn-header-cta">Agendar avaliação</a>
+</header>
+
+<!-- URGENCY BAR -->
+<div class="urgency-bar">
+  Apenas <span class="red" id="vagas">3</span> vagas gratuitas restantes esta semana — válido até domingo 19/04
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <!-- SVG decorativo: ponteira laser Crystal 3D Plus com beam dourado -->
+  <svg class="hero-art" viewBox="0 0 360 360" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <linearGradient id="beam" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#D4A574" stop-opacity="0.9"/>
+        <stop offset="50%" stop-color="#D4A574" stop-opacity="0.4"/>
+        <stop offset="100%" stop-color="#D4A574" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#640039"/>
+        <stop offset="100%" stop-color="#3D0023"/>
+      </linearGradient>
+    </defs>
+    <!-- beam / feixe -->
+    <path d="M250 80 L330 200 L250 280 Z" fill="url(#beam)" opacity="0.6"/>
+    <!-- ponteira body -->
+    <rect x="70" y="140" width="180" height="52" rx="26" fill="url(#body)"/>
+    <rect x="88" y="152" width="28" height="28" rx="14" fill="#D4A574" opacity="0.85"/>
+    <!-- lente -->
+    <circle cx="250" cy="166" r="18" fill="#1A0A12" stroke="#D4A574" stroke-width="1.5"/>
+    <circle cx="250" cy="166" r="10" fill="#D4A574" opacity="0.5"/>
+    <!-- cabo -->
+    <path d="M70 166 Q40 180 30 220 Q20 260 50 280" stroke="#640039" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.6"/>
+    <!-- linhas de energia -->
+    <path d="M250 166 L340 130" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
+    <path d="M250 166 L340 166" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
+    <path d="M250 166 L340 200" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
+    <!-- label -->
+    <text x="140" y="168" font-family="Fraunces, serif" font-size="9" font-weight="500" fill="#D4A574" letter-spacing="1">CRYSTAL 3D PLUS</text>
+  </svg>
+
+  <div class="badge">
+    <span class="badge-dot">a</span>
+    Avaliação 100% gratuita — sem compromisso
+  </div>
+
+  <h1 class="display">Chega de cera.<br><em>Pele lisa</em> para sempre.</h1>
+
+  <p class="hero-sub">
+    3.000+ clientes atendidas em Recife, nas Graças. Laser <strong>Crystal 3D Plus</strong> — resultado visível desde a 1ª sessão, sem dor e sem pelo encravado.
+  </p>
+
+  <div class="hero-checks">
+    <div class="hero-check">Pele lisa por semanas, não por dias</div>
+    <div class="hero-check">Resultado visível desde a 1ª sessão</div>
+    <div class="hero-check">Parcelamos em 12x sem juros no cartão</div>
+    <div class="hero-check">Avaliação gratuita + brinde surpresa</div>
+  </div>
+
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="hero-stat-num">3k+</div>
+      <div class="hero-stat-label">Clientes atendidas</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">5★</div>
+      <div class="hero-stat-label">Google Reviews</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">12x</div>
+      <div class="hero-stat-label">Sem juros</div>
+    </div>
+  </div>
+
+  <!-- BOTÃO WA DIRETO — above the fold -->
+  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
+    </svg>
+    Falar no WhatsApp agora
+  </a>
+  <div class="hero-wa-sub">Resposta em menos de 2 minutos</div>
+
+  <!-- Mini prova social -->
+  <div class="hero-social-proof">
+    <div class="sp-dots"><span></span><span></span><span></span><span></span></div>
+    <div class="hero-sp-text"><strong>14 mulheres</strong> agendaram hoje em Recife</div>
+  </div>
+  <div class="countdown-bar" id="countdown-bar">
+    Oferta expira em <span id="countdown-timer" class="countdown-num">--:--:--</span>
+  </div>
+
+  <!-- FORM CARD -->
+  <div class="card" id="form">
+    <div id="form-content">
+      <div class="card-eyebrow">Formulário</div>
+      <div class="card-title">Garanta sua <em>vaga grátis</em></div>
+      <div class="card-sub">Preencha em 10 segundos — resposta em minutos.</div>
+
+      <!-- Âncora de preço -->
+      <div class="price-anchor">
+        Você gasta em média <strong>R$ 80–150 por mês</strong> com cera e lâmina. Nossa avaliação é <strong>100% gratuita</strong> e mostramos como eliminar esse custo de vez.
+      </div>
+
+      <form id="lead-form" novalidate>
+        <div class="field">
+          <label for="nome">Seu nome</label>
+          <input type="text" id="nome" name="nome" placeholder="Ex: Maria Silva"
+                 autocomplete="name" required inputmode="text" />
+          <div class="field-error">Por favor, informe seu nome.</div>
+        </div>
+        <div class="field">
+          <label for="tel">Seu WhatsApp</label>
+          <input type="tel" id="tel" name="tel" placeholder="(81) 9 9999-9999"
+                 autocomplete="tel" required inputmode="tel" />
+          <div class="field-error">Por favor, informe um WhatsApp válido.</div>
+        </div>
+
+        <button type="submit" class="btn-submit" id="btn-submit">
+          Preencha aqui e garanta seu brinde surpresa
+        </button>
+      </form>
+
+      <div class="trust-badges">
+        <div class="trust-badge">Dados protegidos</div>
+        <div class="trust-badge">Sem compromisso</div>
+        <div class="trust-badge">12x sem juros</div>
+      </div>
+    </div>
+
+    <div id="success-msg" aria-live="polite">
+      <div class="ok-icon">✓</div>
+      <strong>Ótimo, <span id="nome-success"></span>!</strong>
+      <p>O WhatsApp foi aberto com sua mensagem.<br>Nossa equipe responde em <strong>poucos minutos</strong>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARATIVO LASER VS CERA -->
+<section class="compare-section">
+  <span class="section-eyebrow">Comparativo</span>
+  <h2 class="section-title">Por que laser é <em>mais econômico</em> que cera?</h2>
+
+  <div class="compare-grid">
+    <div class="compare-col cera">
+      <div class="compare-head">
+        <div class="compare-label">Cera / Lâmina</div>
+        <div class="compare-tag">O velho jeito</div>
+      </div>
+      <ul class="compare-list">
+        <li><span class="compare-key">Duração do resultado</span><span class="compare-val">2 a 4 semanas</span></li>
+        <li><span class="compare-key">Dor / desconforto</span><span class="compare-val">Alta</span></li>
+        <li><span class="compare-key">Pelo encravado / foliculite</span><span class="compare-val">Frequente</span></li>
+        <li><span class="compare-key">Gasto em 2 anos</span><span class="compare-val">R$ 2.400+</span></li>
+        <li><span class="compare-key">Resultado visível</span><span class="compare-val">Nunca definitivo</span></li>
+      </ul>
+    </div>
+
+    <div class="compare-col laser">
+      <div class="compare-head">
+        <div class="compare-label">Laser IceLaser</div>
+        <div class="compare-tag">Crystal 3D Plus</div>
+      </div>
+      <ul class="compare-list">
+        <li><span class="compare-key">Duração do resultado</span><span class="compare-val">Permanente</span></li>
+        <li><span class="compare-key">Dor / desconforto</span><span class="compare-val">Mínima</span></li>
+        <li><span class="compare-key">Pelo encravado / foliculite</span><span class="compare-val">Eliminado</span></li>
+        <li><span class="compare-key">Gasto em 2 anos</span><span class="compare-val">1 pacote só</span></li>
+        <li><span class="compare-key">Resultado visível</span><span class="compare-val">Desde a 1ª sessão</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- COMO FUNCIONA -->
+<section class="como-funciona">
+  <span class="section-eyebrow">O processo</span>
+  <h2 class="section-title">Como <em>funciona</em></h2>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">i</div>
+      <div class="step-content">
+        <h3>Agende sua avaliação gratuita</h3>
+        <p>Preencha o formulário e fale com nossa equipe pelo WhatsApp. Rápido, sem burocracia.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">ii</div>
+      <div class="step-content">
+        <h3>Venha à clínica sem compromisso</h3>
+        <p>Conheça o espaço, faça o teste de pele gratuito e receba um orçamento personalizado.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">iii</div>
+      <div class="step-content">
+        <h3>Inicie o tratamento no seu ritmo</h3>
+        <p>Escolha o pacote ideal, parcele em 12x sem juros e comece a ver o resultado desde a 1ª sessão.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">iv</div>
+      <div class="step-content">
+        <h3>Pele lisa para sempre</h3>
+        <p>Em média 6 a 8 sessões para redução permanente de 90%+ dos pelos. Chega de gastar todo mês.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROVA SOCIAL -->
+<section class="proof">
+  <span class="section-eyebrow">Prova social</span>
+  <h2 class="section-title">3.000 <em>clientes</em> em Recife</h2>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-num">3k+</div>
+      <div class="stat-label">Atendidas</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">5★</div>
+      <div class="stat-label">Google Reviews</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">98%</div>
+      <div class="stat-label">Recomendam</div>
+    </div>
+  </div>
+
+  <div class="depoimentos">
+    <div class="dep">
+      <div class="dep-quote">“</div>
+      <div class="dep-stars">★★★★★</div>
+      <div class="dep-text">Fiz a avaliação gratuita e fechei na mesma hora. Já na primeira sessão deu pra ver diferença. Atendimento impecável.</div>
+      <div class="dep-autor">Juliana M. <span class="dep-bairro">· Boa Viagem</span></div>
+    </div>
+    <div class="dep">
+      <div class="dep-quote">“</div>
+      <div class="dep-stars">★★★★★</div>
+      <div class="dep-text">Tinha medo de doer mas foi super tranquilo. Tecnologia de ponta e equipe muito atenciosa. Resultado incrível desde a 1ª sessão.</div>
+      <div class="dep-autor">Fernanda C. <span class="dep-bairro">· Graças</span></div>
+    </div>
+    <div class="dep">
+      <div class="dep-quote">“</div>
+      <div class="dep-stars">★★★★★</div>
+      <div class="dep-text">Gastava R$120/mês com cera. Fiz o pacote, parcelei tranquilo e em 4 sessões já reduzi 80% dos pelos. Melhor investimento.</div>
+      <div class="dep-autor">Camila S. <span class="dep-bairro">· Derby</span></div>
+    </div>
+    <div class="dep">
+      <div class="dep-quote">“</div>
+      <div class="dep-stars">★★★★★</div>
+      <div class="dep-text">Fiz virilha completa e o resultado foi além do esperado. Zero ingrown, zero dor durante a sessão. Clínica super limpa e organizada.</div>
+      <div class="dep-autor">Mariana T. <span class="dep-bairro">· Espinheiro</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="faq-section">
+  <span class="section-eyebrow">Dúvidas frequentes</span>
+  <h2 class="section-title">Perguntas <em>que toda cliente faz</em></h2>
+
+  <div class="faq-list">
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        Dói fazer depilação a laser?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        Nossa tecnologia Crystal 3D Plus é uma das mais modernas do mercado e causa desconforto mínimo — a maioria das clientes descreve como um leve beliscão. Nada comparado à cera.
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        Funciona para minha cor de pele e tipo de pelo?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        O Crystal 3D Plus tem 3 comprimentos de onda que atendem todos os fototipos de pele (inclusive peles negras) e diferentes espessuras de pelo. Na avaliação gratuita, fazemos um teste de pele personalizado.
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        Quantas sessões vou precisar?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        Em média 6 a 8 sessões para redução permanente de 90%+ dos pelos. O resultado começa a aparecer já na 1ª sessão, com queda progressiva a cada mês de tratamento.
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        Quanto custa o pacote? Tem parcelamento?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        O valor varia conforme as áreas escolhidas. Na avaliação gratuita você recebe um orçamento personalizado. Parcelamos em até 12x sem juros no cartão — sem susto no bolso.
+      </div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" aria-expanded="false">
+        A avaliação é realmente gratuita? Tem alguma obrigação?
+        <i class="chevron">▾</i>
+      </button>
+      <div class="faq-a">
+        100% gratuita e sem nenhum compromisso. Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento. A decisão de iniciar o tratamento é inteiramente sua.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- GARANTIA -->
+<section class="garantia-section">
+  <span class="garantia-eyebrow">Nossa promessa</span>
+  <h3>Avalie de graça.<br><em>Sem pressão.</em> Sem compromisso.</h3>
+  <p>Mais de 3.000 clientes atendidas com nota 5 estrelas no Google. Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento. Se não quiser continuar — sem problema.</p>
+</section>
+
+<!-- CTA FINAL -->
+<section class="cta-final">
+  <span class="section-eyebrow">Última chamada</span>
+  <h2>Chega de cera.<br><em>Sua vaga</em> te espera.</h2>
+  <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>Apenas <strong id="vagas2">3</strong> vagas disponíveis — válido até domingo 19/04</p>
+  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP4%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-cta2" id="cta-final-btn">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
+    </svg>
+    Garantir minha 1ª sessão grátis
+  </a>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-grid">
+    <div class="footer-col">
+      <div class="footer-brand">Ice<em>Laser</em> · Recife</div>
+      <div class="footer-tagline">Clínica de depilação a laser em Recife, nas Graças. Tecnologia Crystal 3D Plus para resultado permanente, sem dor.</div>
+    </div>
+    <div class="footer-col">
+      <h4>Endereço</h4>
+      <p>Rua Amélia, 896<br>Graças — Recife/PE</p>
+    </div>
+    <div class="footer-col">
+      <h4>Contato</h4>
+      <p>WhatsApp: (81) 99574-9947<br>Seg a Sáb · 09h–19h</p>
+    </div>
+  </div>
+  <div class="footer-copy">© 2026 IceLaser Recife · Todos os direitos reservados</div>
+</footer>
+
+<!-- FLOATING ACTION BUTTON -->
+<a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP5%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="fab" id="fab" aria-label="Falar no WhatsApp">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z" fill="white"/>
+  </svg>
+  Garantir vaga grátis
+</a>
+
+<script>
+  const WA_NUMBER = '5581995749947';
+  const WA_MSG = encodeURIComponent('[LP3] Olá, vi o anúncio e gostaria de retirar meu brinde.');
+
+  /* WHATSAPP DEEP LINK — funciona no Instagram in-app browser, iOS Safari, Android Chrome */
+  function openWhatsApp(msg) {
+    const text = msg || WA_MSG;
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const isInstagramBrowser = /Instagram/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+
+    if (isIOS && !isInstagramBrowser) {
+      // iOS Safari: usa whatsapp:// deep link (abre app direto)
+      location.href = 'whatsapp://send?phone=' + WA_NUMBER + '&text=' + text;
+    } else if (isAndroid && isInstagramBrowser) {
+      // Android Instagram in-app: usa intent:// (bypass do webview)
+      location.href = 'intent://send?phone=' + WA_NUMBER + '&text=' + text + '#Intent;scheme=whatsapp;package=com.whatsapp;end;';
+    } else {
+      // Fallback universal: api.whatsapp.com (mais confiável que wa.me no in-app)
+      location.href = 'https://api.whatsapp.com/send?phone=' + WA_NUMBER + '&text=' + text;
+    }
+  }
+
+  // Captura dados do anúncio na chegada e guarda em sessionStorage pra não perder
+  (function() {
+    var p = new URLSearchParams(location.search);
+    var keys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','ad_id','ad_name','adset_id','adset_name','campaign_id','campaign_name','placement','site_source_name'];
+    keys.forEach(function(k) {
+      var v = p.get(k);
+      if (v) sessionStorage.setItem('ice_' + k, v);
+    });
+    if (document.referrer) sessionStorage.setItem('ice_referrer', document.referrer);
+    if (p.get('fbclid')) sessionStorage.setItem('ice_fbclid', p.get('fbclid'));
+  })();
+
+  // Função pra pegar dados do anúncio (URL params ou sessionStorage)
+  function getAdData(key) {
+    var p = new URLSearchParams(location.search);
+    return p.get(key) || sessionStorage.getItem('ice_' + key) || undefined;
+  }
+
+  // Detecta origem quando não tem UTMs
+  function getOrigemFallback() {
+    var ref = document.referrer || sessionStorage.getItem('ice_referrer') || '';
+    var fbclid = new URLSearchParams(location.search).get('fbclid') || sessionStorage.getItem('ice_fbclid') || '';
+    if (fbclid) return 'facebook';
+    if (ref.includes('facebook.com') || ref.includes('fb.com')) return 'facebook';
+    if (ref.includes('instagram.com')) return 'instagram';
+    if (ref.includes('l.instagram.com')) return 'instagram';
+    if (ref.includes('lm.facebook.com')) return 'facebook';
+    return ref ? 'referral' : 'direto';
+  }
+
+  // Intercepta todos os links WA pra usar deep link inteligente (preserva mensagem de cada botão)
+  // + Dispara Lead CAPI com tag do botão pra rastrear qual CTA converteu
+  var waClickTracked = {};
+  document.addEventListener('click', function(e) {
+    const link = e.target.closest('a[href*="whatsapp.com/send"], a[href*="wa.me/"]');
+    if (link) {
+      e.preventDefault();
+      // Identifica qual botão foi clicado pela tag [LP1]-[LP5]
+      var tag = 'LP0';
+      try {
+        var hrefText = decodeURIComponent(new URL(link.href).searchParams.get('text') || '');
+        var tagMatch = hrefText.match(/\[LP(\d)\]/);
+        if (tagMatch) tag = 'LP' + tagMatch[1];
+      } catch(ex) {}
+      // Dispara Lead CAPI com tag do botão (1x por tag por sessão)
+      if (!waClickTracked[tag]) {
+        waClickTracked[tag] = true;
+        var waLeadId = 'wa_' + tag + '_' + Date.now() + '_' + Math.random().toString(36).slice(2,9);
+        try { fbq('track', 'Lead', {content_name:'WA ' + tag, content_category:'depilacao_laser', value:0, currency:'BRL'}, {eventID: waLeadId}); } catch(ex){}
+        var origemFallback = getOrigemFallback();
+        fetch('/api/track', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            event_name: 'Lead', event_id: waLeadId,
+            nome: 'WA Direto ' + tag,
+            event_source_url: location.href, client_user_agent: navigator.userAgent,
+            fbp: (document.cookie.match(/(?:^|;\s*)_fbp=([^;]*)/) || [])[1] || undefined,
+            fbc: (document.cookie.match(/(?:^|;\s*)_fbc=([^;]*)/) || [])[1] || undefined,
+            utm_source: getAdData('utm_source') || origemFallback,
+            utm_medium: getAdData('utm_medium') || (origemFallback !== 'direto' ? 'cpc' : undefined),
+            utm_campaign: getAdData('utm_campaign') || (origemFallback === 'facebook' || origemFallback === 'instagram' ? 'sem-utm (Meta Ads)' : undefined),
+            utm_content: getAdData('utm_content') || undefined,
+            utm_term: getAdData('utm_term') || undefined,
+            campaign_id: getAdData('campaign_id') || undefined,
+            campaign_name: getAdData('campaign_name') || (origemFallback === 'facebook' || origemFallback === 'instagram' ? 'Meta Ads (sem url_tags)' : undefined),
+            adset_id: getAdData('adset_id') || undefined,
+            adset_name: getAdData('adset_name') || undefined,
+            ad_id: getAdData('ad_id') || undefined,
+            ad_name: getAdData('ad_name') || undefined,
+            referrer: document.referrer || undefined,
+          }), keepalive: true,
+        }).catch(function(){});
+      }
+      // Extrai o texto da URL do href pra manter a tag [LP1]-[LP5] de cada botão
+      try {
+        var url = new URL(link.href);
+        var textParam = url.searchParams.get('text');
+        if (textParam) { openWhatsApp(encodeURIComponent(textParam)); return; }
+      } catch(ex) {}
+      openWhatsApp();
+    }
+  });
+
+  /* URGÊNCIA — data fixa (sem localStorage reset) */
+
+  /* FAB VISIBILITY ────────────────────────────────── */
+  (function() {
+    const fab  = document.getElementById('fab');
+    const form = document.getElementById('form');
+    if (!fab || !form) return;
+    const obs = new IntersectionObserver(entries => {
+      fab.classList.toggle('hidden', entries[0].isIntersecting);
+    }, { threshold: 0.2 });
+    obs.observe(form);
+  })();
+
+  /* PHONE MASK ────────────────────────────────────── */
+  document.getElementById('tel').addEventListener('input', function(e) {
+    let v = e.target.value.replace(/\D/g,'').substring(0,11);
+    if (v.length >= 7)      v = '('+v.slice(0,2)+') '+v.slice(2,7)+'-'+v.slice(7);
+    else if (v.length >= 3) v = '('+v.slice(0,2)+') '+v.slice(2);
+    else if (v.length >= 1) v = '('+v;
+    e.target.value = v;
+  });
+
+  /* InitiateCheckout REMOVIDO da LP — IC só dispara via CRM (label link_pagamento)
+     IC = atendente enviou link de pagamento / cliente foi pagar. Não é ação na LP. */
+
+  /* SUBMIT ────────────────────────────────────────── */
+  document.getElementById('lead-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const nomeEl = document.getElementById('nome');
+    const telEl  = document.getElementById('tel');
+    const nome   = nomeEl.value.trim();
+    const tel    = telEl.value.trim();
+    let valid    = true;
+
+    if (!nome)                                { nomeEl.classList.add('invalid'); valid=false; } else nomeEl.classList.remove('invalid');
+    if (tel.replace(/\D/g,'').length < 10)   { telEl.classList.add('invalid');  valid=false; } else telEl.classList.remove('invalid');
+    if (!valid) return;
+
+    // 1. DISPARA PIXEL + CAPI — event_id garante deduplicação
+    const eventId = 'ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+
+    // Captura _fbp (cookie Meta) e fbclid (URL param) para aumentar EMQ no CAPI
+    const fbpCookie = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbp='));
+    const fbp = fbpCookie ? fbpCookie.split('=').slice(1).join('=') : undefined;
+    const params = new URLSearchParams(window.location.search);
+    // Lê _fbc do cookie — NUNCA reconstruir, usar valor original inalterado
+    const fbcCookieVal = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('_fbc='));
+    const fbc = fbcCookieVal ? fbcCookieVal.split('=').slice(1).join('=') : undefined;
+
+    // Captura origem completa: URL params + sessionStorage fallback
+    var origemFB = getOrigemFallback();
+    const utm = {
+      utm_source:   getAdData('utm_source')   || origemFB,
+      utm_medium:   getAdData('utm_medium')   || (origemFB !== 'direto' ? 'cpc' : undefined),
+      utm_campaign: getAdData('utm_campaign') || (origemFB === 'facebook' || origemFB === 'instagram' ? 'sem-utm (Meta Ads)' : undefined),
+      utm_content:  getAdData('utm_content')  || undefined,
+      utm_term:     getAdData('utm_term')     || undefined,
+      ad_id:        getAdData('ad_id')        || undefined,
+      ad_name:      getAdData('ad_name')      || undefined,
+      adset_id:     getAdData('adset_id')     || undefined,
+      adset_name:   getAdData('adset_name')   || undefined,
+      campaign_id:  getAdData('campaign_id')  || undefined,
+      campaign_name:getAdData('campaign_name')|| (origemFB === 'facebook' || origemFB === 'instagram' ? 'Meta Ads (sem url_tags)' : undefined),
+      placement:    getAdData('placement')    || undefined,
+      site_source_name: getAdData('site_source_name') || undefined,
+      platform:     getAdData('platform')     || undefined,
+      referrer:     document.referrer         || undefined,
+    };
+
+    // Dados de qualificação do lead (navegador, tela, idioma, timezone)
+    const qualData = {
+      screen_width:  screen.width,
+      screen_height: screen.height,
+      language:      navigator.language,
+      timezone:      Intl.DateTimeFormat().resolvedOptions().timeZone,
+      referrer:      document.referrer || undefined,
+      landing_url:   location.href,
+      time_on_page:  Math.round((Date.now() - performance.timing.navigationStart) / 1000),
+      scroll_depth:  Math.round((window.scrollY + window.innerHeight) / document.body.scrollHeight * 100),
+    };
+
+    const capiData = {
+      nome, telefone: tel,
+      event_source_url: location.href,
+      client_user_agent: navigator.userAgent,
+      fbp,
+      fbc,
+      ...utm,
+      ...qualData,
+    };
+
+    // Advanced Matching — reinit pixel com dados do usuário para aumentar EMQ
+    try {
+      const telDigits = tel.replace(/\D/g, '');
+      const nomeParts = nome.trim().toLowerCase().split(/\s+/);
+      fbq('init', '2774496306216737', {
+        ph: telDigits.startsWith('55') ? telDigits : '55' + telDigits,
+        fn: nomeParts[0],
+        ln: nomeParts.length > 1 ? nomeParts[nomeParts.length - 1] : undefined,
+        country: 'br',
+        st: 'pe',
+        ct: 'recife',
+      });
+    } catch(ex) {}
+
+    try {
+      fbq('track', 'Lead',
+        { content_name:'Avaliacao Gratuita LP', content_category:'depilacao_laser', value:0, currency:'BRL' },
+        { eventID: eventId }
+      );
+      fbq('track', 'CompleteRegistration',
+        { content_name:'Avaliacao Gratuita LP', status:'submitted', value:0, currency:'BRL' },
+        { eventID: eventId + '_cr' }
+      );
+    } catch(ex) {}
+
+    // Vercel Analytics — evento de lead submit (inclui variante A/B ativa)
+    try {
+      const ctaVariant = document.getElementById('btn-submit')?.dataset.ctaVariant || 'avaliar';
+      window.va('event', { name: 'Lead Submit', data: { cta_variant: ctaVariant, source: 'landing_page' } });
+    } catch {}
+
+    // CAPI server-side — fire-and-forget, não bloqueia o fluxo
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_name: 'Lead', event_id: eventId, ...capiData }),
+      keepalive: true,
+    }).catch(() => {});
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_name: 'CompleteRegistration', event_id: eventId + '_cr', ...capiData }),
+      keepalive: true,
+    }).catch(() => {});
+
+    // 2. Monta mensagem WA
+    const msg = encodeURIComponent(
+      `[LP2] Olá, vi o anúncio e gostaria de retirar meu brinde.\n\n`+
+      `*Nome:* ${nome}\n`+
+      `*WhatsApp:* ${tel}`
+    );
+
+    // 3. Mostra success state (mantém a página — não redireciona, pixel não morre)
+    document.getElementById('nome-success').textContent = nome.split(' ')[0];
+    document.getElementById('form-content').style.display = 'none';
+    document.getElementById('success-msg').style.display  = 'block';
+
+    // 4. Abre WA — delay 300ms garante envio dos beacons do pixel antes de navegar
+    setTimeout(() => { location.href = `https://wa.me/${WA_NUMBER}?text=${msg}`; }, 300);
+
+    // 5. Urgência dinâmica — reduz vagas
+    ['vagas','vagas2'].forEach(id => {
+      const el  = document.getElementById(id);
+      const cur = parseInt(el.textContent)||3;
+      if (cur > 1) el.textContent = cur-1;
+    });
+  });
+
+  /* FAQ ACCORDION ─────────────────────────────────── */
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const item = this.closest('.faq-item');
+      const open = item.classList.contains('open');
+      document.querySelectorAll('.faq-item.open').forEach(el => el.classList.remove('open'));
+      if (!open) item.classList.add('open');
+      this.setAttribute('aria-expanded', !open);
+    });
+  });
+
+  /* VERCEL FEATURE FLAG — A/B test do botão CTA ───── */
+  const CTA_VARIANTS = {
+    avaliar:     'Preencha aqui e garanta seu brinde surpresa',
+    axila_gratis:'Preencha aqui e garanta seu brinde surpresa',
+    whatsapp:    'Preencha aqui e garanta seu brinde surpresa',
+  };
+  (async function loadFlag() {
+    try {
+      const r = await fetch('/api/flags?flag=cta-variant&fallback=avaliar');
+      const { value } = await r.json();
+      const label = CTA_VARIANTS[value] || CTA_VARIANTS.avaliar;
+      const btn = document.getElementById('btn-submit');
+      if (btn) {
+        btn.textContent = label;
+        btn.dataset.ctaVariant = value;
+      }
+      // Reporta flag ao Vercel Analytics para aparecer no Dashboard de Flags
+      const flagScript = document.createElement('script');
+      flagScript.type = 'application/json';
+      flagScript.setAttribute('data-flag-values', '');
+      flagScript.textContent = JSON.stringify({ 'cta-variant': value });
+      document.head.appendChild(flagScript);
+    } catch {}
+  })();
+
+  /* VERCEL EDGE CONFIG — urgência dinâmica ─────────── */
+  (async function loadConfig() {
+    try {
+      const r = await fetch('/api/config');
+      const { urgencia_vagas, urgencia_data } = await r.json();
+      ['vagas','vagas2'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = urgencia_vagas;
+      });
+      // Atualiza data em todos os elementos da página
+      document.querySelectorAll('.urgency-bar, .cta-final p').forEach(el => {
+        el.innerHTML = el.innerHTML.replace(
+          /válido até \S+ \S+/g,
+          'válido até ' + urgencia_data
+        );
+      });
+    } catch {}
+  })();
+
+  /* VERCEL ANALYTICS — eventos customizados ────────── */
+  // Rastreia scroll até o formulário
+  (function() {
+    const form = document.getElementById('form');
+    if (!form) return;
+    let tracked = false;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && !tracked) {
+        tracked = true;
+        try { window.va('event', { name: 'Scroll ao Formulario' }); } catch {}
+      }
+    }, { threshold: 0.5 });
+    obs.observe(form);
+  })();
+
+  // Rastreia clique no header CTA → WA direto com deep link
+  document.getElementById('btn-header-cta')?.addEventListener('click', function(e) {
+    e.preventDefault();
+    try { window.va('event', { name: 'Click CTA Header Brinde' }); } catch {}
+    var waMsg = encodeURIComponent('[LP1] Olá, vi o anúncio e gostaria de retirar meu brinde.');
+    openWhatsApp(waMsg);
+  });
+
+  // btn-wa-hero Lead tracking agora coberto pelo interceptor global acima (com tag LP3)
+
+  // COUNTDOWN TIMER — expira à meia-noite do dia
+  (function() {
+    const timerEl = document.getElementById('countdown-timer');
+    if (!timerEl) return;
+    function update() {
+      const now = new Date();
+      const end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+      const diff = end - now;
+      if (diff <= 0) { timerEl.textContent = '00:00:00'; return; }
+      const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+      const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+      const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+      timerEl.textContent = h + ':' + m + ':' + s;
+    }
+    update();
+    setInterval(update, 1000);
+  })();
+
+  // Rastreia clique no FAB
+  document.getElementById('fab')?.addEventListener('click', function() {
+    try { window.va('event', { name: 'Click FAB WhatsApp' }); } catch {}
+  });
+</script>
+</body>
+</html>

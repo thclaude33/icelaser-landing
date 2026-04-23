@@ -64,3 +64,21 @@ export function extractPreviousLabels(changedAttributes) {
       ?? attr.cached_label_list?.previous_value
     ));
 }
+
+/**
+ * Extrai labels ATUAIS (current_value) de qualquer formato Chatwoot.
+ * Fallback quando body.conversation.labels não vem no payload webhook.
+ * Observado 23/04/2026: Chatwoot v3/v4 às vezes manda só cached_label_list
+ * em changed_attributes, sem replicar o array labels no conversation.
+ * @returns {string[]}
+ */
+export function extractCurrentLabels(changedAttributes) {
+  const arr = normalizeChangedAttributes(changedAttributes);
+  return arr
+    .filter(attr => LABEL_CHANGE_KEYS.some(k => attr?.[k] !== undefined))
+    .flatMap(attr => parseLabelValue(
+      attr.label_list?.current_value
+      ?? attr.labels?.current_value
+      ?? attr.cached_label_list?.current_value
+    ));
+}

@@ -12,6 +12,7 @@ import {
   normalizeChangedAttributes,
   hasLabelChange,
   extractPreviousLabels,
+  extractCurrentLabels,
 } from '../api/_lib/label-change.js';
 
 describe('parseLabelValue', () => {
@@ -120,6 +121,28 @@ describe('extractPreviousLabels — cobertura dos 3 formatos', () => {
   test('retorna [] quando não há label change', () => {
     const ca = [{ updated_at: { previous_value: 'a', current_value: 'b' } }];
     assert.deepEqual(extractPreviousLabels(ca), []);
+  });
+});
+
+describe('extractCurrentLabels — fallback quando conversation.labels vazio', () => {
+  test('extrai labels do CSV cached_label_list.current_value', () => {
+    const ca = [{ cached_label_list: { previous_value: 'from_whatsapp', current_value: 'from_whatsapp,desqualificado' } }];
+    assert.deepEqual(extractCurrentLabels(ca), ['from_whatsapp', 'desqualificado']);
+  });
+
+  test('extrai labels do array label_list.current_value', () => {
+    const ca = [{ label_list: { previous_value: ['a'], current_value: ['a', 'lead_quente'] } }];
+    assert.deepEqual(extractCurrentLabels(ca), ['a', 'lead_quente']);
+  });
+
+  test('retorna [] quando não há label change', () => {
+    const ca = [{ updated_at: { previous_value: 'a', current_value: 'b' } }];
+    assert.deepEqual(extractCurrentLabels(ca), []);
+  });
+
+  test('current_value vazio retorna []', () => {
+    const ca = [{ cached_label_list: { previous_value: '', current_value: '' } }];
+    assert.deepEqual(extractCurrentLabels(ca), []);
   });
 });
 
