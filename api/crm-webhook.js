@@ -15,6 +15,7 @@ import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 import { sendWAMEvent } from './_lib/capi-wam.js';
 import { computeCompraRealizadaGuards } from './_lib/funnel-guards.js';
+import { normalizeChangedAttributes, hasLabelChange, extractPreviousLabels } from './_lib/label-change.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -290,27 +291,19 @@ export default async function handler(req, res) {
   // objeto com múltiplas chaves {label_list:{...}, status:{...}} — coerção pra
   // array de entries preserva todas as keys (antes: [rawChanged] virava [{label_list,status}]
   // e hasLabelChange funcionava, MAS em filter por label_list perdemos info contextual).
-  const rawChanged = body.changed_attributes || [];
-  let changedAttributes;
-  if (Array.isArray(rawChanged)) {
-    changedAttributes = rawChanged;
-  } else if (rawChanged && typeof rawChanged === 'object') {
-    // Converter {key1: val1, key2: val2} pra [{key1: val1}, {key2: val2}]
-    changedAttributes = Object.entries(rawChanged).map(([k, v]) => ({ [k]: v }));
-  } else {
-    changedAttributes = [];
-  }
-  const hasLabelChange = changedAttributes.some(attr =>
-    attr.label_list !== undefined || attr.labels !== undefined
-  );
-  // DEBUG temp 23/04/2026: user reportou labels não disparando CAPI. Logs mostram
-  // conversation_updated com changed_attributes contendo cached_label_list mas
-  // sem label_list. Confirmar via log completo keys antes de aplicar fix.
-  if (event === 'conversation_updated' && !hasLabelChange) {
+  // Fix CRITICAL 23/04/2026: Chatwoot v3/v4 envia mudança de labels principalmente
+  // via `cached_label_list` (CSV string) em conversation_updated — não sempre
+  // inclui `label_list` (array). Observado LIVE em logs 14:50-14:51 UTC hoje:
+  // gerente marcou lead_frio/lead_quente, todos os conversation_updated tinham
+  // changed_attributes=[{updated_at:...},{cached_label_list:...}] SEM label_list.
+  // Código antigo só verificava label_list/labels → skipped no_label_change →
+  // NENHUM CAPI disparado. Lib `label-change.js` centraliza detecção pra testar.
+  const changedAttributes = normalizeChangedAttributes(body.changed_attributes);
+  const labelChangeDetected = hasLabelChange(changedAttributes);
+  if (event === 'conversation_updated' && !labelChangeDetected) {
     try {
       const keys = changedAttributes.map(a => Object.keys(a || {})).flat().slice(0, 10);
-      const hasCached = changedAttributes.some(a => a?.cached_label_list !== undefined);
-      console.log(`[CRM-WEBHOOK DEBUG] skipped no_label_change | keys=${JSON.stringify(keys)} | hasCached=${hasCached}`);
+      console.log(`[CRM-WEBHOOK] skipped no_label_change | keys=${JSON.stringify(keys)}`);
     } catch { /* debug não pode quebrar */ }
     return res.status(200).json({ ok: true, skipped: true, reason: 'no_label_change' });
   }
@@ -319,9 +312,7 @@ export default async function handler(req, res) {
   // Bug #2: customerSeg baseado em previousLabels (não labels atuais)
   // Bug #4: processar APENAS labels recém-adicionados (evita re-disparar Purchase quando
   //         outra label é adicionada em conversa que já tinha compra_realizada)
-  const previousLabels = changedAttributes
-    .filter(attr => attr.label_list !== undefined || attr.labels !== undefined)
-    .flatMap(attr => (attr.label_list?.previous_value ?? attr.labels?.previous_value) || []);
+  const previousLabels = extractPreviousLabels(changedAttributes);
 
   // Extrai dados — Chatwoot pode enviar em body.conversation, body.data ou flat (body é a conversa)
   const conversation = body.conversation || body.data || body;
