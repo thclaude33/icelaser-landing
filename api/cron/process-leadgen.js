@@ -23,6 +23,7 @@ import { PARTNER_AGENT } from '../_lib/capi.js';
 import { buildUserData } from '../_lib/piiBuilder.js';
 import { brtISO, isVercelCron } from '../_lib/time.js';
 import { sendWAMEvent } from '../_lib/capi-wam.js';
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const META_TOKEN = process.env.META_ACCESS_TOKEN;
 const CAPI_TOKEN = process.env.CAPI_DATASET_TOKEN || META_TOKEN;
@@ -41,6 +42,11 @@ export default async function handler(req, res) {
   if (!process.env.CRON_SECRET) return res.status(503).json({ error: 'cron_secret_not_configured' });
   const hasValidBearer = req.headers['authorization'] === `Bearer ${process.env.CRON_SECRET}`;
   if (!hasValidBearer) return res.status(401).json({ error: 'unauthorized' });
+  // Cron dedup: skip se não é primary. Crítico aqui — process-leadgen cria
+  // contatos Chatwoot + dispara CAPI Lead events. Se rodasse 3x simultâneo,
+  // triple-processing do mesmo lead (embora Blob leadgen/processed/ proteja
+  // via idempotência, economiza 3x Chatwoot API calls + Graph API lookups).
+  if (skipIfNotPrimary(res, 'process-leadgen')) return;
   if (!process.env.BLOB_READ_WRITE_TOKEN) return res.status(503).json({ error: 'blob_not_configured' });
 
   const startMs = Date.now();

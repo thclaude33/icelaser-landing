@@ -5,3 +5,8 @@
 node_modules/
 *.log
 .DS_Store
+
+# Backup files
+*.bak-*
+*.bak2-*
+CLAUDE.md

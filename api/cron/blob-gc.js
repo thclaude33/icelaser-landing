@@ -33,6 +33,7 @@
 
 import { list, del } from '@vercel/blob';
 import { brtISO, isVercelCron } from '../_lib/time.js';
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 // Retention policy (dias por prefix).
 // CHAVES PERIGOSAS (leads/, ctwa/, conversions/) INTENCIONALMENTE AUSENTES.
@@ -161,6 +162,10 @@ export default async function handler(req, res) {
     console.warn(`[BLOB-GC] unauthorized ua="${(req.headers['user-agent']||'').slice(0,60)}"`);
     return res.status(401).json({ error: 'unauthorized' });
   }
+
+  // Cron dedup: skip se não for o primary project (evita 3x garbage collect
+  // simultâneo → race condition em del() blob operations)
+  if (skipIfNotPrimary(res, 'blob-gc')) return;
 
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return res.status(503).json({ error: 'blob_token_not_configured' });

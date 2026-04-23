@@ -8,6 +8,7 @@
 
 import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
 import { escapeHtml, sanitizeHeader } from '../_lib/security.js';
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS = process.env.EMAIL_PASS;
@@ -60,6 +61,8 @@ export default async function handler(req, res) {
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  // Cron dedup: skip se não é primary (evita 3x Meta API stats call)
+  if (skipIfNotPrimary(res, 'emq-monitor')) return;
 
   // Prefere DATASET_QUALITY_API_TOKEN (gerado via Events Manager para esta finalidade)
   // Fallback para META_ACCESS_TOKEN se não configurado

@@ -11,6 +11,7 @@
 import { list } from '@vercel/blob';
 import { sanitizeHeader } from '../_lib/security.js';
 import { brtPeriod, brtISO } from '../_lib/time.js';
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 // Fix MEDIUM AI deep v3 (daily-report.js:15/18): NÃO cache env vars em module scope.
 // Vercel instances warm podem viver dias — rotação de CRON_SECRET ou EMAIL_PASS
@@ -153,6 +154,8 @@ export default async function handler(req, res) {
   if (authHeader !== `Bearer ${CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  // Cron dedup: skip se não é primary (evita 6 emails/dia = 2 * 3 projects)
+  if (skipIfNotPrimary(res, 'daily-report')) return;
 
   try {
     // Janela 24h pra report não-cumulativo (antes contava TODO histórico).

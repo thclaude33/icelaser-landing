@@ -23,6 +23,7 @@ import nodemailer from 'nodemailer';
 import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
 import { brtISO, isVercelCron } from '../_lib/time.js';
 import { escapeHtml, sanitizeHeader } from '../_lib/security.js';
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS = process.env.EMAIL_PASS;
@@ -186,6 +187,8 @@ export default async function handler(req, res) {
   if (req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'unauthorized' });
   }
+  // Cron dedup: skip se não é primary (evita 72/dia = 24h * 3 projects)
+  if (skipIfNotPrimary(res, 'emq-alert')) return;
   const isCron = isVercelCron(req);
 
   // Token com escopo reduzido (fallback META_ACCESS_TOKEN se não setado)
