@@ -109,6 +109,36 @@ describe('computeCompraRealizadaGuards — edge cases', () => {
     assert.equal(hasColdNow, false, 'variante nao listada = nao detectada (safe)');
   });
 
+  test('Vercel Agent finding: regex NÃO deve match "leadaquente" (dot não escapado bug)', () => {
+    // Antes do fix: /hot_lead|lead.quente/i matchava "leadaquente" (dot = any char).
+    // Depois do fix: /hot_lead|lead[\s_]quente/i só aceita space ou underscore.
+    // Validar via previousLabels (onde regex HOT_PATTERNS é usado).
+    const { hadHotBefore: bug1 } = computeCompraRealizadaGuards(
+      ['compra_realizada'],
+      ['leadaquente']  // typo/garbage que ANTES disparava false positive
+    );
+    assert.equal(bug1, false, 'leadaquente NÃO deve ser detectado como hot_lead');
+
+    const { hadHotBefore: bug2 } = computeCompraRealizadaGuards(
+      ['compra_realizada'],
+      ['lead1quente', 'leadXquente', 'leadSquente']
+    );
+    assert.equal(bug2, false, 'variantes com char arbitrário NÃO devem match');
+
+    // Positive: "lead_quente" E "lead quente" AINDA devem match
+    const { hadHotBefore: ok1 } = computeCompraRealizadaGuards(
+      ['compra_realizada'],
+      ['lead_quente']
+    );
+    assert.equal(ok1, true, 'lead_quente ainda deve match (underscore)');
+
+    const { hadHotBefore: ok2 } = computeCompraRealizadaGuards(
+      ['compra_realizada'],
+      ['lead quente']
+    );
+    assert.equal(ok2, true, 'lead quente ainda deve match (space)');
+  });
+
   test('performance: 1000 labels não causa timeout', () => {
     const bigList = new Array(1000).fill('random_label');
     bigList[500] = 'lead_quente';

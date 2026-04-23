@@ -27,8 +27,13 @@
  *   APÓS fix: hasColdNow=true → needLead=false ✅
  */
 
-const HOT_PATTERNS = /hot_lead|lead.quente|quente/i;
-const COLD_PATTERNS = /cold_lead|lead.frio|lead_frio|frio/i;
+// Fix Vercel Agent review (23/04/2026): 2 fixes ao regex original:
+//   1. Escape dot: `lead.quente` (dot=any char) → `lead[\s_]quente` (só space/underscore)
+//   2. Word boundary: `|quente` (substring match) → `\b(?:...)\b` (só palavra completa)
+// Efeito combinado: zero false positives tipo "leadaquente" ou "muitoquente"
+// (variantes legítimas como "lead_quente", "lead quente", "quente" sozinho seguem matching).
+const HOT_PATTERNS = /\b(?:hot_lead|lead[\s_]quente|quente)\b/i;
+const COLD_PATTERNS = /\b(?:cold_lead|lead[\s_]frio|lead_frio|frio)\b/i;
 
 // Variantes aceitas pra hot/cold labels (usado por hasLabel no crm-webhook).
 // Mantemos em sync com a lista hasLabel() do crm-webhook.js.
