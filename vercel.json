@@ -73,10 +73,6 @@
       "maxDuration": 30,
       "regions": ["gru1"]
     },
-    "api/cron/capi-alerts.js": {
-      "maxDuration": 30,
-      "regions": ["gru1"]
-    },
     "api/cron/process-leadgen.js": {
       "maxDuration": 30,
       "regions": ["gru1"]
