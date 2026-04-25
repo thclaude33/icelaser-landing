@@ -19,6 +19,27 @@ export const PAGE_ID = envOr('META_PAGE_ID', '111790301665816');
 export const AD_ACCOUNT_ID = envOr('META_AD_ACCOUNT_ID', 'act_790663154114264');
 export const APP_ID = envOr('META_APP_ID', '940244045396548');
 
+// Multi-tenant Pixel routing — IceLaser Recife (Pixel default acima) +
+// IceLaser João Pessoa (Bancários + Bessa). Cada cidade tem Pixel próprio
+// pra audiences/LAL isoladas (LGPD + reports limpos).
+export const PIXEL_ID_JPA = envOr('META_PIXEL_ID_JPA', '1386967056530127');
+
+/**
+ * Resolve qual Pixel usar baseado no host HTTP (Origin header ou hostname).
+ * Cobre prod (jpa.icelasers.com.br) e preview Vercel (slug com 'jpa'/'bancarios').
+ * Default Recife pra qualquer outro host (icelasers.com.br, www.*, etc).
+ *
+ * @param {string|null|undefined} host
+ * @returns {string} Pixel ID correto pra esse host
+ */
+export function getPixelByHost(host) {
+  if (typeof host !== 'string' || !host) return PIXEL_ID;
+  // jpa.icelasers.com.br (prod) ou preview Vercel com "jpa"/"bancarios" no slug
+  if (host === 'jpa.icelasers.com.br') return PIXEL_ID_JPA;
+  if (host.includes('.vercel.app') && /jpa|jp-routing|bancarios/i.test(host)) return PIXEL_ID_JPA;
+  return PIXEL_ID;
+}
+
 // GRAPH_VERSION via env var — Meta lança versão nova a cada trimestre.
 // v25.0 é ativa em abr/2026. Atualizar via env var evita redeploy manual.
 export const GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v25.0';
@@ -41,4 +62,6 @@ export const ALLOWED_ORIGINS = [
   'https://www.icelaser.com.br',
   'https://icelasers.com.br',
   'https://www.icelasers.com.br',
+  // IceLaser João Pessoa (Bancários + Bessa)
+  'https://jpa.icelasers.com.br',
 ];

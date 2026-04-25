@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
 // PIXEL_ID + GRAPH_BASE + PARTNER_AGENT NÃO importados — refatoração 20/04/2026
 // delegou CAPI send pra _lib/capi.js sendCapiEvents que usa internamente.
-import { ALLOWED_ORIGINS } from './_lib/config.js';
+import { ALLOWED_ORIGINS, getPixelByHost } from './_lib/config.js';
 import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
@@ -507,8 +507,22 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'event failed validation' });
     }
 
+    // Multi-tenant Pixel routing — resolve qual Pixel usar baseado em Origin/host.
+    // jpa.icelasers.com.br → Pixel JP (1386967056530127). Outros → Pixel Recife (default).
+    // Origin header tem URL completa do client (ex: 'https://jpa.icelasers.com.br'),
+    // extraímos só o host pra getPixelByHost match.
+    let routedPixelId;
+    try {
+      const originHeader = req.headers['origin'] || '';
+      const originHost = originHeader ? new URL(originHeader).host : '';
+      routedPixelId = getPixelByHost(originHost);
+    } catch (e) {
+      // Fallback safe: se Origin malformado, usa Pixel default (Recife)
+      routedPixelId = getPixelByHost(null);
+    }
+
     // CAPI send via helper central: retry 2x, rate limit monitor, defensive parse.
-    const result = await sendCapiEvents(validatedEvents, token);
+    const result = await sendCapiEvents(validatedEvents, token, { pixelId: routedPixelId });
     const finalResult = result;
     const capiSuccess = !result.error;
     if (result.error) {
