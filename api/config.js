@@ -1,30 +1,21 @@
 /**
- * /api/config â lÃª configuraÃ§Ãµes dinÃ¢micas do Vercel Edge Config
- * Resposta: { urgencia_vagas: '3', urgencia_data: 'domingo 05/04' }
+ * /api/config — lê configurações dinâmicas do Vercel Edge Config
+ * Resposta: { urgencia_vagas: '3', urgencia_data: 'hoje 23:59' }
  *
- * Para configurar no dashboard:
- *   urgencia_vagas  â ex: "3"
- *   urgencia_data   â ex: "domingo 05/04"
+ * Oferta encerra automaticamente às 00:00 BRT (TZ America/Recife — vale pra PE+PB).
+ * Texto exibido: "hoje 23:59" — reseta sozinho à meia-noite quando muda o dia,
+ * pois o frontend re-fetch /api/config no load + countdown JS recalcula horas até 23:59:59.
+ *
+ * Override manual via Edge Config dashboard (opcional):
+ *   urgencia_vagas  → ex: "3"
+ *   urgencia_data   → ex: "hoje 23:59"  (default automático)
  */
 
-// Calcula o próximo domingo a partir de hoje no fuso de Recife (America/Recife).
-// Usa Intl.DateTimeFormat pra evitar bug de DST e edge cases do cálculo manual UTC-3.
-function proximoDomingo() {
-  const TZ = 'America/Recife';
-  // Parts no fuso correto via Intl — evita drift em DST/edge hours
-  const partsNow = new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
-  }).formatToParts(new Date());
-  const get = (t) => partsNow.find((p) => p.type === t)?.value;
-  const [year, month, day, wdShort] = [get('year'), get('month'), get('day'), get('weekday')];
-  const dia = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[wdShort];
-  const diasAte = dia === 0 ? 7 : 7 - dia;
-  // Constrói Date usando UTC noon pra evitar qualquer drift de timezone; soma dias
-  const baseUtc = Date.UTC(+year, +month - 1, +day, 12, 0, 0);
-  const proximo = new Date(baseUtc + diasAte * 24 * 60 * 60 * 1000);
-  const dd = String(proximo.getUTCDate()).padStart(2, '0');
-  const mm = String(proximo.getUTCMonth() + 1).padStart(2, '0');
-  return `domingo ${dd}/${mm}`;
+// Retorna o texto de prazo da oferta — sempre "hoje 23:59" no fuso BRT.
+// Como o countdown JS recalcula a cada page load (e zera à meia-noite), o texto
+// fica consistente: hoje significa "o dia em que você está vendo isso".
+function prazoHoje() {
+  return 'hoje 23:59';
 }
 
 // ALLOWED_ORIGINS importado de _lib/config.js (única fonte de verdade).
@@ -61,12 +52,12 @@ export default async function handler(req, res) {
     const items = await fetchBatch(['urgencia_vagas', 'urgencia_data']);
     return res.status(200).json({
       urgencia_vagas: items.urgencia_vagas ?? '3',
-      urgencia_data: items.urgencia_data ?? proximoDomingo(),
+      urgencia_data: items.urgencia_data ?? prazoHoje(),
     });
   } catch {
     return res.status(200).json({
       urgencia_vagas: '3',
-      urgencia_data: proximoDomingo(),
+      urgencia_data: prazoHoje(),
     });
   }
 }

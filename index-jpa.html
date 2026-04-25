@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Depilação Laser Recife | Pele Lisa para Sempre — 1ª Sessão Grátis | IceLaser</title>
-  <meta name="description" content="Chega de cera. 3.000+ clientes em Recife, nas Graças. Laser Crystal 3D Plus — resultado desde a 1ª sessão, sem dor. Garanta sua 1ª sessão grátis nas axilas." />
+  <title>Depilação Laser João Pessoa | Pele Lisa para Sempre — 1ª Sessão Grátis | IceLaser</title>
+  <meta name="description" content="Chega de cera. Laser Crystal 3D Plus em João Pessoa — Bancários e Bessa. Resultado desde a 1ª sessão, sem dor. Garanta sua 1ª sessão grátis nas axilas." />
 
-  <!-- Canonical URL: evita conteúdo duplicado em vercel.app aliases e query strings -->
-  <link rel="canonical" href="https://icelasers.com.br/">
+  <!-- Canonical URL: aponta pro subdomínio JP -->
+  <link rel="canonical" href="https://jpa.icelasers.com.br/">
 
   <!-- PWA manifest + apple touch icon (resolve 404s em crawlers Meta/Google/iOS) -->
   <link rel="manifest" href="/manifest.json">
@@ -26,77 +26,111 @@
        og:image:alt é a11y + melhora compartilhamento em social media; og:site_name
        identifica marca; twitter:title/description garantem fallback se OG ausente
        (alguns crawlers Twitter/X preferem twitter:* sobre og:*). -->
-  <meta property="og:title" content="Chega de Cera — 1ª Sessão Grátis nas Axilas | IceLaser Recife">
-  <meta property="og:description" content="3.000+ clientes em Recife. Laser Crystal 3D Plus — sem dor, sem ingrown, resultado desde a 1ª sessão. Apenas 3 vagas gratuitas hoje.">
-  <meta property="og:image" content="https://icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
+  <meta property="og:title" content="Chega de Cera — 1ª Sessão Grátis nas Axilas | IceLaser João Pessoa">
+  <meta property="og:description" content="Laser Crystal 3D Plus em João Pessoa — Bancários e Bessa. Sem dor, sem ingrown, resultado desde a 1ª sessão. Apenas 3 vagas gratuitas hoje.">
+  <meta property="og:image" content="https://jpa.icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="IceLaser Recife — Depilação a laser Crystal 3D Plus, 1ª sessão grátis">
-  <meta property="og:site_name" content="IceLaser Recife">
-  <meta property="og:url" content="https://icelasers.com.br/">
+  <meta property="og:image:alt" content="IceLaser João Pessoa — Depilação a laser Crystal 3D Plus, 1ª sessão grátis">
+  <meta property="og:site_name" content="IceLaser João Pessoa">
+  <meta property="og:url" content="https://jpa.icelasers.com.br/">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="pt_BR">
   <!-- Twitter Card (X / LinkedIn fallback) -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Chega de Cera — 1ª Sessão Grátis | IceLaser Recife">
-  <meta name="twitter:description" content="3.000+ clientes em Recife. Laser Crystal 3D Plus — sem dor, resultado desde a 1ª sessão. Apenas 3 vagas hoje.">
-  <meta name="twitter:image" content="https://icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
-  <meta name="twitter:image:alt" content="IceLaser Recife — Depilação a laser Crystal 3D Plus, 1ª sessão grátis">
+  <meta name="twitter:title" content="Chega de Cera — 1ª Sessão Grátis | IceLaser João Pessoa">
+  <meta name="twitter:description" content="Laser Crystal 3D Plus em João Pessoa — Bancários e Bessa. Sem dor, resultado desde a 1ª sessão. Apenas 3 vagas hoje.">
+  <meta name="twitter:image" content="https://jpa.icelasers.com.br/api/og?titulo=Chega+de+Cera+%E2%80%94+1%C2%AA+Sess%C3%A3o+Gr%C3%A1tis">
+  <meta name="twitter:image:alt" content="IceLaser João Pessoa — Depilação a laser Crystal 3D Plus, 1ª sessão grátis">
 
-  <!-- Schema: BeautySalon (LocalBusiness subtype)
-       Google Search Central 2026 — required for rich results:
-       name, address (PostalAddress full), image, telephone, priceRange, geo, openingHoursSpecification.
-       `geo` é CRÍTICO pra Maps / local pack; coordenadas oficiais Rua Amélia 598 Graças
-       (REGRA #8 do JARVIS — NÃO usar -8.0547/-34.9030 do Derby).
-       openingHoursSpecification estruturado permite Google mostrar horário
-       por dia corretamente em Rich Results. -->
+  <!-- Schema: 2 LocalBusiness JP (Bancários + Bessa) sob mesma marca
+       Cada unidade é uma BeautySalon independente com endereço próprio.
+       Geo coordinates aproximadas via CEP — refinar lat/long oficial quando confirmar GPS in-loco. -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "BeautySalon",
-    "@id": "https://icelasers.com.br/#business",
-    "name": "IceLaser Recife",
-    "url": "https://icelasers.com.br/",
-    "telephone": "+5581995749947",
-    "priceRange": "$$",
-    "image": "https://icelasers.com.br/api/og?titulo=IceLaser+Recife",
-    "logo": "https://icelasers.com.br/favicon.ico",
-    "address": {
-      "@type": "PostalAddress",
-      "streetAddress": "Rua Amélia, 598",
-      "addressLocality": "Recife",
-      "addressRegion": "PE",
-      "postalCode": "52011-050",
-      "addressCountry": "BR"
-    },
-    "geo": {
-      "@type": "GeoCoordinates",
-      "latitude": -8.045105173587222,
-      "longitude": -34.901371694639224
-    },
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "5",
-      "reviewCount": 3000
-    },
-    "description": "Clínica de depilação a laser em Recife nas Graças. Tecnologia Crystal 3D Plus. Primeira sessão gratuita.",
-    "openingHoursSpecification": [
+    "@graph": [
       {
-        "@type": "OpeningHoursSpecification",
-        "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
-        "opens": "09:00",
-        "closes": "19:00"
+        "@type": "BeautySalon",
+        "@id": "https://jpa.icelasers.com.br/#bancarios",
+        "name": "IceLaser João Pessoa — Bancários",
+        "url": "https://jpa.icelasers.com.br/",
+        "priceRange": "$$",
+        "image": "https://jpa.icelasers.com.br/api/og?titulo=IceLaser+Jo%C3%A3o+Pessoa+Banc%C3%A1rios",
+        "logo": "https://jpa.icelasers.com.br/favicon.ico",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Rua Empresário João Rodrigues Alves, 125",
+          "addressLocality": "João Pessoa",
+          "addressRegion": "PB",
+          "postalCode": "58051-022",
+          "addressCountry": "BR"
+        },
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": -7.158,
+          "longitude": -34.831
+        },
+        "description": "Clínica de depilação a laser em João Pessoa, Bairro Bancários (zona sul). Tecnologia Crystal 3D Plus. Primeira sessão gratuita.",
+        "openingHoursSpecification": [
+          {
+            "@type": "OpeningHoursSpecification",
+            "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+            "opens": "09:00",
+            "closes": "19:00"
+          }
+        ],
+        "sameAs": [
+          "https://www.instagram.com/espacoicelaser/"
+        ],
+        "makesOffer": {
+          "@type": "Offer",
+          "name": "1ª sessão de depilação a laser gratuita",
+          "price": "0",
+          "priceCurrency": "BRL"
+        }
+      },
+      {
+        "@type": "BeautySalon",
+        "@id": "https://jpa.icelasers.com.br/#bessa",
+        "name": "IceLaser João Pessoa — Bessa",
+        "url": "https://jpa.icelasers.com.br/",
+        "priceRange": "$$",
+        "image": "https://jpa.icelasers.com.br/api/og?titulo=IceLaser+Jo%C3%A3o+Pessoa+Bessa",
+        "logo": "https://jpa.icelasers.com.br/favicon.ico",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Rua Olívio Pinto, 178 — Boa Nova Center",
+          "addressLocality": "João Pessoa",
+          "addressRegion": "PB",
+          "postalCode": "58037-633",
+          "addressCountry": "BR"
+        },
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": -7.078,
+          "longitude": -34.831
+        },
+        "description": "Clínica de depilação a laser em João Pessoa, Bairro Bessa. Tecnologia Crystal 3D Plus. Primeira sessão gratuita.",
+        "openingHoursSpecification": [
+          {
+            "@type": "OpeningHoursSpecification",
+            "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+            "opens": "09:00",
+            "closes": "19:00"
+          }
+        ],
+        "sameAs": [
+          "https://www.instagram.com/espacoicelaser/"
+        ],
+        "makesOffer": {
+          "@type": "Offer",
+          "name": "1ª sessão de depilação a laser gratuita",
+          "price": "0",
+          "priceCurrency": "BRL"
+        }
       }
-    ],
-    "sameAs": [
-      "https://www.instagram.com/icelaserrecife/"
-    ],
-    "makesOffer": {
-      "@type": "Offer",
-      "name": "1ª sessão de depilação a laser gratuita",
-      "price": "0",
-      "priceCurrency": "BRL"
-    }
+    ]
   }
   </script>
 
@@ -155,7 +189,7 @@
        Versão fixada + SRI SHA-384 pra segurança supply-chain -->
   <script>
     // Pixel ID único — single source of truth pra evitar inconsistência entre múltiplas fbq('init').
-    window._PIXEL_ID = '2774496306216737';
+    window._PIXEL_ID = '1386967056530127'; // IceLaser João Pessoa — LP Pixel (Bancários + Bessa)
     // getIpFn: callback passado ao SDK para capturar IP (IPv6 quando disponível).
     // Sem isso, clientParamBuilder.getClientIpAddress() retorna vazio.
     // api64 retorna IPv6 se o cliente tiver; senão IPv4. Meta prefere IPv6 (melhor matching).
@@ -1632,10 +1666,7 @@
      LP vira link direto pro WhatsApp em vez de página quebrada. -->
 <noscript>
   <div style="background:#640039;color:#fff;padding:16px;text-align:center;font:16px/1.5 system-ui,sans-serif">
-    Para melhor experiência, ative o JavaScript. Ou fale direto:
-    <a href="https://api.whatsapp.com/send?phone=5581995749947" style="color:#F5E6D3;text-decoration:underline">
-      WhatsApp IceLaser (+55 81 99574-9947)
-    </a>
+    Para melhor experiência, ative o JavaScript. Ou preencha o formulário no final da página.
   </div>
 </noscript>
 
@@ -1653,8 +1684,8 @@
 
 <!-- STICKY HEADER -->
 <header class="header">
-  <div class="header-logo">Ice<span>Laser</span> · Recife</div>
-  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP1%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="header-cta" id="btn-header-cta" rel="noopener">Agendar avaliação</a>
+  <div class="header-logo">Ice<span>Laser</span> · João Pessoa</div>
+  <a href="#lead-form" class="header-cta" id="btn-header-cta" data-cta="header">Agendar avaliação</a>
 </header>
 
 <!-- URGENCY BAR — role=status anuncia mudança dinâmica pra screen reader sem interromper -->
@@ -1705,7 +1736,7 @@
   <h1 class="display">Chega de cera.<br><em>Pele lisa</em> para sempre.</h1>
 
   <p class="hero-sub">
-    3.000+ clientes atendidas em Recife, nas Graças. Laser <strong>Crystal 3D Plus</strong> — resultado visível desde a 1ª sessão, sem dor e sem pelo encravado.
+    Agora em João Pessoa: <strong>Bancários</strong> e <strong>Bessa</strong>. Laser <strong>Crystal 3D Plus</strong> — resultado visível desde a 1ª sessão, sem dor e sem pelo encravado.
   </p>
 
   <div class="hero-checks">
@@ -1731,7 +1762,7 @@
   </div>
 
   <!-- BOTÃO WA DIRETO — above the fold. Usa <use href> referenciando symbol #icon-wa. -->
-  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero" rel="noopener">
+  <a href="#lead-form" class="btn-wa-hero" id="btn-wa-hero" data-cta="hero">
     <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
     Falar no WhatsApp agora
   </a>
@@ -1740,7 +1771,7 @@
   <!-- Mini prova social -->
   <div class="hero-social-proof">
     <div class="sp-dots"><span></span><span></span><span></span><span></span></div>
-    <div class="hero-sp-text"><strong>14 mulheres</strong> agendaram hoje em Recife</div>
+    <div class="hero-sp-text"><strong>14 mulheres</strong> agendaram hoje em João Pessoa</div>
   </div>
   <!-- Timer role implícito aria-live=off (evita leitor anunciar cada segundo).
        aria-atomic=true faz anunciar o valor completo quando atualizar manual. -->
@@ -1803,7 +1834,7 @@
     <div id="success-msg" aria-live="polite">
       <div class="ok-icon">✓</div>
       <strong>Ótimo, <span id="nome-success"></span>!</strong>
-      <p>O WhatsApp foi aberto com sua mensagem.<br>Nossa equipe responde em <strong>poucos minutos</strong>.</p>
+      <p>Recebemos seu cadastro.<br>Nossa equipe entra em contato em <strong>poucos minutos</strong> pelo WhatsApp.</p>
     </div>
   </div>
 </section>
@@ -1884,7 +1915,7 @@
 <!-- PROVA SOCIAL -->
 <section class="proof">
   <span class="section-eyebrow">Prova social</span>
-  <h2 class="section-title">3.000 <em>clientes</em> em Recife</h2>
+  <h2 class="section-title">Tecnologia <em>aprovada</em> pela rede</h2>
 
   <div class="stats">
     <div class="stat">
@@ -1909,25 +1940,25 @@
       <div class="dep-quote" aria-hidden="true">“</div>
       <div class="dep-stars" aria-label="5 de 5 estrelas">★★★★★</div>
       <div class="dep-text">Fiz a avaliação gratuita e fechei na mesma hora. Já na primeira sessão deu pra ver diferença. Atendimento impecável.</div>
-      <div class="dep-autor">Juliana M. <span class="dep-bairro">· Boa Viagem</span></div>
+      <div class="dep-autor">Juliana M. <span class="dep-bairro">· Manaíra</span></div>
     </article>
     <article class="dep">
       <div class="dep-quote" aria-hidden="true">“</div>
       <div class="dep-stars" aria-label="5 de 5 estrelas">★★★★★</div>
       <div class="dep-text">Tinha medo de doer mas foi super tranquilo. Tecnologia de ponta e equipe muito atenciosa. Resultado incrível desde a 1ª sessão.</div>
-      <div class="dep-autor">Fernanda C. <span class="dep-bairro">· Graças</span></div>
+      <div class="dep-autor">Fernanda C. <span class="dep-bairro">· Bancários</span></div>
     </article>
     <article class="dep">
       <div class="dep-quote" aria-hidden="true">“</div>
       <div class="dep-stars" aria-label="5 de 5 estrelas">★★★★★</div>
       <div class="dep-text">Gastava R$120/mês com cera. Fiz o pacote, parcelei tranquilo e em 4 sessões já reduzi 80% dos pelos. Melhor investimento.</div>
-      <div class="dep-autor">Camila S. <span class="dep-bairro">· Derby</span></div>
+      <div class="dep-autor">Camila S. <span class="dep-bairro">· Tambaú</span></div>
     </article>
     <article class="dep">
       <div class="dep-quote" aria-hidden="true">“</div>
       <div class="dep-stars" aria-label="5 de 5 estrelas">★★★★★</div>
       <div class="dep-text">Fiz virilha completa e o resultado foi além do esperado. Zero ingrown, zero dor durante a sessão. Clínica super limpa e organizada.</div>
-      <div class="dep-autor">Mariana T. <span class="dep-bairro">· Espinheiro</span></div>
+      <div class="dep-autor">Mariana T. <span class="dep-bairro">· Bessa</span></div>
     </article>
   </div>
 </section>
@@ -1999,7 +2030,7 @@
   <span class="section-eyebrow">Última chamada</span>
   <h2>Chega de cera.<br><em>Sua vaga</em> te espera.</h2>
   <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>Apenas <strong id="vagas2">3</strong> vagas disponíveis — válido até hoje 23:59</p>
-  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP4%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-cta2" id="cta-final-btn" rel="noopener">
+  <a href="#lead-form" class="btn-cta2" id="cta-final-btn" data-cta="final">
     <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
     Garantir minha 1ª sessão grátis
   </a>
@@ -2011,29 +2042,36 @@
 <footer>
   <div class="footer-grid">
     <div class="footer-col">
-      <div class="footer-brand">Ice<em>Laser</em> · Recife</div>
-      <div class="footer-tagline">Clínica de depilação a laser em Recife, nas Graças. Tecnologia Crystal 3D Plus para resultado permanente, sem dor.</div>
+      <div class="footer-brand">Ice<em>Laser</em> · João Pessoa</div>
+      <div class="footer-tagline">Clínica de depilação a laser em João Pessoa — unidades Bancários e Bessa. Tecnologia Crystal 3D Plus para resultado, sem dor.</div>
     </div>
     <div class="footer-col">
-      <h4>Endereço</h4>
-      <p>Rua Amélia, 896<br>Graças — Recife/PE</p>
+      <h4>Bancários</h4>
+      <p>R. Empresário João Rodrigues Alves, 125<br>Bairro Bancários · João Pessoa/PB<br>CEP 58051-022</p>
+    </div>
+    <div class="footer-col">
+      <h4>Bessa</h4>
+      <p>Rua Olívio Pinto, 178 · Boa Nova Center<br>Bairro Bessa · João Pessoa/PB<br>CEP 58037-633</p>
     </div>
     <div class="footer-col">
       <h4>Contato</h4>
-      <p>WhatsApp: (81) 99574-9947<br>Seg a Sáb · 09h–19h</p>
+      <p>Instagram: <a href="https://instagram.com/espacoicelaser" rel="noopener" style="color:inherit">@espacoicelaser</a><br>Seg a Sáb · 09h–19h</p>
     </div>
   </div>
-  <div class="footer-copy">© 2026 IceLaser Recife · Todos os direitos reservados</div>
+  <div class="footer-copy">© 2026 IceLaser João Pessoa · Todos os direitos reservados</div>
 </footer>
 
 <!-- FLOATING ACTION BUTTON — role=complementary landmark (aside-like) -->
-<a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP5%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="fab" id="fab" aria-label="Falar no WhatsApp" rel="noopener">
+<a href="#lead-form" class="fab" id="fab" aria-label="Agendar avaliação" data-cta="fab">
   <svg width="20" height="20" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
   Garantir vaga grátis
 </a>
 
 <script>
-  const WA_NUMBER = '5581995749947';
+  // JP — WhatsApp Cloud API não ativo ainda (aguardando chip). WA_NUMBER vazio
+  // força openWhatsApp() a não conseguir redirecionar mesmo se chamado por engano.
+  // QUANDO CHIP JP ATIVAR: substituir por novo número (ex: '5583XXXXXXXXX').
+  const WA_NUMBER = '';
   const WA_MSG = encodeURIComponent('[LP3] Olá, vi o anúncio e gostaria de retirar meu brinde.');
 
   /* HELPERS ──────────────────────────────────────────── */
@@ -2404,11 +2442,12 @@
     document.getElementById('form-content').style.display = 'none';
     document.getElementById('success-msg').style.display  = 'block';
 
-    // 4. Abre WA via openWhatsApp — usa deep link whatsapp:// (iOS Safari) /
-    // intent:// (Android IG in-app) / api.whatsapp.com (fallback). Direct wa.me
-    // não abre app WhatsApp em Safari iOS — redireciona pra web.whatsapp.com
-    // forçando login, péssima UX. 300ms garante envio dos beacons Pixel/CAPI.
-    setTimeout(() => { openWhatsApp(msg); }, 300);
+    // 4. JP — DESATIVADO redirect WhatsApp até chip Cloud API chegar.
+    // Lead já capturou via /api/conversion + Pixel JP. Atendimento via Chatwoot
+    // por outro canal (instagram DM @espacoicelaser ou contato manual da gerente).
+    // REATIVAR quando chip JP estiver ativo: trocar WA_NUMBER no topo + descomentar:
+    // setTimeout(() => { openWhatsApp(msg); }, 300);
+    void msg; // suppress unused-var warning
 
     // 5. Urgência dinâmica — reduz vagas (defensive null check)
     ['vagas','vagas2'].forEach(id => {
