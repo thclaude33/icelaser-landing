@@ -452,9 +452,27 @@ export default async function handler(req, res) {
     original_event_data: originalEventData,
   };
 
-  // Prefer dataset-scoped CAPI_DATASET_TOKEN (Events Manager > API de Conversões token)
-  // Escopo reduzido ao pixel. Fallback pro META_ACCESS_TOKEN broad scope.
-  const token = process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN;
+  // Multi-tenant Pixel routing — resolve qual Pixel usar baseado em Origin/host.
+  // jpa.icelasers.com.br → Pixel JP (1386967056530127). Outros → Pixel Recife (default).
+  // Origin header tem URL completa do client (ex: 'https://jpa.icelasers.com.br'),
+  // extraímos só o host pra getPixelByHost match.
+  let routedPixelId;
+  let isJpRoute = false;
+  try {
+    const originHeader = req.headers['origin'] || '';
+    const originHost = originHeader ? new URL(originHeader).host : '';
+    routedPixelId = getPixelByHost(originHost);
+    isJpRoute = routedPixelId !== process.env.META_PIXEL_ID && routedPixelId === '1386967056530127';
+  } catch (e) {
+    routedPixelId = getPixelByHost(null);
+  }
+
+  // Token routing — CAPI_DATASET_TOKEN (Recife) é dataset-scoped, não posta no Pixel JP.
+  // Pra JP: prefer CAPI_DATASET_TOKEN_JP (gerar via Events Manager UI), fallback META_ACCESS_TOKEN.
+  // Pra Recife: prefer CAPI_DATASET_TOKEN, fallback META_ACCESS_TOKEN.
+  const token = isJpRoute
+    ? (process.env.CAPI_DATASET_TOKEN_JP || process.env.META_ACCESS_TOKEN)
+    : (process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN);
   if (!token) return res.status(500).json({ error: 'meta_token_not_configured' });
 
   try {
@@ -509,20 +527,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'event failed validation' });
     }
 
-    // Multi-tenant Pixel routing — resolve qual Pixel usar baseado em Origin/host.
-    // jpa.icelasers.com.br → Pixel JP (1386967056530127). Outros → Pixel Recife (default).
-    // Origin header tem URL completa do client (ex: 'https://jpa.icelasers.com.br'),
-    // extraímos só o host pra getPixelByHost match.
-    let routedPixelId;
-    try {
-      const originHeader = req.headers['origin'] || '';
-      const originHost = originHeader ? new URL(originHeader).host : '';
-      routedPixelId = getPixelByHost(originHost);
-    } catch (e) {
-      // Fallback safe: se Origin malformado, usa Pixel default (Recife)
-      routedPixelId = getPixelByHost(null);
-    }
-
+    // routedPixelId já resolvido acima (escopo handler) — multi-tenant Pixel routing.
     // CAPI send via helper central: retry 2x, rate limit monitor, defensive parse.
     const result = await sendCapiEvents(validatedEvents, token, { pixelId: routedPixelId });
     const finalResult = result;
