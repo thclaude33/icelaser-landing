@@ -10,7 +10,7 @@
  * garantindo deduplicação correta.
  */
 
-import { next } from '@vercel/edge';
+import { next, rewrite } from '@vercel/edge';
 
 /**
  * Matcher exclui paths que NÃO devem passar pelo middleware:
@@ -145,12 +145,21 @@ export default function middleware(request) {
   const host = request.headers.get('host') || '';
 
   // 1. Redirect .vercel.app → icelasers.com.br
-  if (host.includes('.vercel.app')) {
+  // EXCEÇÃO: preview URLs com branch jp-routing OU contém "jpa" no slug
+  // são usadas pra testar a LP JP — não redireciona pra prod Recife.
+  // Heurística simples: se o slug tem "jpa", trata como JP (rewrite abaixo).
+  const isJpPreview = host.includes('.vercel.app') && /jpa|jp-routing|bancarios/i.test(host);
+  if (host.includes('.vercel.app') && !isJpPreview) {
     const url = new URL(request.url);
     url.hostname = 'icelasers.com.br';
     url.port = '';
     return Response.redirect(url.toString(), 301);
   }
+
+  // 1b. Detecta host JP — rewrite efetivo aplicado no FINAL do middleware
+  // (junto com cookies fbp/fbc, pra não bypassa-los).
+  // jpa.icelasers.com.br ou preview Vercel com "jpa" no slug serve index-jpa.html.
+  const isJpHost = host === 'jpa.icelasers.com.br' || isJpPreview;
 
   // 2. Rate limit check (WARN-ONLY por padrão)
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim()
@@ -213,15 +222,35 @@ export default function middleware(request) {
     );
   }
 
+  // Helper pra construir response final — aplica rewrite jpa.* → /index-jpa.html
+  // OU next() pra Recife (sem rewrite). Cookies fbp/fbc são anexados aos 2 casos.
+  const buildResponse = () => {
+    if (isJpHost && (url.pathname === '/' || url.pathname === '/index.html')) {
+      const rewriteUrl = new URL(request.url);
+      rewriteUrl.pathname = '/index-jpa.html';
+      return rewrite(rewriteUrl);
+    }
+    return next();
+  };
+
   if (cookiesToSet.length > 0) {
-    const response = next();
-    for (const c of cookiesToSet) response.headers.append('Set-Cookie', c);
-    return response;
+    const baseResponse = buildResponse();
+    // Defensive: construir nova Response com Headers mutáveis garantidamente.
+    // Algumas versões do Edge Runtime retornam Response com headers immutável após
+    // rewrite() — clonar via new Headers() + new Response() previne TypeError silent.
+    // Comportamento idêntico ao append() direto quando headers são mutáveis (ambos OK).
+    const headers = new Headers(baseResponse.headers);
+    for (const c of cookiesToSet) headers.append('Set-Cookie', c);
+    return new Response(baseResponse.body, {
+      status: baseResponse.status,
+      statusText: baseResponse.statusText,
+      headers,
+    });
   }
   // Fix AI audit 20/04/2026 (middleware.js:221): explicit return next() no
   // fallthrough path. Antes: função terminava sem return quando nenhum cookie
   // precisava setar → Vercel Edge retorna undefined → comportamento default é
   // passar a request adiante, mas explicitar é mais claro + safer pra futuras
-  // mudanças. Retorna NextResponse.next() sem modificações pro fluxo normal.
-  return next();
+  // mudanças. Agora também trata rewrite jpa.* → /index-jpa.html via buildResponse.
+  return buildResponse();
 }
