@@ -234,9 +234,18 @@ export default function middleware(request) {
   };
 
   if (cookiesToSet.length > 0) {
-    const response = buildResponse();
-    for (const c of cookiesToSet) response.headers.append('Set-Cookie', c);
-    return response;
+    const baseResponse = buildResponse();
+    // Defensive: construir nova Response com Headers mutáveis garantidamente.
+    // Algumas versões do Edge Runtime retornam Response com headers immutável após
+    // rewrite() — clonar via new Headers() + new Response() previne TypeError silent.
+    // Comportamento idêntico ao append() direto quando headers são mutáveis (ambos OK).
+    const headers = new Headers(baseResponse.headers);
+    for (const c of cookiesToSet) headers.append('Set-Cookie', c);
+    return new Response(baseResponse.body, {
+      status: baseResponse.status,
+      statusText: baseResponse.statusText,
+      headers,
+    });
   }
   // Fix AI audit 20/04/2026 (middleware.js:221): explicit return next() no
   // fallthrough path. Antes: função terminava sem return quando nenhum cookie

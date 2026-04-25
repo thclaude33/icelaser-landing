@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
 // PIXEL_ID + GRAPH_BASE + PARTNER_AGENT NÃO importados — refatoração 20/04/2026
 // delegou CAPI send pra _lib/capi.js sendCapiEvents que usa internamente.
-import { ALLOWED_ORIGINS, getPixelByHost } from './_lib/config.js';
+import { ALLOWED_ORIGINS, getPixelByHost, isOriginAllowed } from './_lib/config.js';
 import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
@@ -242,7 +242,9 @@ export default async function handler(req, res) {
   // CORS: s�� seta Access-Control-Allow-Origin pra origens permitidas.
   // Antes caía em fallback ALLOWED_ORIGINS[0] — permissivo demais, browser
   // bloqueava na prática mas ruído pra debug de CORS.
-  if (ALLOWED_ORIGINS.includes(origin)) {
+  // isOriginAllowed: ALLOWED_ORIGINS estático + Vercel preview URLs com slug JP
+  // (jpa/jp-routing/bancarios). Necessário pra testes em previews JP via PR.
+  if (isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
   }

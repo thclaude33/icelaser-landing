@@ -65,3 +65,29 @@ export const ALLOWED_ORIGINS = [
   // IceLaser João Pessoa (Bancários + Bessa)
   'https://jpa.icelasers.com.br',
 ];
+
+/**
+ * Verifica se uma origin é permitida pra CORS (whitelist + Vercel preview JP).
+ * - Lista estática ALLOWED_ORIGINS (cobre prod Recife + JP + 3 deploys Vercel)
+ * - Dinamicamente: Vercel preview URLs com slug 'jpa'/'jp-routing'/'bancarios'
+ *   (mesmo critério usado em middleware.js + getPixelByHost)
+ *
+ * Sem essa função: CORS bloqueia /api/track em previews JP → tracking quebra durante teste.
+ *
+ * @param {string|null|undefined} origin - Origin header completo (ex: "https://host.tld")
+ * @returns {boolean}
+ */
+export function isOriginAllowed(origin) {
+  if (!origin || typeof origin !== 'string') return false;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // Vercel preview URL JP — mesmo regex que middleware.js usa pra isJpPreview
+  try {
+    const hostname = new URL(origin).hostname;
+    if (hostname && hostname.includes('.vercel.app') && /jpa|jp-routing|bancarios/i.test(hostname)) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
