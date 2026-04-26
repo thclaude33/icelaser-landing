@@ -268,11 +268,15 @@
         if (_lsEm || _lsPh) initParams.external_id = _lsEm || _lsPh;
       } catch(_e) {}
       fbq('init', window._PIXEL_ID, initParams);
-      // WAM Dataset 967048725669499 — WhatsApp Marketing Message Event Sharing.
-      // Init paralelo pra que PageView/eventos browser também sejam atribuídos
-      // ao dataset CTWA. Meta dedup cross-dataset via event_id idêntico.
-      window._WAM_DATASET_ID = '967048725669499';
-      try { fbq('init', window._WAM_DATASET_ID, initParams); } catch(_e) {}
+      // FIX 26/04/2026 — WAM Dataset init REMOVIDO do browser.
+      // WAM (967048725669499) é dataset CAPI-only para business_messaging
+      // (CTWA). Inicializar via fbq('init') no browser fazia TODO event
+      // browser (PageView/ViewContent/Lead/Purchase) disparar para o WAM
+      // automaticamente, poluindo o sinal CTWA com tráfego de website.
+      // Audit LIVE 7d (Meta API stats): 1192 PageView + 3361 ViewContent
+      // chegavam ao WAM via init duplo + noscript img. WAM passa a receber
+      // só via server-side: whatsapp.js (CTWA) + crm-webhook.js (CRM stages
+      // via routing binário) + process-leadgen DLQ.
     })();
     // fbc capture + persistência dupla (cookie 90d + localStorage 365d).
     // Meta Events Manager reportou EMQ fbc baixo (4.4/10) sugerindo Parameter
@@ -1612,18 +1616,12 @@
     }
   </style>
 
-  <!-- Meta Pixel Code — WAM Dataset 967048725669499 (WhatsApp Marketing Event Sharing) -->
-  <!-- Fix M-1 (22/04/2026 audit linha-a-linha): snippet standalone REMOVIDO.
-       IIFE initPixel() linhas 255-274 já inicializa Pixel LP 2774 + WAM 967 com
-       Advanced Matching via localStorage (MERGE por campo, não override). PageView
-       dispara linha 340 com eventID pra dedup CAPI server-side em AMBOS pixels
-       (docs oficiais Meta: fbq('track','PageView') sem pixelId dispara pra todos
-       pixels inicializados). Este snippet duplicava PageView SEM eventID quebrando
-       dedup pro 2º PV. Noscript fallback preservado abaixo. -->
-  <noscript><img height="1" width="1" style="display:none"
-  src="https://www.facebook.com/tr?id=967048725669499&ev=PageView&noscript=1"
-  /></noscript>
-  <!-- End Meta Pixel Code -->
+  <!-- FIX 26/04/2026 — WAM noscript img REMOVIDO.
+       WAM dataset (967048725669499) é CAPI-only para business_messaging.
+       Noscript fallback img disparava PageView no WAM quando JS desabilitado,
+       reforçando a poluição do dataset CTWA com tráfego website. Agora WAM
+       recebe APENAS via server-side (whatsapp.js + crm-webhook.js). Pixel LP
+       continua coberto pelo init em IIFE initPixel() L270. -->
 </head>
 
 <body>

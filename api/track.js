@@ -6,7 +6,8 @@ import { ALLOWED_ORIGINS, getPixelByHost, isOriginAllowed } from './_lib/config.
 import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
-import { sendWAMEvent, WAM_ALLOWED_EVENTS } from './_lib/capi-wam.js';
+// WAM dataset removed from track.js fan-out (26/04/2026) — see FIX comment near
+// the original WAM dispatch site below. WAM is now CAPI-only (whatsapp.js + crm-webhook).
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -537,37 +538,18 @@ export default async function handler(req, res) {
       console.error(`[TRACK CAPI ERROR] code=${code} subcode=${error_subcode} transient=${is_transient} event=${event_name} msg=${message}`);
     }
 
-    // Fix 21/04/2026: FAN-OUT WAM Dataset. Browser já envia via fbq duplo
-    // (Pixel + WAM) mas server-side só ia pro Pixel → WAM perdia server
-    // redundancy e EMQ do event_id server.
-    //
-    // Fix 22/04/2026: GATE por WAM_ALLOWED_EVENTS ANTES de chamar sendWAMEvent.
-    // Antes, todo /api/track POST (ex: PageView) gerava skip log ruído +
-    // latência desnecessária de function call. Agora só dispara pra events
-    // whitelist (ViewContent/Lead/CR/Purchase/IC etc). PageView fica fora
-    // silenciosamente — é evento web Pixel-only, não tem equivalente no WAM.
-    if (WAM_ALLOWED_EVENTS.has(event_name)) {
-      try {
-        const wamResp = await sendWAMEvent({
-          event_name,
-          event_id,
-          event_time: eventTime,
-          user_data: { ...userData },
-          custom_data,
-          action_source: 'website',
-          // Fix 22/04/2026: original_event_data self-reference — ajuda Meta
-          // consolidar server-side WAM event com Pixel browser WAM event
-          // (ambos com mesmo event_id). Sem isso, diagnostic "server events
-          // not deduplicated" aparece mesmo com event_id batendo.
-          original_event_data: originalEventData,
-        });
-        if (wamResp?.skipped) console.log(`[WAM TRACK] skipped ${event_name}: ${wamResp.skipped}`);
-        else if (wamResp?.error) console.warn(`[WAM TRACK] err ${event_name}: ${wamResp.error.message}`);
-        else console.log(`[WAM TRACK] ✅ ${event_name} received=${wamResp?.events_received}`);
-      } catch (wamErr) {
-        console.warn('[WAM TRACK] exception:', wamErr.message);
-      }
-    }
+    // FIX 26/04/2026 — FAN-OUT WAM REMOVIDO.
+    // Track.js mandava website events (Lead/ViewContent/Purchase/etc) pro WAM
+    // dataset com action_source='website' — semanticamente errado em dataset
+    // CTWA/business_messaging-only. Combinado com fbq init duplo no browser
+    // (também removido em index.html L270 mesmo dia), poluía o WAM com
+    // sinais de website que distorciam Andromeda CTWA optimization.
+    // WAM passa a receber APENAS via fontes legítimas:
+    //   - whatsapp.js (CTWA LeadSubmitted + Flow + leadgen Lead Ad)
+    //   - crm-webhook.js (CRM stages via routing binário)
+    //   - process-leadgen.js (DLQ retry recovery)
+    // Audit LIVE 7d antes do fix: 1192 PageView + 3361 ViewContent + 151 Lead
+    // chegavam ao WAM via essas duas fontes incorretas (browser + track.js).
 
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit
     // HTTP Set-Cookie headers persist up to 180 days even in Safari
