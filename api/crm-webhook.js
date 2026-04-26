@@ -869,6 +869,31 @@ export default async function handler(req, res) {
     );
   }
 
+  // 📧 MARKETING OPT-IN — user aceitou receber comunicações WhatsApp marketing/newsletter.
+  // Label `marketing_opt_in` criada Chatwoot 26/04/2026 (id 16). Atendente marca quando
+  // user explicitamente concorda em receber promos/conteúdo recorrente. Dispara
+  // Subscribe Meta event — sinaliza opt-in pro Andromeda otimizar campanhas
+  // de retargeting/CRM nurture pra users qualificados a receber comunicação.
+  if (hasLabel('marketing_opt_in', '📧 Marketing Opt-In', 'marketing opt in', 'subscribed')) {
+    events.push({
+      ...mkBaseEvent(),
+      event_name: 'Subscribe',
+      event_time: now,
+      event_id: `${eventId}_subscribe`,
+      ...(originalLeadData && { original_event_data: originalLeadData }),
+      custom_data: {
+        ...crmBase,
+        content_name: 'Marketing Opt-In - CRM',
+        lead_type: 'marketing_opt_in',
+        status: 'subscribed',
+        currency: 'BRL',
+        value: 0,                       // opt-in não tem valor monetário direto
+        predicted_ltv: DEFAULT_PREDICTED_LTV,
+        customer_segmentation: customerSeg,
+      },
+    });
+  }
+
   // 🧊 LEAD FRIO — sinal fraco (lead vai reagir mas não converter alto)
   if (hasLabel('lead_frio', '🧊 Lead Frio', '🧊_lead_frio', 'cold_lead', 'lead frio', 'frio')) {
     events.push({
