@@ -921,6 +921,32 @@ export default async function handler(req, res) {
           predicted_ltv: DEFAULT_PREDICTED_LTV,
           customer_segmentation: customerSeg,
         },
+      },
+      // FIX 26/04/2026 — adicionar QualifiedLead pra Conversion Leads CRM funnel.
+      // Meta Events Manager (Conversion Leads CRM Integration setup) inclui
+      // "Qualified Lead" como estágio positivo do funil de vendas IceLaser. Sem
+      // este disparo, label `lead_quente` no Chatwoot só gera Lead+CR mas NUNCA
+      // QualifiedLead — Andromeda perde sinal de qualificação. WAM dataset já
+      // aceita 'QualifiedLead' (capi-wam.js:57). Pixel LP aceita custom event.
+      // event_id distinto pra Meta NÃO deduplicar (são sinais semanticamente
+      // distintos: Lead=primeiro contato, CR=registro completo, QualifiedLead=
+      // sinal explícito de qualificação por humano/atendente).
+      {
+        ...mkBaseEvent(),
+        event_name: 'QualifiedLead',
+        event_time: now,
+        event_id: `${eventId}_hot_qualified`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
+        custom_data: {
+          ...crmBase,
+          content_name: 'Lead Quente - CRM',
+          lead_type: 'qualified_lead',
+          status: 'qualified',
+          currency: 'BRL',
+          value: 300,
+          predicted_ltv: DEFAULT_PREDICTED_LTV,
+          customer_segmentation: customerSeg,
+        },
       }
     );
   }
@@ -1009,6 +1035,32 @@ export default async function handler(req, res) {
           ...crmBase,
           content_name: 'Lead (inferido via Compra) - CRM',
           status: 'converted',
+          currency: 'BRL',
+          value: 300,
+          predicted_ltv: DEFAULT_PREDICTED_LTV,
+          customer_segmentation: customerSeg,
+        },
+      });
+      // FIX 26/04/2026 — backfill QualifiedLead quando atendente pula direto
+      // de Lead Frio pra compra_realizada (caso real Suellen conv 314). Mesma
+      // lógica do CR backfill: se este caminho exigiu CR backfill, exigiu
+      // QualifiedLead também. Mantém funil Conversion Leads consistente entre
+      // os dois fluxos (Lead Quente explícito vs Compra direta).
+      // event_time = now - 2100 → ordem temporal funil:
+      //   Lead (-3600) < CR (-2400) < QualifiedLead (-2100) < IC (-1800) < Purchase (now)
+      // Garante que Meta lê o funil sequencialmente correto. AI Gateway review
+      // (Opus 4.6) flagou risco se QualifiedLead fosse igual a CR (-2400).
+      events.push({
+        ...mkBaseEvent(),
+        event_name: 'QualifiedLead',
+        event_time: now - 2100,
+        event_id: `${eventId}_compra_qualified`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
+        custom_data: {
+          ...crmBase,
+          content_name: 'Lead (inferido via Compra) - CRM',
+          lead_type: 'qualified_lead',
+          status: 'qualified',
           currency: 'BRL',
           value: 300,
           predicted_ltv: DEFAULT_PREDICTED_LTV,
