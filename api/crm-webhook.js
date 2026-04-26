@@ -9,7 +9,7 @@
  */
 
 import { put, list } from '@vercel/blob';
-import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV } from './_lib/config.js';
+import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV, PAGE_ID } from './_lib/config.js';
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
@@ -393,6 +393,14 @@ export default async function handler(req, res) {
     zip_code: '50000',
     country: 'br',
     external_id: externalIdRaw || undefined,
+    // FIX EMQ 26/04/2026 — adicionar page_id do IceLaser Recife.
+    // Meta best practice 2026: page_id é matching key high-priority pra
+    // datasets messaging E system_generated CRM events. capi-wam.js já
+    // adiciona page_id automaticamente pro WAM (linha 155), mas sendCAPI
+    // do Pixel LP NÃO enriquecia. Sem page_id no Pixel LP, EMQ Qualified
+    // Lead ficava em 6.6/10 (target 8.0+). Adicionar aqui propaga pra
+    // ambos datasets via mkBaseEvent → sendCAPI E sendWAMEvent.
+    page_id: PAGE_ID || undefined,
     // Fix HIGH AI audit 20/04/2026 (crm-webhook.js:349): remover gender:'f' hardcoded
     // pra consistência com M12 aplicado em whatsapp.js. Meta penaliza mismatch mais
     // que ausência — leads masculinos (~5%) estavam degradando EMQ com gender errado.
