@@ -302,11 +302,14 @@
         if (_lsEm || _lsPh) initParams.external_id = _lsEm || _lsPh;
       } catch(_e) {}
       fbq('init', window._PIXEL_ID, initParams);
-      // WAM Dataset 967048725669499 — WhatsApp Marketing Message Event Sharing.
-      // Init paralelo pra que PageView/eventos browser também sejam atribuídos
-      // ao dataset CTWA. Meta dedup cross-dataset via event_id idêntico.
-      window._WAM_DATASET_ID = '967048725669499';
-      try { fbq('init', window._WAM_DATASET_ID, initParams); } catch(_e) {}
+      // FIX 26/04/2026 — WAM Dataset init REMOVIDO do browser.
+      // (Mesmo fix aplicado em index.html L270 mesmo dia.)
+      // WAM (967048725669499) é dataset CAPI-only para business_messaging.
+      // Inicializar via fbq('init') no browser fazia TODO event browser disparar
+      // pro WAM, poluindo com tráfego website. Adicional crítico JP: este HTML
+      // serve LP Bancários (jpa.icelasers.com.br) que usa Pixel JP próprio
+      // (1386967056530127), mas o init duplo apontava pro WAM Recife — assim
+      // visitantes JP poluíam WAM da OUTRA clínica. Removido completamente.
     })();
     // fbc capture + persistência dupla (cookie 90d + localStorage 365d).
     // Meta Events Manager reportou EMQ fbc baixo (4.4/10) sugerindo Parameter
@@ -1646,18 +1649,12 @@
     }
   </style>
 
-  <!-- Meta Pixel Code — WAM Dataset 967048725669499 (WhatsApp Marketing Event Sharing) -->
-  <!-- Fix M-1 (22/04/2026 audit linha-a-linha): snippet standalone REMOVIDO.
-       IIFE initPixel() linhas 255-274 já inicializa Pixel LP 2774 + WAM 967 com
-       Advanced Matching via localStorage (MERGE por campo, não override). PageView
-       dispara linha 340 com eventID pra dedup CAPI server-side em AMBOS pixels
-       (docs oficiais Meta: fbq('track','PageView') sem pixelId dispara pra todos
-       pixels inicializados). Este snippet duplicava PageView SEM eventID quebrando
-       dedup pro 2º PV. Noscript fallback preservado abaixo. -->
-  <noscript><img height="1" width="1" style="display:none"
-  src="https://www.facebook.com/tr?id=967048725669499&ev=PageView&noscript=1"
-  /></noscript>
-  <!-- End Meta Pixel Code -->
+  <!-- FIX 26/04/2026 — WAM noscript img REMOVIDO.
+       (Mesmo fix aplicado em index.html mesmo dia.)
+       LP JP usa Pixel JP próprio (1386967056530127), mas este noscript
+       fallback apontava pro WAM Recife — disparava PageView no WAM da
+       OUTRA clínica quando JS desabilitado. WAM agora é CAPI-only via
+       whatsapp.js + crm-webhook.js + DLQ cron. -->
 </head>
 
 <body>
