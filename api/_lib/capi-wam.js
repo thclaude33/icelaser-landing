@@ -54,7 +54,11 @@ export const WAM_ALLOWED_EVENTS = new Set([
   'Purchase',
   'Lead',
   'LeadSubmitted',
-  'QualifiedLead',
+  'QualifiedLead',     // legacy camelCase (pre-2026-04-26 events)
+  'Qualified Lead',    // FIX 2026-04-26: Meta Conversion Leads CRM funil exige
+                       // o nome COM ESPAÇO. Validado LIVE: Meta trata
+                       // 'QualifiedLead' e 'Qualified Lead' como events SEPARADOS.
+                       // Funnel Conversion Leads usa o com espaço.
   'CompleteRegistration',
   'Subscribe',
   'InitiateCheckout',
