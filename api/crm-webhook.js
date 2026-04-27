@@ -838,6 +838,41 @@ export default async function handler(req, res) {
     return labels.some(l => lowerVariants.includes(String(l).toLowerCase()));
   };
 
+  // 🆕 NOVO LEAD CHEGOU — auto-dispatch Lead event em conversation_created
+  // mesmo sem label (atendente ainda não classificou). Sem isso, leads do
+  // tráfego que chegavam ao Chatwoot ficavam invisíveis no Meta até serem
+  // manualmente classificados — perdíamos top-of-funnel signal.
+  // event_id estável por conversation pra Meta dedupar se Chatwoot retentar
+  // conversation_created (não usa timestamp). Quando atendente classificar
+  // como lead_frio/lead_quente, esses geram OUTROS Lead events com event_ids
+  // distintos (semanticamente diferentes — "novo contato" vs "frio classificado").
+  if (event === 'conversation_created' && labels.length === 0) {
+    // Per AI Gateway review: prefer conversation.id (unique per conv), fallback
+    // body.id (webhook payload id), then contactKey + now (timestamp) — pra
+    // contatos que abrem várias conversations não terem mesmo event_id e
+    // sofrerem dedup involuntário do Meta.
+    const conversationIdForArrival = conversation?.id
+      ? String(conversation.id)
+      : (body?.id ? String(body.id) : `${contactKey}_${now}`);
+    events.push({
+      ...mkBaseEvent(),
+      event_name: 'Lead',
+      event_time: now,
+      event_id: `crm_${conversationIdForArrival}_lead_arrived`,
+      ...(originalLeadData && { original_event_data: originalLeadData }),
+      custom_data: {
+        ...crmBase,
+        content_name: 'Novo Lead - Chegou no CRM',
+        lead_type: 'new_contact',
+        status: 'unclassified',
+        currency: 'BRL',
+        value: 50,                    // sinal fraco — ainda não qualificado
+        predicted_ltv: 200,
+        customer_segmentation: customerSeg,
+      },
+    });
+  }
+
   // ❌ DESQUALIFICADO — Hybrid approach (Meta best practice 2026):
   //   1. Standard `Lead` event (mantém EMQ calculation + predicted_ltv=0 signal
   //      pra Andromeda AI evitar lookalikes de perfis similares)
