@@ -43,13 +43,21 @@ const MIN_PSID_LENGTH = 6;
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_EVENT_AGE_SECONDS = 7 * 24 * 3600; // Meta rejeita events > 7 dias
 
-// Meta WAM Dataset event whitelist — Fix alinhamento com SUPPORTED em crm-webhook.
-// Vercel Agent sugeriu REMOVER 4 eventos do crm-webhook; testei direto contra
-// Meta Graph API e TODOS são aceitos (Lead, CompleteRegistration, Subscribe,
-// AddPaymentInfo). Corrigindo o helper, não o SUPPORTED set.
-// Validado HTTP 200 events_received=1 em 5 events de teste 20/04/2026 21:15 BRT.
-// EXPORTADA (22/04/2026) pra track.js usar como gate antes do fan-out, evitando
-// log ruído de PageView (único event não-suportado disparado em alta frequência).
+// Meta WAM Dataset event whitelist — events ACEITOS pelo dataset em
+// ao menos UM action_source (business_messaging OU system_generated).
+//
+// IMPORTANTE: este set é mais AMPLO que `BUSINESS_MESSAGING_VALID` (definido
+// dentro de sendWAMEvent). Events como 'CompleteRegistration', 'Subscribe',
+// 'Qualified Lead' (espaço) NÃO funcionam em business_messaging (rejeição
+// silenciosa subcode 2804066) MAS funcionam em system_generated (validado
+// LIVE 27/04/2026 — TEST2 events_received=1 contra dataset 967048725669499).
+//
+// O helper sendWAMEvent faz fallback automático business_messaging→system_generated
+// quando event_name não está em BUSINESS_MESSAGING_VALID, preservando ctwa_clid
+// em user_data pra atribuição via Meta lookback 7d.
+//
+// EXPORTADA pra track.js usar como gate antes do fan-out (evitar API calls
+// pra events que o dataset rejeita em todas action_sources, ex: PageView).
 export const WAM_ALLOWED_EVENTS = new Set([
   'Purchase',
   'Lead',
@@ -73,6 +81,28 @@ export const WAM_ALLOWED_EVENTS = new Set([
   'CartAbandoned',
   'RatingProvided',
   'ReviewProvided',
+]);
+
+// Whitelist OFICIAL Meta v25 — events VÁLIDOS em action_source=business_messaging.
+// Validado LIVE Graph API 27/04/2026 (23 testes diretos contra dataset
+// 967048725669499 com test_event_code TEST27042026_FIX_VALIDATION).
+//
+// ✅ ACEITOS em business_messaging (subcode 2804087 = ctwa inválido, event OK):
+//   LeadSubmitted, QualifiedLead (camelCase), Purchase, InitiateCheckout,
+//   AddToCart, ViewContent, OrderCreated, CartAbandoned, RatingProvided,
+//   ReviewProvided
+// ❌ REJEITADOS em business_messaging (subcode 2804066, mas OK system_generated):
+//   Lead (auto-convert→LeadSubmitted), CompleteRegistration, 'Qualified Lead'
+//   (com espaço, mantido pra Conversion Leads CRM funnel), Subscribe,
+//   AddPaymentInfo, Shipped, Delivered, Canceled, Returned, Schedule, Contact,
+//   LeadDesqualificado (custom)
+//
+// Memory: feedback_meta_v25_business_messaging_event_whitelist.md
+const BUSINESS_MESSAGING_VALID = new Set([
+  'LeadSubmitted', 'QualifiedLead',
+  'Purchase', 'InitiateCheckout', 'AddToCart', 'ViewContent',
+  'OrderCreated', 'CartAbandoned',
+  'RatingProvided', 'ReviewProvided',
 ]);
 
 /**
@@ -113,13 +143,50 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   const ud = user_data || {};
   const hasCtwa = typeof ud.ctwa_clid === 'string' && ud.ctwa_clid.length >= MIN_CTWA_CLID_LENGTH;
   const hasPsid = typeof ud.page_scoped_user_id === 'string' && ud.page_scoped_user_id.length >= MIN_PSID_LENGTH;
-  // Fix HIGH (AI review C1): AUTO-DETECT action_source pra evitar atribuição
-  // CTWA silenciosamente perdida. Quando ctwa_clid OU psid presente, FORÇA
-  // business_messaging (otimização CTWA). Senão system_generated (CRM).
-  const finalActionSource = action_source || (
-    (hasCtwa || hasPsid) ? 'business_messaging' : 'system_generated'
-  );
+  // FIX 27/04/2026 — Decisão action_source baseada em whitelist Meta v25.
+  // BUSINESS_MESSAGING_VALID está em module scope (linha ~85) — VALIDADO LIVE.
+  // Fallback system_generated quando event_name não suportado em BM:
+  //   subcode 2804066 = event_name NÃO permitido em business_messaging
+  //   → fallback preserva ctwa_clid em user_data pra atribuição via Meta lookback 7d
+  //   → validado LIVE: system_generated + ctwa_clid no WAM dataset → events_received=1
+
+  // Caller intenta business_messaging?
+  //   - explícito: passou action_source='business_messaging' (ex: crm-webhook routingDecision)
+  //   - implícito: deixou undefined + ctwa/psid presente (ex: whatsapp.js, process-leadgen)
+  const callerExplicitBM = action_source === 'business_messaging';
+  const callerImplicitBM = !action_source && (hasCtwa || hasPsid);
+  const callerIntendsBM = callerExplicitBM || callerImplicitBM;
+
+  // Auto-convert Lead → LeadSubmitted ANTES da decisão action_source.
+  // Lead é alias canônico de LeadSubmitted no messaging context (Meta v25).
+  // Aplicar SEMPRE que caller intenta business_messaging preserva atribuição
+  // CTWA pra callers legacy (whatsapp.js:1462, process-leadgen.js:317) que
+  // passam event_name='Lead' sem action_source explícito.
+  let finalEventName = event_name;
+  if (callerIntendsBM && finalEventName === 'Lead') {
+    finalEventName = 'LeadSubmitted';
+    console.warn(`[WAM] Auto-convert Lead→LeadSubmitted (business_messaging spec Meta v25). event_id=${event_id}`);
+  }
+
+  // Decisão action_source:
+  //   1. Caller forçou system_generated explícito → respeita
+  //   2. Intenção BM + event_name válido na whitelist → business_messaging
+  //   3. Intenção BM + event_name NÃO válido → fallback system_generated
+  //      (ctwa_clid permanece em user_data → atribuição via Meta lookback 7d)
+  //   4. Sem intenção BM (sem ctwa/psid, sem explicit) → system_generated
+  let finalActionSource;
+  if (action_source && action_source !== 'business_messaging') {
+    finalActionSource = action_source;
+  } else if (callerIntendsBM && BUSINESS_MESSAGING_VALID.has(finalEventName)) {
+    finalActionSource = 'business_messaging';
+  } else if (callerIntendsBM) {
+    console.warn(`[WAM] event_name='${finalEventName}' não suportado em business_messaging (Meta v25 rejeita 2804066). Fallback action_source=system_generated. event_id=${event_id}`);
+    finalActionSource = 'system_generated';
+  } else {
+    finalActionSource = 'system_generated';
+  }
   const isBusinessMessaging = finalActionSource === 'business_messaging';
+
   if (isBusinessMessaging && !hasCtwa && !hasPsid) {
     return { skipped: 'wam_business_messaging_requires_ctwa_clid_or_psid' };
   }
@@ -136,20 +203,7 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   if (!hasMatchingKey) {
     return { skipped: 'wam_requires_matching_key' };
   }
-  // Fix C-1 (22/04/2026 audit linha-a-linha): Meta v25 REJEITA event_name='Lead'
-  // com action_source=business_messaging (subcode 2804066 — validado LIVE Graph API).
-  // Valid events pra business_messaging: Purchase, LeadSubmitted, CompleteRegistration,
-  // InitiateCheckout, AddToCart, ViewContent, Subscribe, AddPaymentInfo, Contact,
-  // Schedule etc. "Lead" é aceito SÓ em system_generated/website. Safety net preventivo.
-  //
-  // Fix Q4 (23/04/2026 AI review Opus 4.6): logar conversão pra observability.
-  // Sem log, conversão silenciosa pode MASCARAR bug futuro em algum caller que
-  // enviou 'Lead' por erro (deveria ser system_generated). Warning facilita audit.
-  let finalEventName = event_name;
-  if (isBusinessMessaging && finalEventName === 'Lead') {
-    finalEventName = 'LeadSubmitted';
-    console.warn(`[WAM] Auto-convert Lead→LeadSubmitted (business_messaging spec Meta v25; caller should use LeadSubmitted directly). event_id=${event_id}`);
-  }
+  // (auto-convert Lead → LeadSubmitted já aplicado acima, antes da decisão action_source)
   const enrichedUserData = { ...ud };
   // page_id é obrigatório em business_messaging; opcional mas helpful em outros.
   if (PAGE_ID && !enrichedUserData.page_id) {
