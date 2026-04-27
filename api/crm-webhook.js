@@ -798,12 +798,23 @@ export default async function handler(req, res) {
   // Fix HIGH AI deep review v2 B2 (crm-webhook.js:572): jitter 4 chars (~1.7M combinations)
   // tinha probabilidade real de collision em bursts + NÃO é idempotente. Meta retenta
   // webhooks → mesmo contact+label gera event_id diferente → duplicata no Meta.
-  // Novo: determinístico por (contactKey + label_set + now) — Meta dedup funciona corretamente.
+  // Novo: determinístico por (contactKey + label_set + eventIdSeed) — Meta dedup OK.
   // labels array → sort + join para hash stable. Se Chatwoot re-envia o mesmo update, eventId
   // idêntico → Meta dedup aceita 1ª e rejeita retries.
+  //
+  // FIX 26/04/2026 v2 (Vercel Agent review PR#37):
+  // `now` é clamped a serverNow se chatwoot ts drift >5min → em retries Chatwoot
+  // tardios (>5min) o eventId mudava entre tentativas → Meta NÃO dedupava →
+  // events DUPLICADOS. Solução: usar `eventIdSeed` que prefere parsedTs
+  // (chatwoot ts raw, mesmo se drift) ou body.id (webhook payload id estável),
+  // ANTES de cair em now (serverNow). Garante eventId estável across retries.
+  // event_time continua usando `now` (clamped) — Meta exige timestamp em janela 7d.
   const contactKey = contact.id || (telefone ? telefone.replace(/\D/g, '') : 'unk');
   const labelsKey = [...labels].sort().join(',').replace(/[^a-z0-9,_-]/gi, '').slice(0, 60);
-  const eventId = `crm_${contactKey}_${now}_${labelsKey}`;
+  const eventIdSeed = parsedTs && Number.isFinite(parsedTs)
+    ? parsedTs
+    : (body?.id ? `b${body.id}` : now);
+  const eventId = `crm_${contactKey}_${eventIdSeed}_${labelsKey}`;
   // Fix 22/04/2026: orderId ESTÁVEL por venda (não por webhook firing).
   // Antes: `order_${contactKey}_${now}` → mudava a cada webhook → Meta
   // tratava retries como orders distintos → cobertura order_id = 0% no painel.
@@ -837,6 +848,41 @@ export default async function handler(req, res) {
     const lowerVariants = variants.map(v => String(v).toLowerCase());
     return labels.some(l => lowerVariants.includes(String(l).toLowerCase()));
   };
+
+  // 🆕 NOVO LEAD CHEGOU — auto-dispatch Lead event em conversation_created
+  // mesmo sem label (atendente ainda não classificou). Sem isso, leads do
+  // tráfego que chegavam ao Chatwoot ficavam invisíveis no Meta até serem
+  // manualmente classificados — perdíamos top-of-funnel signal.
+  // event_id estável por conversation pra Meta dedupar se Chatwoot retentar
+  // conversation_created (não usa timestamp). Quando atendente classificar
+  // como lead_frio/lead_quente, esses geram OUTROS Lead events com event_ids
+  // distintos (semanticamente diferentes — "novo contato" vs "frio classificado").
+  if (event === 'conversation_created' && labels.length === 0) {
+    // Per AI Gateway review: prefer conversation.id (unique per conv), fallback
+    // body.id (webhook payload id), then contactKey + now (timestamp) — pra
+    // contatos que abrem várias conversations não terem mesmo event_id e
+    // sofrerem dedup involuntário do Meta.
+    const conversationIdForArrival = conversation?.id
+      ? String(conversation.id)
+      : (body?.id ? String(body.id) : `${contactKey}_${now}`);
+    events.push({
+      ...mkBaseEvent(),
+      event_name: 'Lead',
+      event_time: now,
+      event_id: `crm_${conversationIdForArrival}_lead_arrived`,
+      ...(originalLeadData && { original_event_data: originalLeadData }),
+      custom_data: {
+        ...crmBase,
+        content_name: 'Novo Lead - Chegou no CRM',
+        lead_type: 'new_contact',
+        status: 'unclassified',
+        currency: 'BRL',
+        value: 50,                    // sinal fraco — ainda não qualificado
+        predicted_ltv: 200,
+        customer_segmentation: customerSeg,
+      },
+    });
+  }
 
   // ❌ DESQUALIFICADO — Hybrid approach (Meta best practice 2026):
   //   1. Standard `Lead` event (mantém EMQ calculation + predicted_ltv=0 signal
