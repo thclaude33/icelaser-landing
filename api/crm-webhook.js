@@ -798,12 +798,23 @@ export default async function handler(req, res) {
   // Fix HIGH AI deep review v2 B2 (crm-webhook.js:572): jitter 4 chars (~1.7M combinations)
   // tinha probabilidade real de collision em bursts + NÃO é idempotente. Meta retenta
   // webhooks → mesmo contact+label gera event_id diferente → duplicata no Meta.
-  // Novo: determinístico por (contactKey + label_set + now) — Meta dedup funciona corretamente.
+  // Novo: determinístico por (contactKey + label_set + eventIdSeed) — Meta dedup OK.
   // labels array → sort + join para hash stable. Se Chatwoot re-envia o mesmo update, eventId
   // idêntico → Meta dedup aceita 1ª e rejeita retries.
+  //
+  // FIX 26/04/2026 v2 (Vercel Agent review PR#37):
+  // `now` é clamped a serverNow se chatwoot ts drift >5min → em retries Chatwoot
+  // tardios (>5min) o eventId mudava entre tentativas → Meta NÃO dedupava →
+  // events DUPLICADOS. Solução: usar `eventIdSeed` que prefere parsedTs
+  // (chatwoot ts raw, mesmo se drift) ou body.id (webhook payload id estável),
+  // ANTES de cair em now (serverNow). Garante eventId estável across retries.
+  // event_time continua usando `now` (clamped) — Meta exige timestamp em janela 7d.
   const contactKey = contact.id || (telefone ? telefone.replace(/\D/g, '') : 'unk');
   const labelsKey = [...labels].sort().join(',').replace(/[^a-z0-9,_-]/gi, '').slice(0, 60);
-  const eventId = `crm_${contactKey}_${now}_${labelsKey}`;
+  const eventIdSeed = parsedTs && Number.isFinite(parsedTs)
+    ? parsedTs
+    : (body?.id ? `b${body.id}` : now);
+  const eventId = `crm_${contactKey}_${eventIdSeed}_${labelsKey}`;
   // Fix 22/04/2026: orderId ESTÁVEL por venda (não por webhook firing).
   // Antes: `order_${contactKey}_${now}` → mudava a cada webhook → Meta
   // tratava retries como orders distintos → cobertura order_id = 0% no painel.
