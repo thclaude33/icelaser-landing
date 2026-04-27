@@ -8,7 +8,7 @@
  *   💰 Compra Realizada → Lead + CR + InitiateCheckout + Purchase
  */
 
-import { put, list } from '@vercel/blob';
+import { put, list, del } from '@vercel/blob';
 import { PIXEL_ID, PIXEL_ID_JPA, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV, PAGE_ID, PAGE_ID_JPA } from './_lib/config.js';
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
@@ -196,6 +196,18 @@ export default async function handler(req, res) {
   }
   const event = body.event;
 
+  // Flag set when message_created is the FIRST incoming message in a conversation
+  // (Blob lock acquired) — re-routes processing through conversation_created flow
+  // pra disparar auto-Lead. Fix 27/04/2026: PR #37 trigger em conversation_created
+  // raramente disparava em prod (Chatwoot envia primeira incoming via message_created
+  // pra novos contatos — ref. github.com/chatwoot/chatwoot/issues/4267).
+  let processAutoLead = false;
+  let autoLeadLockKey = null;
+  // Flag específica setada APENAS após dispatch auto-Lead efetivo (push no events array).
+  // Usada pra rollback do Blob lock se dispatch falhou — separada de eventsReceived
+  // que conta TODOS events (auto-Lead + label dispatches em mesmo webhook).
+  let autoLeadEventPushed = false;
+
   // Log com contadores, sem PII completa
   const labelsPreview = JSON.stringify(
     (body.conversation || body.data || {}).labels || (body.changed_attributes || [])
@@ -272,12 +284,73 @@ export default async function handler(req, res) {
       }
     }
 
-    // message_created não precisa de mais processamento (labels são em conversation_updated)
-    return res.status(200).json({ ok: true, event: 'message_created', processed: true });
+    // 🆕 AUTO-LEAD em PRIMEIRA message_created incoming.
+    // Fix 27/04/2026: substitui PR #37 que disparava em conversation_created
+    // (raramente acionado em prod — Chatwoot envia primeira incoming de novos
+    // contatos via message_created direto, ref. issue 4267).
+    //
+    // Blob lock por conversation_id garante idempotência:
+    //   - allowOverwrite:false → put falha quando lock já existe
+    //   - retries Chatwoot + msgs subsequentes do mesmo cliente → skip silencioso
+    //   - vercel-blob não tem TTL automático; cleanup via cron blob-gc se necessário
+    //
+    // phone required: Meta CAPI precisa phone_number em user_data pra match
+    // queries. Sem phone, o Lead event seria unmatchable (qualidade EMQ baixa).
+    // Vercel Agent finding (PR #39): se conversa já tem labels (bot pre-applied
+    // ou Chatwoot retransmitindo após classificação), auto-Lead NÃO vai dispatch
+    // (shouldDispatchAutoLead exige labels.length === 0). Skip lock acquisition
+    // pra evitar orphan locks que dependem de rollback no fim.
+    const preExistingLabels = body.conversation?.labels || body.labels || [];
+    const hasPreExistingLabels = Array.isArray(preExistingLabels) && preExistingLabels.length > 0;
+    const convIdRaw = body.conversation?.id ? String(body.conversation.id) : null;
+    const convId = convIdRaw ? convIdRaw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50) : null;
+    const phoneForLock = body.sender?.phone_number || body.conversation?.meta?.sender?.phone_number || '';
+    if (convId && phoneForLock && !hasPreExistingLabels) {
+      if (!process.env.BLOB_READ_WRITE_TOKEN) {
+        console.warn('[CRM-WEBHOOK] BLOB_READ_WRITE_TOKEN missing — auto-Lead disabled (no idempotency lock)');
+      } else {
+        autoLeadLockKey = `auto_lead_dispatched/${convId}.json`;
+        try {
+          await put(autoLeadLockKey, JSON.stringify({
+            conversation_id: convId,
+            first_message_at: new Date().toISOString(),
+            source: event,
+          }), {
+            access: 'public',
+            contentType: 'application/json',
+            allowOverwrite: false,  // CRITICAL: throw se lock já existe
+          });
+          processAutoLead = true;
+          console.log(`[CRM-WEBHOOK] 🆕 auto-Lead lock acquired conv=${convId}`);
+        } catch (e) {
+          // @vercel/blob throws BlobAccessError com mensagem contendo
+          // 'already exists' quando allowOverwrite:false e path existe.
+          // Outros erros (network, auth, rate limit) NÃO devem ser tratados
+          // como already_dispatched — fall through silencioso permite Lead retry.
+          const msg = String(e?.message || '');
+          const isConflict = msg.includes('already exists') || msg.includes('already exist') || e?.code === 'blob_access_error_already_exists';
+          if (isConflict) {
+            return res.status(200).json({ ok: true, event: 'message_created', auto_lead: 'already_dispatched', conv: convId });
+          }
+          // Erro inesperado (network/auth/rate limit): logar + fallthrough sem
+          // lock. Não retornar — outras processings (ctwa lookup) já rodaram OK.
+          // Lead não dispara nesta invocation; retry Chatwoot ou próxima msg pode acertar.
+          console.error(`[CRM-WEBHOOK] auto-Lead Blob put unexpected error (Lead skipped, no rollback needed): ${msg}`);
+          autoLeadLockKey = null; // não tente delete em rollback — não foi adquirido
+        }
+      }
+    }
+
+    if (!processAutoLead) {
+      // Caso sem convId/phone/Blob ou erro inesperado: early-return.
+      return res.status(200).json({ ok: true, event: 'message_created', processed: true });
+    }
+    // FALLTHROUGH — processAutoLead=true → main flow processa auto-Lead block
   }
 
-  // Processa conversation_created e conversation_updated
-  if (event !== 'conversation_updated' && event !== 'contact_updated' && event !== 'conversation_created') {
+  // Processa conversation_created, conversation_updated, contact_updated
+  // E ALSO message_created QUANDO processAutoLead=true (lock acquired).
+  if (event !== 'conversation_updated' && event !== 'contact_updated' && event !== 'conversation_created' && !processAutoLead) {
     return res.status(200).json({ ok: true, skipped: true, event });
   }
 
@@ -849,15 +922,28 @@ export default async function handler(req, res) {
     return labels.some(l => lowerVariants.includes(String(l).toLowerCase()));
   };
 
-  // 🆕 NOVO LEAD CHEGOU — auto-dispatch Lead event em conversation_created
-  // mesmo sem label (atendente ainda não classificou). Sem isso, leads do
-  // tráfego que chegavam ao Chatwoot ficavam invisíveis no Meta até serem
-  // manualmente classificados — perdíamos top-of-funnel signal.
-  // event_id estável por conversation pra Meta dedupar se Chatwoot retentar
-  // conversation_created (não usa timestamp). Quando atendente classificar
-  // como lead_frio/lead_quente, esses geram OUTROS Lead events com event_ids
-  // distintos (semanticamente diferentes — "novo contato" vs "frio classificado").
-  if (event === 'conversation_created' && labels.length === 0) {
+  // 🆕 AUTO-LEAD — top-of-funnel signal quando cliente RESPONDEU pela 1ª vez.
+  //
+  // Trigger: PRIMEIRA message_created incoming (processAutoLead=true via Blob lock)
+  //   OU fallback conversation_created (raro em prod mas mantido pra defesa).
+  //
+  // Fix 27/04/2026 (Meta v25 best practice + Opus 4.6 research):
+  //   ANTES: PR #37 só disparava em conversation_created, raramente acionado em prod.
+  //   AGORA: dispara em primeira incoming → captura cliente que ENGAJOU (enviou msg).
+  //
+  // Por que NÃO disparar Lead em outras labels (lead_frio/quente/desqualificado/
+  // compra_realizada): Lead já foi disparado AQUI quando cliente respondeu.
+  // Andromeda aprende NEGATIVAMENTE por AUSÊNCIA de progressão downstream
+  // (CR/QL/Purchase). Disparar Lead extra polui o sinal positivo.
+  //
+  // event_id estável `crm_${conversation_id}_lead_arrived` → Meta dedupa se
+  // por algum motivo Blob lock falhar e dispatch acontecer 2x.
+  // Defesa: se processAutoLead=true (lock acquired) MAS labels já vieram populated
+  // (bot pre-applicou label antes da 1ª msg do cliente), shouldDispatch=false →
+  // lock fica orphan. Liberar lock no fim do handler (block rollback explícito).
+  const shouldDispatchAutoLead = ((event === 'conversation_created' || processAutoLead) && labels.length === 0);
+  if (shouldDispatchAutoLead) {
+    autoLeadEventPushed = true;
     // Per AI Gateway review: prefer conversation.id (unique per conv), fallback
     // body.id (webhook payload id), then contactKey + now (timestamp) — pra
     // contatos que abrem várias conversations não terem mesmo event_id e
@@ -884,49 +970,35 @@ export default async function handler(req, res) {
     });
   }
 
-  // ❌ DESQUALIFICADO — Hybrid approach (Meta best practice 2026):
-  //   1. Standard `Lead` event (mantém EMQ calculation + predicted_ltv=0 signal
-  //      pra Andromeda AI evitar lookalikes de perfis similares)
-  //   2. Custom `LeadDesqualificado` event (permite criar Audience "Lead Desqualificado"
-  //      no Events Manager → usar como EXCLUSION list em targeting de campanhas)
+  // ❌ DESQUALIFICADO — APENAS custom event pra audience exclusion.
   //
-  // Conversion Leads spec (official Meta 2026): event_name é free-form pra stages CRM.
-  // Meta recomenda STANDARD EVENT pra optimization + CUSTOM pra audience features.
-  // https://developers.facebook.com/docs/marketing-api/conversions-api/conversion-leads-integration/payload-specification
+  // Fix 27/04/2026 (Opus 4.6 research): Andromeda NÃO usa "negative conversion
+  // events" como sinal de otimização — aprende por AUSÊNCIA de progressão.
+  // Cliente desqualificado JÁ recebeu Lead via auto-Lead (respondeu no CRM).
+  // Disparar outro Lead aqui (mesmo com value=0) só polui counters de conversão.
+  //
+  // Mantemos APENAS custom `LeadDesqualificado` → cria Audience pra EXCLUSION
+  // em targeting (filtro de delivery, não signal otimização).
   if (hasLabel('desqualificado', '❌ Desqualificado', '❌_desqualificado', 'disqualified', 'unqualified')) {
-    const disqCustomData = {
-      ...crmBase,
-      content_name: 'Lead Desqualificado - CRM',
-      lead_type: 'disqualified',
-      status: 'disqualified',
-      quality: 'unqualified',
-      disqualification_reason: 'fora_do_publico_alvo',
-      currency: 'BRL',
-      value: 0,                       // sinal negativo explícito
-      predicted_ltv: 0,               // "EVITE este perfil" — Andromeda signal
-      customer_segmentation: customerSeg,
-    };
-    events.push(
-      // 1) Standard Lead event — otimização (EMQ calculado, predicted_ltv=0 signal)
-      {
-        ...mkBaseEvent(),
-        event_name: 'Lead',
-        event_time: now,
-        event_id: `${eventId}_disqualified`,
-        ...(originalLeadData && { original_event_data: originalLeadData }),
-        custom_data: disqCustomData,
+    events.push({
+      ...mkBaseEvent(),
+      event_name: 'LeadDesqualificado',
+      event_time: now,
+      event_id: `${eventId}_disqualified_audience`,
+      ...(originalLeadData && { original_event_data: originalLeadData }),
+      custom_data: {
+        ...crmBase,
+        content_name: 'Lead Desqualificado - CRM',
+        lead_type: 'disqualified',
+        status: 'disqualified',
+        quality: 'unqualified',
+        disqualification_reason: 'fora_do_publico_alvo',
+        currency: 'BRL',
+        value: 0,
+        predicted_ltv: 0,
+        customer_segmentation: customerSeg,
       },
-      // 2) Custom LeadDesqualificado event — audience creation (exclude list)
-      //    event_id diferente pra Meta NÃO deduplicar (são sinais distintos).
-      {
-        ...mkBaseEvent(),
-        event_name: 'LeadDesqualificado',
-        event_time: now,
-        event_id: `${eventId}_disqualified_audience`,
-        ...(originalLeadData && { original_event_data: originalLeadData }),
-        custom_data: disqCustomData,
-      },
-    );
+    });
   }
 
   // 📧 MARKETING OPT-IN — user aceitou receber comunicações WhatsApp marketing/newsletter.
@@ -954,51 +1026,47 @@ export default async function handler(req, res) {
     });
   }
 
-  // 🧊 LEAD FRIO — sinal fraco (lead vai reagir mas não converter alto)
+  // 🧊 LEAD FRIO — cliente nunca respondeu ou abandonou (não respondeu nem saudação).
+  //
+  // Fix 27/04/2026 (Opus 4.6 research): NÃO disparar `Lead` aqui — auto-Lead
+  // já disparou quando cliente respondeu pela 1ª vez. Disparar de novo polui
+  // sinal positivo Andromeda. Apenas custom `LeadFrio` → audience EXCLUSION
+  // (filtro de delivery em campaigns futuras).
+  //
+  // Andromeda aprende negativamente por AUSÊNCIA: Lead disparou na 1ª resposta
+  // mas não progrediu pra CR/QL/Purchase → algoritmo infere "perfil não converte".
   if (hasLabel('lead_frio', '🧊 Lead Frio', '🧊_lead_frio', 'cold_lead', 'lead frio', 'frio')) {
     events.push({
       ...mkBaseEvent(),
-      event_name: 'Lead',
+      event_name: 'LeadFrio',
       event_time: now,
-      event_id: `${eventId}_cold_lead`,
+      event_id: `${eventId}_cold_lead_audience`,
       ...(originalLeadData && { original_event_data: originalLeadData }),
       custom_data: {
         ...crmBase,
         content_name: 'Lead Frio - CRM',
         lead_type: 'cold_lead',
-        status: 'unqualified',
+        status: 'unresponsive',
+        quality: 'low',
         currency: 'BRL',
-        value: 50,                      // sinal fraco mas não zero
-        predicted_ltv: 200,             // LTV baixo esperado
+        value: 0,                       // sem valor monetário
+        predicted_ltv: 0,               // EVITE perfil similar
         customer_segmentation: customerSeg,
       },
     });
   }
 
-  // 🔥 LEAD QUENTE — sinal forte (mais provável converter em Purchase)
+  // 🔥 LEAD QUENTE — cliente engajou + atendente qualificou.
+  //
+  // Fix 27/04/2026 (Opus 4.6 research): NÃO disparar `Lead` aqui — auto-Lead
+  // já disparou na 1ª resposta. Disparar Lead com value=300 sobre o Lead já
+  // emitido cria DOIS Leads pro mesmo cliente → Andromeda confuso.
+  //
+  // Mantemos APENAS events DOWNSTREAM (CompleteRegistration + Qualified Lead):
+  // são esses que o Conversion Leads CRM funnel usa pra otimização. Andromeda
+  // aprende positivamente pela PROGRESSÃO Lead→CR→QL.
   if (hasLabel('lead_quente', '🔥 Lead Quente', '🔥_lead_quente', 'hot_lead', 'lead quente', 'quente')) {
     events.push(
-      {
-        ...mkBaseEvent(),
-        event_name: 'Lead',
-        // event_time: now (antes -3600). Backdating hardcoded desalinhava dedup Pixel↔CAPI
-        // quando Pixel browser disparou Lead no tempo real T (form submit) e CAPI chega
-        // com T-3600. Meta prioriza proximidade temporal na reconciliação dedup.
-        // Também invertia ordem do funnel (CR appearance antes de Lead).
-        // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
-        event_time: now,
-        event_id: `${eventId}_hot_lead`,
-        ...(originalLeadData && { original_event_data: originalLeadData }),
-        custom_data: {
-          ...crmBase,
-          content_name: 'Lead Quente - CRM',
-          lead_type: 'hot_lead',
-          currency: 'BRL',
-          value: 300,                                 // sinal forte
-          predicted_ltv: DEFAULT_PREDICTED_LTV,       // LTV esperado (~980)
-          customer_segmentation: customerSeg,
-        },
-      },
       {
         ...mkBaseEvent(),
         event_name: 'CompleteRegistration',
@@ -1098,25 +1166,12 @@ export default async function handler(req, res) {
     //
     // Regra completa: ver api/_lib/funnel-guards.js com tabela de verdade.
     // Função extraída pra ser testável em isolamento (tests/funnel-guards.test.js).
-    const { needLead, needCR } = computeCompraRealizadaGuards(labels, previousLabels);
-    if (needLead) {
-      events.push({
-        ...mkBaseEvent(),
-        event_name: 'Lead',
-        event_time: now - 3600,
-        event_id: `${eventId}_compra_lead`,
-        ...(originalLeadData && { original_event_data: originalLeadData }),
-        custom_data: {
-          ...crmBase,
-          content_name: 'Lead (inferido via Compra) - CRM',
-          lead_type: 'hot_lead',
-          currency: 'BRL',
-          value: 300,
-          predicted_ltv: DEFAULT_PREDICTED_LTV,
-          customer_segmentation: customerSeg,
-        },
-      });
-    }
+    // Fix 27/04/2026 (Opus 4.6 research): backfill `Lead` REMOVIDO. Cliente que
+    // comprou OBVIAMENTE respondeu antes — auto-Lead já disparou na 1ª resposta.
+    // Backfill Lead duplicaria sinal positivo. Mantemos backfill CR + QL (eventos
+    // downstream que Andromeda usa pra otimização Conversion Leads).
+    // computeCompraRealizadaGuards.needLead mantido por compat — não usado.
+    const { needCR } = computeCompraRealizadaGuards(labels, previousLabels);
     if (needCR) {
       events.push({
         ...mkBaseEvent(),
@@ -1355,7 +1410,27 @@ export default async function handler(req, res) {
   if (wamSkipReasons.length > 0) {
     console.warn(`[CRM-WEBHOOK WAM] skipped reasons: ${wamSkipReasons.join(' | ')}`);
   }
-  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM: ${wamReceived} received / ${wamSkipped} skipped / ${wamErrors} errors | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+
+  // Fix 27/04/2026 — Auto-Lead lock rollback em 2 cenários:
+  //   1. Lock acquired mas push do auto-Lead NÃO aconteceu (labels.length>0
+  //      no momento do shouldDispatchAutoLead check) → lock orphan.
+  //   2. Lock acquired, push aconteceu, mas TODOS dispatches Meta falharam
+  //      (eventsReceived=0 + wamReceived=0) → Lead permanently lost se
+  //      próximos message_created skiparem por causa do lock.
+  // Best-effort: erro no delete não quebra fluxo principal.
+  const autoLeadLost = processAutoLead && autoLeadEventPushed && eventsReceived === 0 && wamReceived === 0;
+  const autoLeadOrphanLock = processAutoLead && !autoLeadEventPushed;
+  if (autoLeadLockKey && (autoLeadLost || autoLeadOrphanLock)) {
+    const reason = autoLeadOrphanLock ? 'orphan_lock_no_dispatch' : 'all_dispatches_failed';
+    console.warn(`[CRM-WEBHOOK] auto-Lead lock release (${reason}) ${autoLeadLockKey}`);
+    try {
+      await del(autoLeadLockKey);
+    } catch (e) {
+      console.warn(`[CRM-WEBHOOK] auto-Lead lock release failed: ${e.message}`);
+    }
+  }
+
+  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM: ${wamReceived} received / ${wamSkipped} skipped / ${wamErrors} errors | ctwa:${!!ctwaClid} | seg:${customerSeg} | autoLead:${processAutoLead}`);
   return res.status(200).json({
     ok: true,
     // Fix LOW AI review 20/04/2026 (L1): mask PII na response (pode vazar em
