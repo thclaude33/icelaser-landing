@@ -2,10 +2,20 @@
  * /api/crm-webhook — Recebe eventos do Chatwoot CRM
  * Quando label muda → dispara CAPI/Pixel automaticamente
  *
- * Labels → Eventos CAPI:
- *   🧊 Lead Frio       → Lead (cold_lead)
- *   🔥 Lead Quente     → Lead + CompleteRegistration (hot_lead)
- *   💰 Compra Realizada → Lead + CR + InitiateCheckout + Purchase
+ * Labels → Eventos CAPI (atualizado PR #40 — 27/04/2026):
+ *   (sem labels, conversation_created) → Lead (auto, value=50, ltv=200)
+ *   ❌ Desqualificado   → LeadDesqualificado (custom, audience exclusion)
+ *   🧊 Lead Frio        → LeadFrio (custom, audience exclusion)
+ *   🔥 Lead Quente      → CompleteRegistration + Qualified Lead (downstream)
+ *   💳 Link Pagamento   → InitiateCheckout
+ *   💰 Compra Realizada → (CR + QL backfill cond) + InitiateCheckout + Purchase
+ *   📧 Marketing Opt-In → Subscribe
+ *
+ * KNOWN-ISSUE: auto-Lead em conversation_created raramente dispara em prod
+ * (Chatwoot envia conversation_created com labels já populadas → falha gate
+ * `labels.length===0`). Cliente que vai direto pra label classificação sem
+ * passar por Lead emitido NÃO recebe Lead event. Investigação em PR futuro
+ * com payload real capturado via Drain (ativo desde 27/04 17:33 UTC).
  */
 
 import { put, list } from '@vercel/blob';
@@ -884,49 +894,37 @@ export default async function handler(req, res) {
     });
   }
 
-  // ❌ DESQUALIFICADO — Hybrid approach (Meta best practice 2026):
-  //   1. Standard `Lead` event (mantém EMQ calculation + predicted_ltv=0 signal
-  //      pra Andromeda AI evitar lookalikes de perfis similares)
-  //   2. Custom `LeadDesqualificado` event (permite criar Audience "Lead Desqualificado"
-  //      no Events Manager → usar como EXCLUSION list em targeting de campanhas)
+  // ❌ DESQUALIFICADO — APENAS custom event pra audience exclusion.
   //
-  // Conversion Leads spec (official Meta 2026): event_name é free-form pra stages CRM.
-  // Meta recomenda STANDARD EVENT pra optimization + CUSTOM pra audience features.
-  // https://developers.facebook.com/docs/marketing-api/conversions-api/conversion-leads-integration/payload-specification
+  // Fix 27/04/2026 (PR #39 v2 — research Opus 4.6 + Meta CRM Integration docs):
+  // Andromeda NÃO usa "negative conversion events" como signal de otimização —
+  // aprende por AUSÊNCIA de progressão downstream. Cliente desqualificado JÁ
+  // recebeu Lead via fluxo natural (auto-Lead conversation_created OU outras
+  // labels prévias). Disparar OUTRO Lead aqui (mesmo com value=0) pollui
+  // counters de conversão e gera contagem dupla.
+  //
+  // Mantemos APENAS custom `LeadDesqualificado` → cria Audience pra EXCLUSION
+  // em targeting (filtro de delivery, não signal otimização).
   if (hasLabel('desqualificado', '❌ Desqualificado', '❌_desqualificado', 'disqualified', 'unqualified')) {
-    const disqCustomData = {
-      ...crmBase,
-      content_name: 'Lead Desqualificado - CRM',
-      lead_type: 'disqualified',
-      status: 'disqualified',
-      quality: 'unqualified',
-      disqualification_reason: 'fora_do_publico_alvo',
-      currency: 'BRL',
-      value: 0,                       // sinal negativo explícito
-      predicted_ltv: 0,               // "EVITE este perfil" — Andromeda signal
-      customer_segmentation: customerSeg,
-    };
-    events.push(
-      // 1) Standard Lead event — otimização (EMQ calculado, predicted_ltv=0 signal)
-      {
-        ...mkBaseEvent(),
-        event_name: 'Lead',
-        event_time: now,
-        event_id: `${eventId}_disqualified`,
-        ...(originalLeadData && { original_event_data: originalLeadData }),
-        custom_data: disqCustomData,
+    events.push({
+      ...mkBaseEvent(),
+      event_name: 'LeadDesqualificado',
+      event_time: now,
+      event_id: `${eventId}_disqualified_audience`,
+      ...(originalLeadData && { original_event_data: originalLeadData }),
+      custom_data: {
+        ...crmBase,
+        content_name: 'Lead Desqualificado - CRM',
+        lead_type: 'disqualified',
+        status: 'disqualified',
+        quality: 'unqualified',
+        disqualification_reason: 'fora_do_publico_alvo',
+        currency: 'BRL',
+        value: 0,
+        predicted_ltv: 0,
+        customer_segmentation: customerSeg,
       },
-      // 2) Custom LeadDesqualificado event — audience creation (exclude list)
-      //    event_id diferente pra Meta NÃO deduplicar (são sinais distintos).
-      {
-        ...mkBaseEvent(),
-        event_name: 'LeadDesqualificado',
-        event_time: now,
-        event_id: `${eventId}_disqualified_audience`,
-        ...(originalLeadData && { original_event_data: originalLeadData }),
-        custom_data: disqCustomData,
-      },
-    );
+    });
   }
 
   // 📧 MARKETING OPT-IN — user aceitou receber comunicações WhatsApp marketing/newsletter.
@@ -954,51 +952,51 @@ export default async function handler(req, res) {
     });
   }
 
-  // 🧊 LEAD FRIO — sinal fraco (lead vai reagir mas não converter alto)
+  // 🧊 LEAD FRIO — cliente nunca respondeu ou abandonou (não respondeu nem saudação).
+  //
+  // Fix 27/04/2026 (PR #39 v2 — research Opus 4.6): NÃO disparar `Lead` aqui —
+  // Lead já foi disparado via fluxo natural quando cliente apareceu. Disparar
+  // mais um polui sinal positivo Andromeda. Apenas custom `LeadFrio` →
+  // audience EXCLUSION em campaigns futuras (filtro de delivery).
+  //
+  // Andromeda aprende negativamente por AUSÊNCIA de progressão downstream:
+  // Lead emitido mas não progrediu pra CR/QL/Purchase → algoritmo infere
+  // "perfil não converte". Custom event LeadFrio reforça via audience exclusion.
+  //
+  // event_name 'LeadFrio' VALIDADO LIVE Pixel LP system_generated/website
+  // (test_event_code TEST27042026_FUNNEL_FIX → events_received=1).
   if (hasLabel('lead_frio', '🧊 Lead Frio', '🧊_lead_frio', 'cold_lead', 'lead frio', 'frio')) {
     events.push({
       ...mkBaseEvent(),
-      event_name: 'Lead',
+      event_name: 'LeadFrio',
       event_time: now,
-      event_id: `${eventId}_cold_lead`,
+      event_id: `${eventId}_cold_lead_audience`,
       ...(originalLeadData && { original_event_data: originalLeadData }),
       custom_data: {
         ...crmBase,
         content_name: 'Lead Frio - CRM',
         lead_type: 'cold_lead',
-        status: 'unqualified',
+        status: 'unresponsive',
+        quality: 'low',
         currency: 'BRL',
-        value: 50,                      // sinal fraco mas não zero
-        predicted_ltv: 200,             // LTV baixo esperado
+        value: 0,                       // sem valor monetário
+        predicted_ltv: 0,               // EVITE perfil similar
         customer_segmentation: customerSeg,
       },
     });
   }
 
-  // 🔥 LEAD QUENTE — sinal forte (mais provável converter em Purchase)
+  // 🔥 LEAD QUENTE — cliente engajou + atendente qualificou.
+  //
+  // Fix 27/04/2026 (PR #39 v2 — research Opus 4.6): NÃO disparar `Lead` aqui —
+  // Lead já foi disparado via fluxo natural. Disparar Lead value=300 sobre o
+  // Lead já emitido cria DOIS Leads pro mesmo cliente com values conflitantes.
+  //
+  // Mantemos APENAS events DOWNSTREAM (CompleteRegistration + Qualified Lead):
+  // são esses que o Conversion Leads CRM funnel usa pra otimização. Andromeda
+  // aprende positivamente pela PROGRESSÃO Lead→CR→QL.
   if (hasLabel('lead_quente', '🔥 Lead Quente', '🔥_lead_quente', 'hot_lead', 'lead quente', 'quente')) {
     events.push(
-      {
-        ...mkBaseEvent(),
-        event_name: 'Lead',
-        // event_time: now (antes -3600). Backdating hardcoded desalinhava dedup Pixel↔CAPI
-        // quando Pixel browser disparou Lead no tempo real T (form submit) e CAPI chega
-        // com T-3600. Meta prioriza proximidade temporal na reconciliação dedup.
-        // Também invertia ordem do funnel (CR appearance antes de Lead).
-        // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
-        event_time: now,
-        event_id: `${eventId}_hot_lead`,
-        ...(originalLeadData && { original_event_data: originalLeadData }),
-        custom_data: {
-          ...crmBase,
-          content_name: 'Lead Quente - CRM',
-          lead_type: 'hot_lead',
-          currency: 'BRL',
-          value: 300,                                 // sinal forte
-          predicted_ltv: DEFAULT_PREDICTED_LTV,       // LTV esperado (~980)
-          customer_segmentation: customerSeg,
-        },
-      },
       {
         ...mkBaseEvent(),
         event_name: 'CompleteRegistration',
@@ -1098,25 +1096,12 @@ export default async function handler(req, res) {
     //
     // Regra completa: ver api/_lib/funnel-guards.js com tabela de verdade.
     // Função extraída pra ser testável em isolamento (tests/funnel-guards.test.js).
-    const { needLead, needCR } = computeCompraRealizadaGuards(labels, previousLabels);
-    if (needLead) {
-      events.push({
-        ...mkBaseEvent(),
-        event_name: 'Lead',
-        event_time: now - 3600,
-        event_id: `${eventId}_compra_lead`,
-        ...(originalLeadData && { original_event_data: originalLeadData }),
-        custom_data: {
-          ...crmBase,
-          content_name: 'Lead (inferido via Compra) - CRM',
-          lead_type: 'hot_lead',
-          currency: 'BRL',
-          value: 300,
-          predicted_ltv: DEFAULT_PREDICTED_LTV,
-          customer_segmentation: customerSeg,
-        },
-      });
-    }
+    // Fix 27/04/2026 (PR #39 v2 — research Opus 4.6): backfill `Lead` REMOVIDO.
+    // Cliente que comprou OBVIAMENTE já gerou Lead via fluxo natural.
+    // Backfill Lead aqui criaria contagem dupla. Mantemos backfill CR + QL +
+    // dispatches IC + Purchase (eventos downstream de otimização Conversion Leads).
+    // computeCompraRealizadaGuards.needLead mantido por compat/testes mas não usado.
+    const { needCR } = computeCompraRealizadaGuards(labels, previousLabels);
     if (needCR) {
       events.push({
         ...mkBaseEvent(),
