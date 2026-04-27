@@ -16,6 +16,9 @@ function envOr(key, fallback) {
 export const PIXEL_ID = envOr('META_PIXEL_ID', '2774496306216737');
 export const WABA_ID = envOr('META_WABA_ID', '920807647253970');
 export const PAGE_ID = envOr('META_PAGE_ID', '111790301665816');
+// Multi-tenant Page routing — IceLaser Bancários (JP).
+// Adicionado 26/04/2026 pra fix cross-clinic data leak em crm-webhook.
+export const PAGE_ID_JPA = envOr('META_PAGE_ID_JPA', '1077786125420191');
 export const AD_ACCOUNT_ID = envOr('META_AD_ACCOUNT_ID', 'act_790663154114264');
 export const APP_ID = envOr('META_APP_ID', '940244045396548');
 

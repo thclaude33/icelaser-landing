@@ -9,7 +9,7 @@
  */
 
 import { put, list } from '@vercel/blob';
-import { PIXEL_ID, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV, PAGE_ID } from './_lib/config.js';
+import { PIXEL_ID, PIXEL_ID_JPA, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PREDICTED_LTV, PAGE_ID, PAGE_ID_JPA } from './_lib/config.js';
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
@@ -69,11 +69,13 @@ function validateChatwootWebhook(req, rawBody) {
   return { valid: false, mode: 'no-signature' };
 }
 
-async function sendCAPI(events, token, retryCount = 0) {
+async function sendCAPI(events, token, retryCount = 0, targetPixelId = PIXEL_ID) {
   // Authorization: Bearer (mais seguro que access_token na URL)
   // partner_agent: Meta best practice — identifica plataforma emissora (<23 chars, >=2 letras).
+  // targetPixelId: FIX 26/04/2026 cross-clinic — quando lead é JP (page_id JP),
+  // override pra Pixel JP (1386967056530127). Default Pixel Recife.
   const res = await fetch(
-    `${GRAPH_BASE}/${PIXEL_ID}/events`,
+    `${GRAPH_BASE}/${targetPixelId}/events`,
     {
       method: 'POST',
       headers: {
@@ -130,7 +132,7 @@ async function sendCAPI(events, token, retryCount = 0) {
       const delay = (retryCount + 1) * 1000; // 1s, 2s
       console.log(`[CAPI] Retrying in ${delay}ms (attempt ${retryCount + 1}/2)...`);
       await new Promise(r => setTimeout(r, delay));
-      return sendCAPI(events, token, retryCount + 1);
+      return sendCAPI(events, token, retryCount + 1, targetPixelId);
     }
   } else {
     // Fix CRITICAL 20/04/2026 (silent failure investigation): Meta CAPI retorna
@@ -339,6 +341,15 @@ export default async function handler(req, res) {
     ...(conversation.custom_attributes || {}),
   };
 
+  // Cross-clinic detection — detectar AQUI (antes de buildUserData) pra propagar
+  // page_id correto pro user_data em TODOS os events. Vercel Agent review (PR #36)
+  // pegou que page_id em user_data ficava Recife mesmo pra leads JP — quebrava
+  // attribution Conversion Leads CRM JP. Detectado pelo customAttrs.page_id que
+  // whatsapp.js:1224 propaga do leadgen webhook Meta.
+  const _leadPageIdRaw = customAttrs?.page_id ? String(customAttrs.page_id) : null;
+  const _isJpLead = _leadPageIdRaw === PAGE_ID_JPA;
+  const userDataPageId = _isJpLead ? PAGE_ID_JPA : PAGE_ID;
+
   const nome = contact.name || '';
   const telefone = contact.phone_number || customAttrs.phone || '';
   const email = contact.email || '';
@@ -393,14 +404,17 @@ export default async function handler(req, res) {
     zip_code: '50000',
     country: 'br',
     external_id: externalIdRaw || undefined,
-    // FIX EMQ 26/04/2026 — adicionar page_id do IceLaser Recife.
+    // FIX EMQ 26/04/2026 — adicionar page_id da clínica correta.
     // Meta best practice 2026: page_id é matching key high-priority pra
     // datasets messaging E system_generated CRM events. capi-wam.js já
     // adiciona page_id automaticamente pro WAM (linha 155), mas sendCAPI
     // do Pixel LP NÃO enriquecia. Sem page_id no Pixel LP, EMQ Qualified
-    // Lead ficava em 6.6/10 (target 8.0+). Adicionar aqui propaga pra
-    // ambos datasets via mkBaseEvent → sendCAPI E sendWAMEvent.
-    page_id: PAGE_ID || undefined,
+    // Lead ficava em 6.6/10 (target 8.0+).
+    // FIX 26/04/2026 v2 (Vercel Agent review PR#36): NÃO usar PAGE_ID
+    // hardcoded — usar `userDataPageId` derivado de customAttrs.page_id
+    // pra leads JP receberem PAGE_ID_JPA (não PAGE_ID Recife). Sem isso,
+    // attribution Conversion Leads CRM JP quebra mesmo com Pixel routing OK.
+    page_id: userDataPageId || undefined,
     // Fix HIGH AI audit 20/04/2026 (crm-webhook.js:349): remover gender:'f' hardcoded
     // pra consistência com M12 aplicado em whatsapp.js. Meta penaliza mismatch mais
     // que ausência — leads masculinos (~5%) estavam degradando EMQ com gender errado.
@@ -1191,11 +1205,46 @@ export default async function handler(req, res) {
   const shouldSendWAM = !routingDecision || routingDecision.target === DATASET_WAM;
 
   // ═════════════════════════════════════════════════════════════════════
+  // CROSS-CLINIC ROUTING (FIX 26/04/2026)
+  // ═════════════════════════════════════════════════════════════════════
+  // Detectar clínica baseado em customAttrs.page_id (vem do webhook leadgen
+  // Meta via whatsapp.js:1224). Se page_id == JP, override Pixel destination
+  // pra Pixel JP (1386967056530127) + token JP (CAPI_DATASET_TOKEN_JP).
+  // Sem isso, leads do Lead Ad form Page JP que caem no Chatwoot Recife
+  // (inbox 8) gerariam events no Pixel Recife — Conversion Leads CRM JP fica
+  // zerado e cross-clinic data leak. Detected na sessão 26/04 ~19h BRT.
+  // TODO when 3rd clinic added: replace string equality with a Map<page_id, {pixel,token}>.
+  // TODO when JP gets dedicated WAM dataset: gate sendWAMEvent path by isJpLead too
+  // (today JP shares Recife WAM since chip pendente — same data leak class on WAM side).
+  // Reuse cross-clinic detection done up-top (line ~344) — same source of truth
+  // pra user_data.page_id E pixel routing. _leadPageIdRaw / _isJpLead foram
+  // computed antes do buildUserData pra propagar page_id correto no user_data.
+  const leadPageId = _leadPageIdRaw;
+  const isJpLead = _isJpLead;
+  const targetPixelId = isJpLead ? PIXEL_ID_JPA : PIXEL_ID;
+  // Token fallback: CAPI_DATASET_TOKEN_JP > META_ACCESS_TOKEN > original (Recife) token.
+  // If CAPI_DATASET_TOKEN_JP undefined for a JP lead, log warn so operator notices
+  // missing env var (silent fallback risks wrong-scope token rejection at Meta).
+  let targetToken = token;
+  if (isJpLead) {
+    const jpToken = process.env.CAPI_DATASET_TOKEN_JP;
+    if (!jpToken) {
+      console.warn('[CRM-WEBHOOK CROSS-CLINIC] ⚠️ CAPI_DATASET_TOKEN_JP missing — falling back to META_ACCESS_TOKEN. Configure dataset-scoped JP token to avoid permission risks.');
+    }
+    targetToken = jpToken || process.env.META_ACCESS_TOKEN || token;
+    console.log(`[CRM-WEBHOOK CROSS-CLINIC] page_id=${leadPageId} → JP routing → Pixel ${PIXEL_ID_JPA}`);
+  } else if (!leadPageId) {
+    // page_id missing — covers organic WhatsApp / manual contact creation / pre-fix legacy
+    // contacts. Defaults to Recife (existing behavior). Audit log to track frequency.
+    console.log(`[CRM-WEBHOOK CROSS-CLINIC] no page_id → default Pixel Recife (legacy/organic contact)`);
+  }
+
+  // ═════════════════════════════════════════════════════════════════════
   // ENVIO PIXEL LP (só se target=pixel_lp OU routing desabilitado)
   // ═════════════════════════════════════════════════════════════════════
   let result = { events_received: 0 };
   if (shouldSendPixelLP) {
-    result = await sendCAPI(validEvents, token);
+    result = await sendCAPI(validEvents, targetToken, 0, targetPixelId);
   } else {
     console.log(`[CRM-WEBHOOK] Pixel LP SKIPPED (routing → WAM)`);
   }

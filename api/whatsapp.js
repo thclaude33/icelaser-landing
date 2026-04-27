@@ -1227,6 +1227,11 @@ export default async function handler(req, res) {
                           leadgen_ad_id: String(adId || ''),
                           lead_source: 'Meta Lead Ad',
                           created_at_meta: new Date().toISOString(),
+                          // FIX 26/04/2026 cross-clinic data leak: propagar page_id
+                          // pra crm-webhook.js usar em routing (Pixel Recife vs Pixel JP).
+                          // Sem page_id, todos events CRM iam pro Pixel Recife mesmo
+                          // pra leads originados de Page JP (Bancários).
+                          ...(value?.page_id ? { page_id: String(value.page_id) } : {}),
                           // Fix AI review HIGH 20/04: propagar campos custom do form
                           // (procedimento, horario, etc) pra atendente ver no Chatwoot.
                           ...extraFields,
