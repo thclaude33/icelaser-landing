@@ -2,10 +2,20 @@
  * /api/crm-webhook — Recebe eventos do Chatwoot CRM
  * Quando label muda → dispara CAPI/Pixel automaticamente
  *
- * Labels → Eventos CAPI:
- *   🧊 Lead Frio       → Lead (cold_lead)
- *   🔥 Lead Quente     → Lead + CompleteRegistration (hot_lead)
- *   💰 Compra Realizada → Lead + CR + InitiateCheckout + Purchase
+ * Labels → Eventos CAPI (atualizado PR #40 — 27/04/2026):
+ *   (sem labels, conversation_created) → Lead (auto, value=50, ltv=200)
+ *   ❌ Desqualificado   → LeadDesqualificado (custom, audience exclusion)
+ *   🧊 Lead Frio        → LeadFrio (custom, audience exclusion)
+ *   🔥 Lead Quente      → CompleteRegistration + Qualified Lead (downstream)
+ *   💳 Link Pagamento   → InitiateCheckout
+ *   💰 Compra Realizada → (CR + QL backfill cond) + InitiateCheckout + Purchase
+ *   📧 Marketing Opt-In → Subscribe
+ *
+ * KNOWN-ISSUE: auto-Lead em conversation_created raramente dispara em prod
+ * (Chatwoot envia conversation_created com labels já populadas → falha gate
+ * `labels.length===0`). Cliente que vai direto pra label classificação sem
+ * passar por Lead emitido NÃO recebe Lead event. Investigação em PR futuro
+ * com payload real capturado via Drain (ativo desde 27/04 17:33 UTC).
  */
 
 import { put, list } from '@vercel/blob';
