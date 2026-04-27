@@ -341,6 +341,15 @@ export default async function handler(req, res) {
     ...(conversation.custom_attributes || {}),
   };
 
+  // Cross-clinic detection — detectar AQUI (antes de buildUserData) pra propagar
+  // page_id correto pro user_data em TODOS os events. Vercel Agent review (PR #36)
+  // pegou que page_id em user_data ficava Recife mesmo pra leads JP — quebrava
+  // attribution Conversion Leads CRM JP. Detectado pelo customAttrs.page_id que
+  // whatsapp.js:1224 propaga do leadgen webhook Meta.
+  const _leadPageIdRaw = customAttrs?.page_id ? String(customAttrs.page_id) : null;
+  const _isJpLead = _leadPageIdRaw === PAGE_ID_JPA;
+  const userDataPageId = _isJpLead ? PAGE_ID_JPA : PAGE_ID;
+
   const nome = contact.name || '';
   const telefone = contact.phone_number || customAttrs.phone || '';
   const email = contact.email || '';
@@ -395,14 +404,17 @@ export default async function handler(req, res) {
     zip_code: '50000',
     country: 'br',
     external_id: externalIdRaw || undefined,
-    // FIX EMQ 26/04/2026 — adicionar page_id do IceLaser Recife.
+    // FIX EMQ 26/04/2026 — adicionar page_id da clínica correta.
     // Meta best practice 2026: page_id é matching key high-priority pra
     // datasets messaging E system_generated CRM events. capi-wam.js já
     // adiciona page_id automaticamente pro WAM (linha 155), mas sendCAPI
     // do Pixel LP NÃO enriquecia. Sem page_id no Pixel LP, EMQ Qualified
-    // Lead ficava em 6.6/10 (target 8.0+). Adicionar aqui propaga pra
-    // ambos datasets via mkBaseEvent → sendCAPI E sendWAMEvent.
-    page_id: PAGE_ID || undefined,
+    // Lead ficava em 6.6/10 (target 8.0+).
+    // FIX 26/04/2026 v2 (Vercel Agent review PR#36): NÃO usar PAGE_ID
+    // hardcoded — usar `userDataPageId` derivado de customAttrs.page_id
+    // pra leads JP receberem PAGE_ID_JPA (não PAGE_ID Recife). Sem isso,
+    // attribution Conversion Leads CRM JP quebra mesmo com Pixel routing OK.
+    page_id: userDataPageId || undefined,
     // Fix HIGH AI audit 20/04/2026 (crm-webhook.js:349): remover gender:'f' hardcoded
     // pra consistência com M12 aplicado em whatsapp.js. Meta penaliza mismatch mais
     // que ausência — leads masculinos (~5%) estavam degradando EMQ com gender errado.
@@ -1204,8 +1216,11 @@ export default async function handler(req, res) {
   // TODO when 3rd clinic added: replace string equality with a Map<page_id, {pixel,token}>.
   // TODO when JP gets dedicated WAM dataset: gate sendWAMEvent path by isJpLead too
   // (today JP shares Recife WAM since chip pendente — same data leak class on WAM side).
-  const leadPageId = customAttrs?.page_id ? String(customAttrs.page_id) : null;
-  const isJpLead = leadPageId === PAGE_ID_JPA;
+  // Reuse cross-clinic detection done up-top (line ~344) — same source of truth
+  // pra user_data.page_id E pixel routing. _leadPageIdRaw / _isJpLead foram
+  // computed antes do buildUserData pra propagar page_id correto no user_data.
+  const leadPageId = _leadPageIdRaw;
+  const isJpLead = _isJpLead;
   const targetPixelId = isJpLead ? PIXEL_ID_JPA : PIXEL_ID;
   // Token fallback: CAPI_DATASET_TOKEN_JP > META_ACCESS_TOKEN > original (Recife) token.
   // If CAPI_DATASET_TOKEN_JP undefined for a JP lead, log warn so operator notices
