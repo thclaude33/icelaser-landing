@@ -296,10 +296,16 @@ export default async function handler(req, res) {
     //
     // phone required: Meta CAPI precisa phone_number em user_data pra match
     // queries. Sem phone, o Lead event seria unmatchable (qualidade EMQ baixa).
+    // Vercel Agent finding (PR #39): se conversa já tem labels (bot pre-applied
+    // ou Chatwoot retransmitindo após classificação), auto-Lead NÃO vai dispatch
+    // (shouldDispatchAutoLead exige labels.length === 0). Skip lock acquisition
+    // pra evitar orphan locks que dependem de rollback no fim.
+    const preExistingLabels = body.conversation?.labels || body.labels || [];
+    const hasPreExistingLabels = Array.isArray(preExistingLabels) && preExistingLabels.length > 0;
     const convIdRaw = body.conversation?.id ? String(body.conversation.id) : null;
     const convId = convIdRaw ? convIdRaw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50) : null;
     const phoneForLock = body.sender?.phone_number || body.conversation?.meta?.sender?.phone_number || '';
-    if (convId && phoneForLock) {
+    if (convId && phoneForLock && !hasPreExistingLabels) {
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
         console.warn('[CRM-WEBHOOK] BLOB_READ_WRITE_TOKEN missing — auto-Lead disabled (no idempotency lock)');
       } else {
