@@ -1096,12 +1096,38 @@ export default async function handler(req, res) {
     //
     // Regra completa: ver api/_lib/funnel-guards.js com tabela de verdade.
     // Função extraída pra ser testável em isolamento (tests/funnel-guards.test.js).
-    // Fix 27/04/2026 (PR #39 v2 — research Opus 4.6): backfill `Lead` REMOVIDO.
-    // Cliente que comprou OBVIAMENTE já gerou Lead via fluxo natural.
-    // Backfill Lead aqui criaria contagem dupla. Mantemos backfill CR + QL +
-    // dispatches IC + Purchase (eventos downstream de otimização Conversion Leads).
-    // computeCompraRealizadaGuards.needLead mantido por compat/testes mas não usado.
-    const { needCR } = computeCompraRealizadaGuards(labels, previousLabels);
+    // Fix 27/04/2026 v2 (post-PR #40 ultrareview Bug 2): RESTAURADO backfill `Lead`.
+    // Auto-Lead em conversation_created (PR #37) raramente dispara em prod (gate
+    // `labels.length===0` falha quando Chatwoot envia conversation com labels já
+    // populadas). Removido em PR #40 confiando em "Lead já foi disparado via
+    // fluxo natural" — premissa quebrada no cenário organic+direct purchase.
+    //
+    // Cliente orgânico WA (sem CTWA) que vai DIRETO de Lead Frio ou nada pra
+    // compra_realizada NÃO recebe Lead nenhum sem este backfill → Conversion
+    // Leads CRM funnel orphan (CR/QL/Purchase sem Lead). Tests funnel-guards #1
+    // e #8 ainda assertam needLead:true pra "direto → compra".
+    //
+    // Meta dedup via event_id estável `_compra_lead` evita contagem dupla quando
+    // auto-Lead JÁ disparou (cenário CTWA com conversation_created sem labels).
+    const { needLead, needCR } = computeCompraRealizadaGuards(labels, previousLabels);
+    if (needLead) {
+      events.push({
+        ...mkBaseEvent(),
+        event_name: 'Lead',
+        event_time: now - 3600,
+        event_id: `${eventId}_compra_lead`,
+        ...(originalLeadData && { original_event_data: originalLeadData }),
+        custom_data: {
+          ...crmBase,
+          content_name: 'Lead (inferido via Compra) - CRM',
+          lead_type: 'hot_lead',
+          currency: 'BRL',
+          value: 300,
+          predicted_ltv: DEFAULT_PREDICTED_LTV,
+          customer_segmentation: customerSeg,
+        },
+      });
+    }
     if (needCR) {
       events.push({
         ...mkBaseEvent(),
@@ -1123,7 +1149,7 @@ export default async function handler(req, res) {
       // atendente pula direto de Lead Frio pra compra_realizada. Mesma lógica
       // do CR backfill: se exigiu CR backfill, exigiu Qualified Lead também.
       // Mantém funil Conversion Leads consistente.
-      // event_time = now - 2100 → ordem temporal funil:
+      // event_time = now - 2100 → ordem temporal funil (Lead emitido em backfill acima):
       //   Lead (-3600) < CR (-2400) < Qualified Lead (-2100) < IC (-1800) < Purchase (now)
       events.push({
         ...mkBaseEvent(),
@@ -1273,11 +1299,31 @@ export default async function handler(req, res) {
   // ═════════════════════════════════════════════════════════════════════
   // ENVIO PIXEL LP (só se target=pixel_lp OU routing desabilitado)
   // ═════════════════════════════════════════════════════════════════════
+  //
+  // Fix 27/04/2026 v2 (post-PR #40 ultrareview Bug 1): custom audience events
+  // (LeadFrio, LeadDesqualificado) SEMPRE pro Pixel LP independente do routing.
+  // Razão: custom audience events vivem no Pixel dataset (não WAM), e
+  // WAM_SUPPORTED_EVENTS + capi-wam.js whitelist NÃO incluem esses nomes →
+  // em default WAM routing seriam silenciosamente filtrados → audience nunca
+  // popula. Validado LIVE: Pixel LP aceita system_generated/website 100%.
+  const AUDIENCE_ONLY_EVENTS = new Set(['LeadFrio', 'LeadDesqualificado']);
+  const audienceOnlyEvents = validEvents.filter(e => AUDIENCE_ONLY_EVENTS.has(e.event_name));
+  const funnelEvents = validEvents.filter(e => !AUDIENCE_ONLY_EVENTS.has(e.event_name));
+
   let result = { events_received: 0 };
+  let audienceResult = { events_received: 0 };
+
+  // Audience events: SEMPRE pro Pixel LP (bypass routing)
+  if (audienceOnlyEvents.length > 0) {
+    audienceResult = await sendCAPI(audienceOnlyEvents, targetToken, 0, targetPixelId);
+    console.log(`[CRM-WEBHOOK] Audience events forced→Pixel LP: ${audienceOnlyEvents.length} events, received=${audienceResult?.events_received ?? 0}`);
+  }
+
+  // Funnel events: respeita routing decision normal
   if (shouldSendPixelLP) {
-    result = await sendCAPI(validEvents, targetToken, 0, targetPixelId);
+    result = await sendCAPI(funnelEvents, targetToken, 0, targetPixelId);
   } else {
-    console.log(`[CRM-WEBHOOK] Pixel LP SKIPPED (routing → WAM)`);
+    console.log(`[CRM-WEBHOOK] Pixel LP SKIPPED for funnel events (routing → WAM)`);
   }
   // Fix MEDIUM AI review 20/04/2026 (M4): events_received pode ser undefined se
   // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
@@ -1303,8 +1349,10 @@ export default async function handler(req, res) {
   let wamErrors = 0;
   const wamSkipReasons = [];  // debug: capturar motivos do skip pra logar
   // Fix 23/04/2026: só enviar pro WAM se routing decidir ou se routing desabilitado (fallback).
+  // Fix 27/04/2026 v2 (ultrareview Bug 1): usar funnelEvents (não validEvents) — audience
+  // events (LeadFrio/LeadDesqualificado) já foram pra Pixel LP, não enviar pro WAM.
   const wamCompatibleEvents = shouldSendWAM
-    ? validEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name))
+    ? funnelEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name))
     : [];
   if (!shouldSendWAM) {
     console.log(`[CRM-WEBHOOK] WAM SKIPPED (routing → Pixel LP)`);
