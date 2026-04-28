@@ -14,7 +14,8 @@
     { "path": "/api/cron/emq-alert",        "schedule": "45 * * * *" },
     { "path": "/api/cron/capi-alerts",      "schedule": "5 * * * *" },
     { "path": "/api/cron/daily-report",     "schedule": "25 23 * * *" },
-    { "path": "/api/cron/process-leadgen",  "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/process-leadgen",  "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/wam-whitelist-validate", "schedule": "0 14 1 * *" }
   ],
 
   "rewrites": [
@@ -75,6 +76,10 @@
     },
     "api/cron/process-leadgen.js": {
       "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/cron/wam-whitelist-validate.js": {
+      "maxDuration": 60,
       "regions": ["gru1"]
     },
     "api/og.js": {

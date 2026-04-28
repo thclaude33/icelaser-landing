@@ -6,18 +6,23 @@
  * eventos pra otimizar campanhas de mensagens WhatsApp e atribuir
  * corretamente quando user clica ad → conversa → converte.
  *
- * REQUISITOS ESTRITOS (Meta spec WAM Event Sharing - 2026):
- *   - event_name: APENAS padrão Meta business_messaging (Purchase, LeadSubmitted,
- *     InitiateCheckout, AddToCart, ViewContent, OrderCreated, Shipped, Delivered,
- *     Canceled, Returned, CartAbandoned, QualifiedLead, RatingProvided, ReviewProvided)
- *   - action_source: "business_messaging"
- *   - messaging_channel: "whatsapp"
- *   - user_data.page_id (OBRIGATÓRIO)
- *   - user_data.ctwa_clid (REAL, Meta-gerado no click CTWA) OU
+ * REQUISITOS ESTRITOS (Meta spec WAM Event Sharing v25 - validado LIVE 27/04/2026):
+ *   - event_name VÁLIDO em action_source=business_messaging (10 events, Meta v25):
+ *       LeadSubmitted, QualifiedLead, Purchase, InitiateCheckout, AddToCart,
+ *       ViewContent, OrderCreated, CartAbandoned, RatingProvided, ReviewProvided
+ *     Lista canônica: const BUSINESS_MESSAGING_VALID (linha ~101 deste arquivo).
+ *     Helper `sendWAMEvent` faz fallback automático business_messaging→system_generated
+ *     quando event_name não está nessa whitelist (preserva ctwa_clid → atribuição
+ *     via Meta lookback 7d). NÃO listar Shipped/Delivered/Canceled/Returned/Schedule/
+ *     Contact aqui — REJEITADOS por Meta v25 com subcode 2804066 (testado LIVE).
+ *   - action_source: "business_messaging" OU "system_generated" (fallback)
+ *   - messaging_channel: "whatsapp" (apenas em business_messaging)
+ *   - user_data.page_id (OBRIGATÓRIO em business_messaging)
+ *   - user_data.ctwa_clid (REAL, Meta-gerado no click CTWA, ≥32 chars) OU
  *     user_data.page_scoped_user_id (PSID)
  *
- * Sem ctwa_clid/PSID → Meta rejeita com erro 2804071.
- * Com ctwa_clid fake/inválido → Meta rejeita com erro 2804087.
+ * Sem ctwa_clid/PSID em business_messaging → Meta rejeita com erro 2804071.
+ * Com ctwa_clid fake/inválido (<32 chars) → Meta rejeita com erro 2804087.
  *
  * Pipeline: rodar EM PARALELO com CAPI normal (pixel principal) quando
  * ctwa_clid disponível. Dedup natural via event_id idêntico.
@@ -42,6 +47,42 @@ const MIN_CTWA_CLID_LENGTH = 32;
 const MIN_PSID_LENGTH = 6;
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_EVENT_AGE_SECONDS = 7 * 24 * 3600; // Meta rejeita events > 7 dias
+
+// Issue 6 (PR follow-up /review 38): rate-limit console.warn pra evitar log spam
+// em alta volume. Janela 60s, dedup por bucket key (ex: 'auto_convert_lead',
+// 'fallback_<eventName>'). Vercel Drain conta runtime logs storage → poluição
+// = custo extra. Tamanho map limitado a WARN_DEDUP_MAX_KEYS (FIFO eviction).
+//
+// Vercel Agent fix (PR #42): bounded growth garantida via:
+//   1. Cleanup time-based ANTES do set (não DEPOIS, senão entry recém-setada
+//      bloqueia evicção das antigas em alta volume com muitos buckets distintos).
+//   2. Insertion-order FIFO eviction quando o mapa atinge MAX_KEYS — Map JS
+//      preserva ordem de inserção, então delete(firstKey) remove o bucket
+//      mais antigo, garantindo bound estrito mesmo em high-volume burst.
+const WARN_DEDUP_WINDOW_MS = 60_000;
+const WARN_DEDUP_MAX_KEYS = 100;
+const _warnLastEmittedAt = new Map();
+function warnRateLimited(message, bucketKey) {
+  const now = Date.now();
+  // Cleanup time-based ANTES do set — remove entries cujo TTL expirou.
+  // Em alta volume, mesmo se ninguém remover, FIFO abaixo garante bound.
+  for (const [k, ts] of _warnLastEmittedAt) {
+    if (now - ts > WARN_DEDUP_WINDOW_MS) _warnLastEmittedAt.delete(k);
+    else break; // Map preserva ordem de inserção: primeira non-expired = todas non-expired
+  }
+  const last = _warnLastEmittedAt.get(bucketKey);
+  if (last !== undefined && now - last < WARN_DEDUP_WINDOW_MS) {
+    return; // suprime — já logou esse bucket nos últimos 60s
+  }
+  // FIFO eviction: se mapa atinge MAX_KEYS, remove a entrada mais antiga
+  // (primeira inserida) ANTES de adicionar a nova. Garante bound estrito.
+  if (_warnLastEmittedAt.size >= WARN_DEDUP_MAX_KEYS) {
+    const firstKey = _warnLastEmittedAt.keys().next().value;
+    if (firstKey !== undefined) _warnLastEmittedAt.delete(firstKey);
+  }
+  _warnLastEmittedAt.set(bucketKey, now);
+  console.warn(message);
+}
 
 // Meta WAM Dataset event whitelist — events ACEITOS pelo dataset em
 // ao menos UM action_source (business_messaging OU system_generated).
@@ -118,8 +159,16 @@ const BUSINESS_MESSAGING_VALID = new Set([
 export async function sendWAMEvent({ event_name, event_id, event_time, user_data, custom_data, action_source, original_event_data }) {
   if (!WAM_DATASET_ID) return { skipped: 'wam_dataset_not_configured' };
   if (!WAM_TOKEN) return { skipped: 'wam_token_missing' };
-  if (!event_name || !WAM_ALLOWED_EVENTS.has(event_name)) {
-    return { skipped: `wam_event_not_supported: ${event_name}` };
+  // Issue 5 defensive (PR follow-up /review 38): trim defensivo evita whitespace
+  // bypass nas comparações strict-equal abaixo (ex: 'Lead ' não fazia auto-convert
+  // pra LeadSubmitted). Case NÃO normalizado: Meta v25 é case-sensitive ('lead'
+  // ≠ 'Lead') e silenciar isso esconderia bugs reais de caller.
+  const normalizedEventName = typeof event_name === 'string' ? event_name.trim() : '';
+  if (!normalizedEventName || !WAM_ALLOWED_EVENTS.has(normalizedEventName)) {
+    // Vercel Agent fix (PR #42): usa normalizedEventName no skipped reason
+    // pra evitar leak de whitespace nos logs (ex: 'wam_event_not_supported: Lead '
+    // com trailing space). Diagnóstico fica mais limpo.
+    return { skipped: `wam_event_not_supported: ${normalizedEventName || event_name}` };
   }
   // Fix HIGH (AI review): event_id obrigatório pra dedup. Sem ele, Meta conta
   // duplicatas quando cron retry dispara o mesmo evento (quebra métricas).
@@ -128,7 +177,7 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   }
   // Fix HIGH (AI review): Purchase sem currency+value é aceito mas atribui
   // revenue=0 → quebra otimização de campanhas ROAS.
-  if (event_name === 'Purchase') {
+  if (normalizedEventName === 'Purchase') {
     if (!custom_data?.currency || custom_data?.value === undefined || custom_data?.value === null) {
       return { skipped: 'wam_purchase_requires_currency_and_value' };
     }
@@ -153,8 +202,15 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   // Caller intenta business_messaging?
   //   - explícito: passou action_source='business_messaging' (ex: crm-webhook routingDecision)
   //   - implícito: deixou undefined + ctwa/psid presente (ex: whatsapp.js, process-leadgen)
-  const callerExplicitBM = action_source === 'business_messaging';
-  const callerImplicitBM = !action_source && (hasCtwa || hasPsid);
+  // Issue 3 (PR follow-up /review 38): normaliza action_source pra trim+lowercase
+  // antes da comparação. Caller passar 'BUSINESS_MESSAGING' ou ' business_messaging '
+  // antes resultava em fallback silencioso pra system_generated. Meta API espera
+  // valor exato lowercase — se passou variação aqui, normalizamos pra consistência.
+  const normalizedActionSource = typeof action_source === 'string'
+    ? action_source.trim().toLowerCase()
+    : '';
+  const callerExplicitBM = normalizedActionSource === 'business_messaging';
+  const callerImplicitBM = !normalizedActionSource && (hasCtwa || hasPsid);
   const callerIntendsBM = callerExplicitBM || callerImplicitBM;
 
   // Auto-convert Lead → LeadSubmitted ANTES da decisão action_source.
@@ -162,10 +218,12 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   // Aplicar SEMPRE que caller intenta business_messaging preserva atribuição
   // CTWA pra callers legacy (whatsapp.js:1462, process-leadgen.js:317) que
   // passam event_name='Lead' sem action_source explícito.
-  let finalEventName = event_name;
+  // Issue 5 (PR follow-up /review 38): usa normalizedEventName (trimmed) pra
+  // capturar 'Lead ' ou ' Lead' sem bypass silencioso.
+  let finalEventName = normalizedEventName;
   if (callerIntendsBM && finalEventName === 'Lead') {
     finalEventName = 'LeadSubmitted';
-    console.warn(`[WAM] Auto-convert Lead→LeadSubmitted (business_messaging spec Meta v25). event_id=${event_id}`);
+    warnRateLimited(`[WAM] Auto-convert Lead→LeadSubmitted (business_messaging spec Meta v25). event_id=${event_id}`, 'auto_convert_lead');
   }
 
   // Decisão action_source:
@@ -175,12 +233,17 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   //      (ctwa_clid permanece em user_data → atribuição via Meta lookback 7d)
   //   4. Sem intenção BM (sem ctwa/psid, sem explicit) → system_generated
   let finalActionSource;
-  if (action_source && action_source !== 'business_messaging') {
-    finalActionSource = action_source;
+  if (normalizedActionSource && normalizedActionSource !== 'business_messaging') {
+    // Issue 3: caller forçou action_source explícito (ex: 'system_generated',
+    // 'website') → usa valor normalizado (lowercase) pra Meta aceitar.
+    finalActionSource = normalizedActionSource;
   } else if (callerIntendsBM && BUSINESS_MESSAGING_VALID.has(finalEventName)) {
     finalActionSource = 'business_messaging';
   } else if (callerIntendsBM) {
-    console.warn(`[WAM] event_name='${finalEventName}' não suportado em business_messaging (Meta v25 rejeita 2804066). Fallback action_source=system_generated. event_id=${event_id}`);
+    warnRateLimited(
+      `[WAM] event_name='${finalEventName}' não suportado em business_messaging (Meta v25 rejeita 2804066). Fallback action_source=system_generated. event_id=${event_id}`,
+      `fallback_${finalEventName}`
+    );
     finalActionSource = 'system_generated';
   } else {
     finalActionSource = 'system_generated';
