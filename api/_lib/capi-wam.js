@@ -51,23 +51,36 @@ const MAX_EVENT_AGE_SECONDS = 7 * 24 * 3600; // Meta rejeita events > 7 dias
 // Issue 6 (PR follow-up /review 38): rate-limit console.warn pra evitar log spam
 // em alta volume. Janela 60s, dedup por bucket key (ex: 'auto_convert_lead',
 // 'fallback_<eventName>'). Vercel Drain conta runtime logs storage → poluição
-// = custo extra. Tamanho map limitado a 100 entries (LRU-ish via cleanup).
+// = custo extra. Tamanho map limitado a WARN_DEDUP_MAX_KEYS (FIFO eviction).
+//
+// Vercel Agent fix (PR #42): bounded growth garantida via:
+//   1. Cleanup time-based ANTES do set (não DEPOIS, senão entry recém-setada
+//      bloqueia evicção das antigas em alta volume com muitos buckets distintos).
+//   2. Insertion-order FIFO eviction quando o mapa atinge MAX_KEYS — Map JS
+//      preserva ordem de inserção, então delete(firstKey) remove o bucket
+//      mais antigo, garantindo bound estrito mesmo em high-volume burst.
 const WARN_DEDUP_WINDOW_MS = 60_000;
 const WARN_DEDUP_MAX_KEYS = 100;
 const _warnLastEmittedAt = new Map();
 function warnRateLimited(message, bucketKey) {
   const now = Date.now();
+  // Cleanup time-based ANTES do set — remove entries cujo TTL expirou.
+  // Em alta volume, mesmo se ninguém remover, FIFO abaixo garante bound.
+  for (const [k, ts] of _warnLastEmittedAt) {
+    if (now - ts > WARN_DEDUP_WINDOW_MS) _warnLastEmittedAt.delete(k);
+    else break; // Map preserva ordem de inserção: primeira non-expired = todas non-expired
+  }
   const last = _warnLastEmittedAt.get(bucketKey);
   if (last !== undefined && now - last < WARN_DEDUP_WINDOW_MS) {
     return; // suprime — já logou esse bucket nos últimos 60s
   }
-  _warnLastEmittedAt.set(bucketKey, now);
-  // Cleanup defensivo: se mapa cresceu além do limite, remove entries antigas.
-  if (_warnLastEmittedAt.size > WARN_DEDUP_MAX_KEYS) {
-    for (const [k, ts] of _warnLastEmittedAt) {
-      if (now - ts > WARN_DEDUP_WINDOW_MS) _warnLastEmittedAt.delete(k);
-    }
+  // FIFO eviction: se mapa atinge MAX_KEYS, remove a entrada mais antiga
+  // (primeira inserida) ANTES de adicionar a nova. Garante bound estrito.
+  if (_warnLastEmittedAt.size >= WARN_DEDUP_MAX_KEYS) {
+    const firstKey = _warnLastEmittedAt.keys().next().value;
+    if (firstKey !== undefined) _warnLastEmittedAt.delete(firstKey);
   }
+  _warnLastEmittedAt.set(bucketKey, now);
   console.warn(message);
 }
 
@@ -152,7 +165,10 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
   // ≠ 'Lead') e silenciar isso esconderia bugs reais de caller.
   const normalizedEventName = typeof event_name === 'string' ? event_name.trim() : '';
   if (!normalizedEventName || !WAM_ALLOWED_EVENTS.has(normalizedEventName)) {
-    return { skipped: `wam_event_not_supported: ${event_name}` };
+    // Vercel Agent fix (PR #42): usa normalizedEventName no skipped reason
+    // pra evitar leak de whitespace nos logs (ex: 'wam_event_not_supported: Lead '
+    // com trailing space). Diagnóstico fica mais limpo.
+    return { skipped: `wam_event_not_supported: ${normalizedEventName || event_name}` };
   }
   // Fix HIGH (AI review): event_id obrigatório pra dedup. Sem ele, Meta conta
   // duplicatas quando cron retry dispara o mesmo evento (quebra métricas).

@@ -75,7 +75,10 @@ async function validateEvent({ event_name, expected_subcode, expected_status, cu
   const token = process.env.WAM_ACCESS_TOKEN;
   const pageId = process.env.META_PAGE_ID;
   if (!datasetId || !token || !pageId) {
-    return { event_name, error: 'env_missing', expected_status, expected_subcode };
+    // Vercel Agent fix (PR #42): adicionar matches:true evita false-positive
+    // email alert quando env vars ausentes (preview deploys, dev local).
+    // results.filter(r => !r.matches) iria contar isso como divergence.
+    return { event_name, error: 'env_missing', expected_status, expected_subcode, matches: true };
   }
   const eventObj = {
     event_name,
