@@ -1327,7 +1327,10 @@ export default async function handler(req, res) {
   }
   // Fix MEDIUM AI review 20/04/2026 (M4): events_received pode ser undefined se
   // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
-  const eventsReceived = result?.events_received ?? 0;
+  // Fix 27/04/2026 v2 (Vercel Agent finding PR #41): incluir audienceResult no total
+  // pra não subreport audience-only events (LeadFrio/LeadDesqualificado) que vão
+  // pelo mesmo Pixel LP via path forçado.
+  const eventsReceived = (result?.events_received ?? 0) + (audienceResult?.events_received ?? 0);
 
   // WAM Dataset fan-out: enviar TODOS events compatíveis pro WhatsApp Marketing
   // Event Sharing. Helper sendWAMEvent auto-detecta action_source:
