@@ -219,11 +219,18 @@ async function fetchKommoEntity(path) {
 }
 
 export default async function handler(req, res) {
+  // DEBUG temporário: log URL completa + headers Kommo
+  console.log(`[KOMMO-WEBHOOK-DEBUG] method=${req.method} url=${req.url} ` +
+    `host=${req.headers.host} ua=${(req.headers['user-agent'] || '').slice(0,80)} ` +
+    `ct=${req.headers['content-type']} ` +
+    `has_query_token=${!!req.query?.token} ` +
+    `has_header_token=${!!req.headers['x-kommo-token']}`);
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'method_not_allowed' });
   }
   if (!authorize(req)) {
-    return res.status(401).json({ error: 'unauthorized' });
+    return res.status(401).json({ error: 'unauthorized', debug: 'check_query_token_or_header' });
   }
 
   // Kommo Integration Webhooks payload é x-www-form-urlencoded com keys
