@@ -32,13 +32,22 @@ const KOMMO_PIPELINE_JP = '13628687';
 const KOMMO_SUBDOMAIN = 'thiagosml';
 
 // Kommo stage IDs → Meta event mapping
+//
+// IMPORTANTE: Kommo CAPI NATIVO cobre Lead (Lead Frio) e Purchase (Closed-won)
+// com valor do Budget field. Removidos daqui pra EVITAR DUPLICATE de events
+// no Meta Events Manager. Mantidos apenas os eventos do meio do funil que
+// Kommo nativo não suporta (QualifiedLead, Schedule, CompleteRegistration,
+// InitiateCheckout, LeadDesqualificado).
+//
+// Se quiser desabilitar este webhook custom completamente e usar APENAS Kommo
+// nativo, vide README + setting do webhook (disabled: true).
 const STAGE_TO_META_EVENT = {
-  '105176167': 'Lead',                  // Lead Frio
+  // '105176167': 'Lead',                  // Lead Frio — DEIXA Kommo nativo
   '105176171': 'QualifiedLead',         // Lead Qualificado
   '105176175': 'Schedule',              // Avaliação Agendada
   '105176179': 'CompleteRegistration',  // Avaliação Comparecida
   '105176183': 'InitiateCheckout',      // Pré-venda
-  '142':       'Purchase',              // Closed - won
+  // '142':       'Purchase',              // Closed - won — DEIXA Kommo nativo (com Budget)
   '143':       'LeadDesqualificado',    // Closed - lost (custom event)
 };
 
