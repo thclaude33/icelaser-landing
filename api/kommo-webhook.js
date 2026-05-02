@@ -215,6 +215,47 @@ function authorize(req) {
   return provided === expected;
 }
 
+/**
+ * FIX 02/05/2026: Vercel body-parser default NÃO decodifica bracket-notation
+ * form-urlencoded. Kommo envia `leads[status][0][id]=X` que vira flat key string.
+ * Reconstrói nested object pra `{ leads: { status: [{ id: X }] } }`.
+ *
+ * Detecta JSON nested (já parseado) e retorna direto.
+ * Suporta arrays via numeric brackets (`[0]`, `[1]`) e objects via string keys.
+ *
+ * @param {Record<string, unknown>} rawBody - body do Vercel parser (flat ou nested)
+ * @returns {Record<string, unknown>} body normalizado nested
+ */
+function parseKommoBody(rawBody) {
+  if (!rawBody || typeof rawBody !== 'object') return {};
+  // Se já é nested (JSON puro), retorna direto
+  if (rawBody.leads && typeof rawBody.leads === 'object' && !Array.isArray(rawBody.leads)) {
+    return rawBody;
+  }
+  // Heurística: se nenhuma key tem `[`, body já está nested (caso edge)
+  const hasBrackets = Object.keys(rawBody).some(k => k.includes('['));
+  if (!hasBrackets) return rawBody;
+
+  const result = {};
+  for (const [flatKey, value] of Object.entries(rawBody)) {
+    // "leads[status][0][id]" → ['leads', 'status', '0', 'id']
+    const parts = flatKey.match(/[^\[\]]+/g);
+    if (!parts || parts.length === 0) continue;
+    let cursor = result;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      const nextPart = parts[i + 1];
+      const nextIsIndex = /^\d+$/.test(nextPart);
+      if (cursor[part] === undefined) {
+        cursor[part] = nextIsIndex ? [] : {};
+      }
+      cursor = cursor[part];
+    }
+    cursor[parts[parts.length - 1]] = value;
+  }
+  return result;
+}
+
 async function fetchKommoEntity(path) {
   const token = process.env.KOMMO_TOKEN_JP;
   if (!token) return null;
@@ -238,26 +279,11 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
-  // Kommo Integration Webhooks payload é x-www-form-urlencoded com keys
-  // tipo `leads[add][0][id]=...` e `account[id]=...` — Vercel body-parser
-  // (qs lib) decodifica em estrutura `{ leads: { add: [{ id: '...' }] }, account: { id: '...' } }`.
-  // JSON puro também funciona (algumas integrações enviam assim).
-  const body = req.body || {};
-
-  // DEBUG TEMP (remover após smoke test): payload completo numa única linha
-  // Vercel UI mostra só 1ª linha por request, então tudo vai junto.
-  const _dbg = {
-    body_keys: Object.keys(body),
-    leads_keys: body.leads ? Object.keys(body.leads) : null,
-    leads_payload: body.leads ? Object.fromEntries(
-      Object.entries(body.leads).map(([k, arr]) => [k, Array.isArray(arr) ? arr.map(a => ({
-        id: a?.id, status_id: a?.status_id, old_status_id: a?.old_status_id, pipeline_id: a?.pipeline_id,
-      })) : arr])
-    ) : null,
-    account: body.account || body.account_id || null,
-    ct: req.headers['content-type'],
-  };
-  console.log(`[KOMMO-RAW] ${JSON.stringify(_dbg).slice(0, 800)}`);
+  // Kommo Integration Webhooks payload é x-www-form-urlencoded com keys tipo
+  // `leads[add][0][id]=...` e `account[id]=...`. Vercel body-parser default NÃO
+  // decodifica brackets, então parseKommoBody reconstrói o nested object.
+  // JSON puro (algumas integrações) é detectado e retornado direto.
+  const body = parseKommoBody(req.body || {});
 
   // FIX N#3: account_id em body.account.id (top-level), NÃO em cada lead.
   // Single account JP (36397911) — rejeita se diferente.
@@ -384,31 +410,7 @@ export default async function handler(req, res) {
   }
 
   if (events.length === 0) {
-    // DEBUG TEMP (remover após smoke test)
-    return res.status(200).json({
-      ok: true,
-      processed: 0,
-      errors,
-      _debug: {
-        body_keys: Object.keys(body),
-        leads_keys: body.leads ? Object.keys(body.leads) : null,
-        leads_add_count: leadsAdd.length,
-        leads_status_count: leadsStatus.length,
-        first_status_lead: leadsStatus[0] ? {
-          id: leadsStatus[0].id,
-          status_id: leadsStatus[0].status_id,
-          old_status_id: leadsStatus[0].old_status_id,
-          pipeline_id: leadsStatus[0].pipeline_id,
-        } : null,
-        first_add_lead: leadsAdd[0] ? {
-          id: leadsAdd[0].id,
-          status_id: leadsAdd[0].status_id,
-          pipeline_id: leadsAdd[0].pipeline_id,
-        } : null,
-        account_incoming: incomingAccountId,
-        stage_to_meta_keys: Object.keys(STAGE_TO_META_EVENT),
-      },
-    });
+    return res.status(200).json({ ok: true, processed: 0, errors });
   }
 
   // Validação Meta CAPI (filterValidEvents do _lib/capi.js):
