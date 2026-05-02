@@ -7,21 +7,23 @@
  *
  * Multi-tenant: Recife continua via crm-webhook.js (Chatwoot). JP usa este handler.
  *
- * ESTRATÉGIA NÃO-CONFLITO COM WAM (atualizado 02/05/2026 17:50 BRT):
+ * ESTRATÉGIA NÃO-CONFLITO (atualizado 02/05/2026 19:40 BRT):
  *   WAM Recife (967048725669499) já dispara Lead/QualifiedLead/CompleteRegistration
- *   pra subdomain jpa.icelasers.com.br via crm-webhook Chatwoot. Kommo CAPI aqui
- *   complementa SÓ os events que WAM NÃO cobre — zero overlap, zero duplicação.
+ *   pra subdomain jpa.icelasers.com.br via crm-webhook Chatwoot.
+ *   Kommo NATIVE CAPI (integração marketplace Kommo↔Meta) dispara Lead+Purchase
+ *   automaticamente via Meta Leads CRM infrastructure.
+ *   Esta config aqui complementa SÓ events que NENHUM dos 2 cobre — zero overlap.
  *
  * PIPELINE 13628687 — 9 stages atuais (equipe externa reformulou em 01/05):
  *   105176163 "Incoming leads"           → IGNORADO (system, espera transition)
- *   105176167 "primeiro contato"         → IGNORADO (WAM já dispara Lead)
- *   105357711 "LEAD FRIO"                → LeadFrio (custom — exclusivo Kommo) ⭐
+ *   105176167 "primeiro contato"         → IGNORADO (WAM + Kommo native dispara Lead)
+ *   105357711 "LEAD FRIO"                → LeadFrio (custom — exclusivo Kommo CAPI) ⭐
  *   105176171 "Lead Qualificado"         → IGNORADO (WAM já dispara QualifiedLead)
- *   105329767 "LINK DE PAGAMENTO"        → InitiateCheckout (exclusivo Kommo) ⭐
- *   105176175 "Avaliação Agendada"       → Schedule (exclusivo Kommo)
+ *   105329767 "LINK DE PAGAMENTO"        → InitiateCheckout (exclusivo) ⭐
+ *   105176175 "Avaliação Agendada"       → Schedule (exclusivo)
  *   105176179 "Avaliação Comparecida"    → IGNORADO (WAM já dispara CR)
- *   142       "COMPRA REALIZADA"         → Purchase (event_id dedup com WAM)
- *   143       "DESQUALIFICADO/PERDIDO"   → LeadDesqualificado (custom — exclusivo Kommo)
+ *   142       "COMPRA REALIZADA"         → IGNORADO (Kommo native CAPI já dispara Purchase)
+ *   143       "DESQUALIFICADO/PERDIDO"   → LeadDesqualificado (custom — exclusivo)
  *
  * Auth: header `X-Kommo-Token` ou ?token=... validar contra KOMMO_WEBHOOK_SECRET.
  * FAIL-CLOSED em produção (NODE_ENV=production sem secret = rejeita).
@@ -30,6 +32,7 @@
  *   - Mapping atualizado pra novos stages (105357711 LEAD FRIO + 105329767 LINK PAGAMENTO)
  *   - Removido stage 105176183 (não existe mais no pipeline atual)
  *   - Removido Lead/QL/CR mappings (WAM já dispara, evita inflação)
+ *   - Removido Purchase mapping (Kommo native CAPI já dispara, evita duplo-count)
  *   - Destination dataset: Bancarios-EventData (1694874711857319) — dedicado JPA CAPI
  *
  * Code review v2 aplicado 2026-04-29 — 15 issues corrigidos:
@@ -61,24 +64,25 @@ const CF_PURCHASE_VALUE = 3815870;   // numeric (fallback pra lead.price)
 // CF_LEAD_ID_FACEBOOK=3815862, CF_META_CAMPAIGN_NAME=3815866, CF_SERVICO_INTERESSE=3815872
 // (declared pra futuro custom_data enrichment)
 
-// Kommo stage → Meta event mapping (v3 — não-conflito com WAM 967048725669499).
+// Kommo stage → Meta event mapping (v3 — não-conflito com WAM + Kommo native CAPI).
 // Pipeline JP 13628687, 9 stages (atualizado 01/05 pela equipe externa).
 //
-// Estratégia: WAM já dispara Lead/QualifiedLead/CompleteRegistration via
-// crm-webhook.js Chatwoot pra subdomain jpa.icelasers.com.br. Esta config
-// complementa SÓ events não cobertos pelo WAM — zero overlap, zero inflação.
+// Estratégia ZERO OVERLAP — 2 sources já disparando devem ser respeitadas:
+//   - WAM Recife (967048725669499) já dispara: Lead, QualifiedLead, CompleteRegistration
+//   - Kommo native CAPI (Meta Leads CRM integration) já dispara: Lead, Purchase
+// Este handler complementa SÓ events que NENHUM dos 2 cobre.
 //
-// IGNORADOS (não disparam CAPI):
+// IGNORADOS (não disparam CAPI aqui):
 //   - 105176163 "Incoming leads" (type=1 system stage)
-//   - 105176167 "primeiro contato" (WAM cobre Lead)
+//   - 105176167 "primeiro contato" (WAM + Kommo native cobrem Lead)
 //   - 105176171 "Lead Qualificado" (WAM cobre QualifiedLead)
 //   - 105176179 "Avaliação Comparecida" (WAM cobre CompleteRegistration)
+//   - 142       "COMPRA REALIZADA" (Kommo native CAPI cobre Purchase)
 //   - Qualquer pipeline diferente de 13628687
 const STAGE_TO_META_EVENT = {
   '105357711': 'LeadFrio',              // LEAD FRIO (custom — exclusivo Kommo CAPI)
   '105329767': 'InitiateCheckout',      // LINK DE PAGAMENTO (exclusivo Kommo CAPI)
   '105176175': 'Schedule',              // Avaliação Agendada (exclusivo Kommo CAPI)
-  '142':       'Purchase',              // COMPRA REALIZADA (system — dedup via event_id)
   '143':       'LeadDesqualificado',    // DESQUALIFICADO/PERDIDO (custom — exclusivo)
 };
 
