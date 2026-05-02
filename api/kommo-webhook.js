@@ -380,7 +380,31 @@ export default async function handler(req, res) {
   }
 
   if (events.length === 0) {
-    return res.status(200).json({ ok: true, processed: 0, errors });
+    // DEBUG TEMP (remover após smoke test)
+    return res.status(200).json({
+      ok: true,
+      processed: 0,
+      errors,
+      _debug: {
+        body_keys: Object.keys(body),
+        leads_keys: body.leads ? Object.keys(body.leads) : null,
+        leads_add_count: leadsAdd.length,
+        leads_status_count: leadsStatus.length,
+        first_status_lead: leadsStatus[0] ? {
+          id: leadsStatus[0].id,
+          status_id: leadsStatus[0].status_id,
+          old_status_id: leadsStatus[0].old_status_id,
+          pipeline_id: leadsStatus[0].pipeline_id,
+        } : null,
+        first_add_lead: leadsAdd[0] ? {
+          id: leadsAdd[0].id,
+          status_id: leadsAdd[0].status_id,
+          pipeline_id: leadsAdd[0].pipeline_id,
+        } : null,
+        account_incoming: incomingAccountId,
+        stage_to_meta_keys: Object.keys(STAGE_TO_META_EVENT),
+      },
+    });
   }
 
   // Validação Meta CAPI (filterValidEvents do _lib/capi.js):
