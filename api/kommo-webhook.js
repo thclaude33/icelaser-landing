@@ -34,6 +34,8 @@
  *   - Removido Lead/QL/CR mappings (WAM já dispara, evita inflação)
  *   - Removido Purchase mapping (Kommo native CAPI já dispara, evita duplo-count)
  *   - Destination dataset: Bancarios-EventData (1694874711857319) — dedicado JPA CAPI
+ *   - v3.2: dedup intra-payload via Set seenLeadEvents (FIX edge case
+ *     add_lead + status_lead pra mesmo lead/stage no mesmo payload)
  *
  * Code review v2 aplicado 2026-04-29 — 15 issues corrigidos:
  *   ROUND 1: event_id stable, pipeline_id check, city/state removido, action_source
@@ -256,6 +258,22 @@ export default async function handler(req, res) {
   const leadsStatus = body.leads?.status || body.leads?.status_lead || [];
   const contactsCache = new Map();
 
+  // FIX v3.2 (02/05/2026): dedup intra-payload (leadId + eventName).
+  // Edge case: Kommo pode enviar add_lead + status_lead no mesmo payload
+  // pra mesmo lead (lead criado já em stage não-default via API/Salesbot/import).
+  // Sem este Set: 2 events disparados com event_ids diferentes (`add_${stageId}`
+  // vs `${oldStatus}_to_${newStatus}`) → Meta NÃO dedupa → 2x conversion count.
+  // Set garante 1 fire por (leadId, eventName) por payload. Status_lead é
+  // processado DEPOIS de add_lead (ordem atual), então add_lead vence em conflito
+  // — ambos têm event_id estável pra retry, then Meta dedupa nas retentativas.
+  const seenLeadEvents = new Set();
+  function alreadyFiredInPayload(leadId, eventName) {
+    const key = `${leadId}_${eventName}`;
+    if (seenLeadEvents.has(key)) return true;
+    seenLeadEvents.add(key);
+    return false;
+  }
+
   async function getContact(leadId, embeddedContacts) {
     // FIX #8: passa _embedded.contacts direto se existir (sem `&&` confuso)
     if (embeddedContacts && embeddedContacts[0]) {
@@ -279,6 +297,7 @@ export default async function handler(req, res) {
     const stageId = String(lead.status_id || '');
     const eventName = STAGE_TO_META_EVENT[stageId];
     if (!eventName) continue; // incoming → espera transition
+    if (alreadyFiredInPayload(lead.id, eventName)) continue; // FIX v3.2
 
     const contact = await getContact(lead.id, lead._embedded?.contacts);
     if (!contact) {
@@ -318,6 +337,7 @@ export default async function handler(req, res) {
     const oldStatusId = String(lead.old_status_id || 'init');
     const eventName = STAGE_TO_META_EVENT[newStatusId];
     if (!eventName) continue; // stage irrelevante (ex: voltar pra incoming)
+    if (alreadyFiredInPayload(lead.id, eventName)) continue; // FIX v3.2
 
     const contact = await getContact(lead.id, lead._embedded?.contacts);
     if (!contact) {
