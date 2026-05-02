@@ -244,16 +244,20 @@ export default async function handler(req, res) {
   // JSON puro também funciona (algumas integrações enviam assim).
   const body = req.body || {};
 
-  // DEBUG TEMP (remover após smoke test): inspecionar payload Kommo real
-  console.log(`[KOMMO-DEBUG] body keys: ${Object.keys(body).join(',')} | leads keys: ${body.leads ? Object.keys(body.leads).join(',') : 'NO_LEADS'} | account: ${JSON.stringify(body.account || {}).slice(0, 100)} | content-type: ${req.headers['content-type']}`);
-  if (body.leads) {
-    for (const k of Object.keys(body.leads)) {
-      const arr = body.leads[k];
-      if (Array.isArray(arr) && arr[0]) {
-        console.log(`[KOMMO-DEBUG] leads.${k}[0]: ${JSON.stringify(arr[0]).slice(0, 300)}`);
-      }
-    }
-  }
+  // DEBUG TEMP (remover após smoke test): payload completo numa única linha
+  // Vercel UI mostra só 1ª linha por request, então tudo vai junto.
+  const _dbg = {
+    body_keys: Object.keys(body),
+    leads_keys: body.leads ? Object.keys(body.leads) : null,
+    leads_payload: body.leads ? Object.fromEntries(
+      Object.entries(body.leads).map(([k, arr]) => [k, Array.isArray(arr) ? arr.map(a => ({
+        id: a?.id, status_id: a?.status_id, old_status_id: a?.old_status_id, pipeline_id: a?.pipeline_id,
+      })) : arr])
+    ) : null,
+    account: body.account || body.account_id || null,
+    ct: req.headers['content-type'],
+  };
+  console.log(`[KOMMO-RAW] ${JSON.stringify(_dbg).slice(0, 800)}`);
 
   // FIX N#3: account_id em body.account.id (top-level), NÃO em cada lead.
   // Single account JP (36397911) — rejeita se diferente.
