@@ -1,51 +1,49 @@
 /**
  * /api/kommo-webhook — Kommo CRM webhook handler (JP-only).
  *
- * Recebe Integration Webhooks Kommo (32 events configurados em webhook 47250067)
- * e dispara Meta CAPI pro Pixel JP `1386967056530127`.
+ * Recebe Integration Webhooks Kommo (47261059 — recriado 02/05 17:39 BRT após
+ * equipe externa deletar o webhook anterior 47250587) e dispara Meta CAPI pro
+ * dataset Bancarios-EventData `1694874711857319`.
  *
  * Multi-tenant: Recife continua via crm-webhook.js (Chatwoot). JP usa este handler.
- * Não há WAM dataset pra JP (chip dedicado pendente).
  *
- * STAGES JP → Eventos Meta (status_lead, dedup-safe via TRANSITION key):
- *   105176167 "Lead Frio"             → Lead
- *   105176171 "Lead Qualificado"      → QualifiedLead (custom)
- *   105176175 "Avaliação Agendada"    → Schedule
- *   105176179 "Avaliação Comparecida" → CompleteRegistration
- *   105176183 "Pré-venda"             → InitiateCheckout
- *   142       "Closed - won"          → Purchase (lead.price ou CF_PURCHASE_VALUE)
- *   143       "Closed - lost"         → LeadDesqualificado (custom)
- *   105176163 "Incoming Leads"        → IGNORADO (espera transition pra Lead Frio)
+ * ESTRATÉGIA NÃO-CONFLITO COM WAM (atualizado 02/05/2026 17:50 BRT):
+ *   WAM Recife (967048725669499) já dispara Lead/QualifiedLead/CompleteRegistration
+ *   pra subdomain jpa.icelasers.com.br via crm-webhook Chatwoot. Kommo CAPI aqui
+ *   complementa SÓ os events que WAM NÃO cobre — zero overlap, zero duplicação.
  *
- * ARQUITETURA: cobre 100% do funil JP. Kommo CAPI nativo NÃO usado (depende de
- * IG conectado à Page; IG @espacoicelaser está no business do gestor anterior).
+ * PIPELINE 13628687 — 9 stages atuais (equipe externa reformulou em 01/05):
+ *   105176163 "Incoming leads"           → IGNORADO (system, espera transition)
+ *   105176167 "primeiro contato"         → IGNORADO (WAM já dispara Lead)
+ *   105357711 "LEAD FRIO"                → LeadFrio (custom — exclusivo Kommo) ⭐
+ *   105176171 "Lead Qualificado"         → IGNORADO (WAM já dispara QualifiedLead)
+ *   105329767 "LINK DE PAGAMENTO"        → InitiateCheckout (exclusivo Kommo) ⭐
+ *   105176175 "Avaliação Agendada"       → Schedule (exclusivo Kommo)
+ *   105176179 "Avaliação Comparecida"    → IGNORADO (WAM já dispara CR)
+ *   142       "COMPRA REALIZADA"         → Purchase (event_id dedup com WAM)
+ *   143       "DESQUALIFICADO/PERDIDO"   → LeadDesqualificado (custom — exclusivo Kommo)
  *
- * Auth: header `X-Kommo-Token` validar contra KOMMO_WEBHOOK_SECRET (env var).
+ * Auth: header `X-Kommo-Token` ou ?token=... validar contra KOMMO_WEBHOOK_SECRET.
  * FAIL-CLOSED em produção (NODE_ENV=production sem secret = rejeita).
  *
+ * Code review v3 aplicado 2026-05-02:
+ *   - Mapping atualizado pra novos stages (105357711 LEAD FRIO + 105329767 LINK PAGAMENTO)
+ *   - Removido stage 105176183 (não existe mais no pipeline atual)
+ *   - Removido Lead/QL/CR mappings (WAM já dispara, evita inflação)
+ *   - Destination dataset: Bancarios-EventData (1694874711857319) — dedicado JPA CAPI
+ *
  * Code review v2 aplicado 2026-04-29 — 15 issues corrigidos:
- *   ROUND 1 (issues do review inicial):
- *     #1 event_id stable
- *     #2 pipeline_id check em status_lead
- *     #3 city/state hardcoded removido
- *     #4 action_source dinâmico (business_messaging/system_generated)
- *     #5 external_id email > phone (dedup com Pixel browser)
- *     #6 event_source_url = LP domain
- *     #7 auth fail-closed prod
- *     #8 getContact lógica simplificada
- *   ROUND 2 (achados pós-memory-refresh — bugs críticos do round 1):
- *     N#1 event_id REALMENTE estável via TRANSITION KEY (payload Kommo não tem updated_at)
- *     N#2 add_lead deduped via STAGE_TO_META_EVENT (evita 2x Lead duplicate)
- *     N#3 account_id validado em body.account (não em cada lead)
- *     N#4 page_id JP no user_data (EMQ boost Meta 2026)
- *     N#5 import crypto removido (dead code pós-SDK)
- *     N#6 JSDoc realinhado com implementação
- *     N#7 CF_PURCHASE_VALUE usado pra Purchase value (fallback robusto)
+ *   ROUND 1: event_id stable, pipeline_id check, city/state removido, action_source
+ *     dinâmico, external_id email > phone, event_source_url LP, auth fail-closed,
+ *     getContact lógica simplificada
+ *   ROUND 2: event_id idempotente via TRANSITION KEY, add_lead deduped via mapping,
+ *     account_id validado em body.account, page_id no user_data, import crypto
+ *     removido, JSDoc realinhado, CF_PURCHASE_VALUE fallback
  */
 
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
 import { buildUserData as sdkBuildUserData } from './_lib/piiBuilder.js';
-import { PIXEL_ID_JPA, PAGE_ID_JPA } from './_lib/config.js';
+import { PAGE_ID_JPA, KOMMO_CAPI_DATASET } from './_lib/config.js';
 
 const KOMMO_ACCOUNT_ID = '36397911';
 const KOMMO_PIPELINE_JP = '13628687';
@@ -63,17 +61,25 @@ const CF_PURCHASE_VALUE = 3815870;   // numeric (fallback pra lead.price)
 // CF_LEAD_ID_FACEBOOK=3815862, CF_META_CAMPAIGN_NAME=3815866, CF_SERVICO_INTERESSE=3815872
 // (declared pra futuro custom_data enrichment)
 
-// Kommo stage IDs → Meta event mapping. STAGES IGNORADOS:
-//   - 105176163 "Incoming Leads" (type=1 system) — espera transition pra Lead Frio
-//   - Qualquer pipeline NÃO 13628687 (filtered antes do mapping)
+// Kommo stage → Meta event mapping (v3 — não-conflito com WAM 967048725669499).
+// Pipeline JP 13628687, 9 stages (atualizado 01/05 pela equipe externa).
+//
+// Estratégia: WAM já dispara Lead/QualifiedLead/CompleteRegistration via
+// crm-webhook.js Chatwoot pra subdomain jpa.icelasers.com.br. Esta config
+// complementa SÓ events não cobertos pelo WAM — zero overlap, zero inflação.
+//
+// IGNORADOS (não disparam CAPI):
+//   - 105176163 "Incoming leads" (type=1 system stage)
+//   - 105176167 "primeiro contato" (WAM cobre Lead)
+//   - 105176171 "Lead Qualificado" (WAM cobre QualifiedLead)
+//   - 105176179 "Avaliação Comparecida" (WAM cobre CompleteRegistration)
+//   - Qualquer pipeline diferente de 13628687
 const STAGE_TO_META_EVENT = {
-  '105176167': 'Lead',                  // Lead Frio
-  '105176171': 'QualifiedLead',         // Lead Qualificado (custom event)
-  '105176175': 'Schedule',              // Avaliação Agendada
-  '105176179': 'CompleteRegistration',  // Avaliação Comparecida
-  '105176183': 'InitiateCheckout',      // Pré-venda
-  '142':       'Purchase',              // Closed - won (system stage Kommo)
-  '143':       'LeadDesqualificado',    // Closed - lost (custom event)
+  '105357711': 'LeadFrio',              // LEAD FRIO (custom — exclusivo Kommo CAPI)
+  '105329767': 'InitiateCheckout',      // LINK DE PAGAMENTO (exclusivo Kommo CAPI)
+  '105176175': 'Schedule',              // Avaliação Agendada (exclusivo Kommo CAPI)
+  '142':       'Purchase',              // COMPRA REALIZADA (system — dedup via event_id)
+  '143':       'LeadDesqualificado',    // DESQUALIFICADO/PERDIDO (custom — exclusivo)
 };
 
 function normalizePhone(raw) {
@@ -357,7 +363,7 @@ export default async function handler(req, res) {
   if (!token) {
     return res.status(503).json({ error: 'meta_token_missing' });
   }
-  const result = await sendCapiEvents(validEvents, token, { pixelId: PIXEL_ID_JPA });
+  const result = await sendCapiEvents(validEvents, token, { pixelId: KOMMO_CAPI_DATASET });
 
   console.log(
     `[KOMMO-JP] processed=${validEvents.length}/${events.length} ` +
