@@ -27,6 +27,13 @@ export const APP_ID = envOr('META_APP_ID', '940244045396548');
 // pra audiences/LAL isoladas (LGPD + reports limpos).
 export const PIXEL_ID_JPA = envOr('META_PIXEL_ID_JPA', '1386967056530127');
 
+// Dataset dedicado pro Kommo CAPI server-side (criado 01/05/2026 pela equipe
+// externa, semanticamente JPA). Separado de PIXEL_ID_JPA pra isolar:
+//   - PIXEL_ID_JPA   = LP browser tracking + Chatwoot routing (1386967056530127)
+//   - KOMMO_CAPI_DATASET = Kommo CRM stage transitions only (1694874711857319)
+// Isso evita cross-mixing entre paths de tracking distintos.
+export const KOMMO_CAPI_DATASET = envOr('KOMMO_CAPI_DATASET_ID', '1694874711857319');
+
 /**
  * Resolve qual Pixel usar baseado no host HTTP (Origin header ou hostname).
  * Cobre prod (jpa.icelasers.com.br) e preview Vercel (slug com 'jpa'/'bancarios').
