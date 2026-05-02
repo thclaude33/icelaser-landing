@@ -244,6 +244,17 @@ export default async function handler(req, res) {
   // JSON puro também funciona (algumas integrações enviam assim).
   const body = req.body || {};
 
+  // DEBUG TEMP (remover após smoke test): inspecionar payload Kommo real
+  console.log(`[KOMMO-DEBUG] body keys: ${Object.keys(body).join(',')} | leads keys: ${body.leads ? Object.keys(body.leads).join(',') : 'NO_LEADS'} | account: ${JSON.stringify(body.account || {}).slice(0, 100)} | content-type: ${req.headers['content-type']}`);
+  if (body.leads) {
+    for (const k of Object.keys(body.leads)) {
+      const arr = body.leads[k];
+      if (Array.isArray(arr) && arr[0]) {
+        console.log(`[KOMMO-DEBUG] leads.${k}[0]: ${JSON.stringify(arr[0]).slice(0, 300)}`);
+      }
+    }
+  }
+
   // FIX N#3: account_id em body.account.id (top-level), NÃO em cada lead.
   // Single account JP (36397911) — rejeita se diferente.
   const incomingAccountId = body.account?.id ?? body.account_id;
