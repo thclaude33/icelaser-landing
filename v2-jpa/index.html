@@ -9,6 +9,12 @@
 <!-- Favicon + Apple touch + OG (apontam pra raiz do domínio em produção) -->
 <link rel="icon" href="/favicon.ico" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+<!-- A8 fix 03/05 v7: preload hero images pra LCP <2.5s. Sem preload, browser
+     descobre essas src somente após parse completo do <body> (1100+ lines de
+     HTML), atrasando 200-500ms. fetchpriority high reforça prioridade. -->
+<link rel="preload" as="image" href="assets/cliente-hero.jpg" fetchpriority="high" />
+<link rel="preload" as="image" href="assets/crystal-tech.jpg" fetchpriority="high" />
 <meta property="og:title" content="IceLaser João Pessoa — Depilação a laser Crystal 3D PLUS · Bancários" />
 <meta property="og:description" content="Sessão experimental grátis. Crystal 3D PLUS. 6 anos nos Bancários, João Pessoa. Pacotes 12x sem juros." />
 <meta property="og:image" content="/og-image.jpg" />
@@ -426,6 +432,19 @@ img,video{max-width:100%;height:auto}
   .reveal { opacity: 0; transform: translateY(14px); transition: opacity .7s ease, transform .7s ease; }
   .reveal.in { opacity: 1; transform: none; }
 
+  /* A19 fix 03/05 v7: WCAG 2.3.3 — respeita prefers-reduced-motion.
+     Neutraliza reveal/animations pra usuários sensíveis a movimento
+     (vestibular disorder, motion sickness, epilepsia fotossensível). */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    .reveal { opacity: 1 !important; transform: none !important; }
+  }
+
   /* Marquee */
   @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   .marquee-track { animation: marquee 40s linear infinite; }
@@ -437,11 +456,13 @@ img,video{max-width:100%;height:auto}
     padding: 0 .08em;
   }
 
-  /* Form input */
+  /* Form input
+     A11 fix 03/05 v7: font-size 16px+ evita iOS auto-zoom on focus (CLS).
+     Antes: 15px → iOS Safari forçava zoom 110%, causando reflow + CLS spike. */
   .field {
     width: 100%; padding: 14px 16px; border-radius: 12px;
     background: #FFFFFF; border: 1px solid #E9DFD3; color: #1B1410;
-    font-size: 15px; outline: none; transition: border-color .15s, box-shadow .15s;
+    font-size: 16px; outline: none; transition: border-color .15s, box-shadow .15s;
   }
   .field:focus { border-color: #640039; box-shadow: 0 0 0 4px rgba(100,0,57,0.08); }
   .field::placeholder { color: #9A8B81; }
@@ -671,23 +692,26 @@ img,video{max-width:100%;height:auto}
 
       <!-- Left: copy + CTA + photos -->
       <div class="lg:col-span-7 order-2 lg:order-1">
-        <span class="chip reveal">
+        <!-- A13 fix 03/05 v7: removida .reveal dos elementos hero (above-fold).
+             .reveal aplica opacity:0 inicial → bloqueia LCP até IO disparar.
+             Em in-app browsers IO pode tardar 200-800ms, atrasando LCP. -->
+        <span class="chip">
           <span class="w-1.5 h-1.5 rounded-full bg-wa animate-pulse"></span>
           Avaliação 100% gratuita — sem compromisso
         </span>
 
-        <h1 class="serif h-display mt-4 text-[36px] leading-[1.04] sm:text-[48px] lg:text-[68px] font-semibold text-ink reveal">
+        <h1 class="serif h-display mt-4 text-[36px] leading-[1.04] sm:text-[48px] lg:text-[68px] font-semibold text-ink">
           Chega de cera.<br/>
           <em class="not-italic underline-gold">Pele lisa</em> com resultados duradouros.
         </h1>
 
-        <p class="mt-4 text-[16px] sm:text-[17px] leading-relaxed text-ink-soft max-w-[58ch] reveal">
+        <p class="mt-4 text-[16px] sm:text-[17px] leading-relaxed text-ink-soft max-w-[58ch]">
           Tecnologia <strong class="text-ink">Crystal 3D PLUS</strong> — resultado desde a sessão experimental, confortável.
           <strong class="text-ink">6 anos atendendo João Pessoa</strong> com qualidade — venha conhecer a clínica nos Bancários.
         </p>
 
         <!-- CTA + prova logo após o sub (acima da dobra mobile) -->
-        <div class="mt-6 flex flex-col sm:flex-row sm:items-center gap-3 reveal">
+        <div class="mt-6 flex flex-col sm:flex-row sm:items-center gap-3">
           <a href="https://wa.me/5583982071540?text=%5BLP3-HERO%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20agendar%20minha%20avalia%C3%A7%C3%A3o%20gratuita." target="_blank" rel="noopener" class="btn-wa giant w-full sm:w-auto">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163A11.867 11.867 0 010 11.892C0 5.335 5.335 0 11.892 0c3.18 0 6.167 1.24 8.413 3.488A11.82 11.82 0 0123.785 11.9c-.003 6.557-5.338 11.893-11.893 11.893a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.978-1.607z"/></svg>
             Falar no WhatsApp agora
@@ -699,7 +723,7 @@ img,video{max-width:100%;height:auto}
         </div>
 
         <!-- Mini-prova -->
-        <div class="mt-5 flex items-center gap-3 reveal">
+        <div class="mt-5 flex items-center gap-3">
           <div class="flex -space-x-2.5">
             <span class="avatar-dot bg-cover bg-center" style="background-image:url('assets/ig-01.jpg')"></span>
             <span class="avatar-dot bg-cover bg-center" style="background-image:url('assets/ig-02.jpg')"></span>
@@ -712,7 +736,7 @@ img,video{max-width:100%;height:auto}
         </div>
 
         <!-- Photo pair (depois do CTA pra não empurrar a dobra) -->
-        <div class="mt-7 grid grid-cols-2 gap-3 sm:gap-4 reveal">
+        <div class="mt-7 grid grid-cols-2 gap-3 sm:gap-4">
           <figure class="relative aspect-[5/4] sm:aspect-[4/5] rounded-2xl overflow-hidden shadow-card bg-bordo/10">
             <img src="assets/cliente-hero.jpg" alt="Cliente real em sessão de depilação a laser na clínica IceLaser João Pessoa" class="absolute inset-0 w-full h-full object-cover" loading="eager" decoding="async" fetchpriority="high" width="720" height="900" />
             <span class="absolute top-3 left-3 badge-free !bg-bordo !text-cream">Cliente JP</span>
