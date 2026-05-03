@@ -369,13 +369,16 @@
 
   // ════════════════════════════════════════════════════════════════
   // COUNTDOWN — meia-noite BRT
-  // FIX 03/05 v7 (A6+A18+A19): try/catch evita que Intl/DOM throw quebre o
-  // tick. prefers-reduced-motion respeitado: pausa em motion-safe quando
-  // usuário sinaliza redução. visibilitychange pausa quando tab oculta
-  // (economiza CPU mobile/bateria).
+  // FIX 03/05 v7 (A6+A18+A19): try/catch evita Intl/DOM throw, prefers-
+  // reduced-motion + visibilitychange pause.
+  // FIX 03/05 v7.1 (countdown selector): HTML do LP V2 usa #countdown +
+  // <div data-cd="hh|mm|ss"> (Claude Design markup). Antes JS buscava
+  // [data-countdown]/#countdown-timer (não existem) → '--' eterno.
   // ════════════════════════════════════════════════════════════════
   (function () {
-    const timerEls = document.querySelectorAll('[data-countdown], #countdown-timer');
+    const timerEls = document.querySelectorAll(
+      '[data-countdown], #countdown-timer, #countdown'
+    );
     if (timerEls.length === 0) return;
 
     const reducedMotion = window.matchMedia &&
@@ -399,6 +402,15 @@
         const ss = String(remaining % 60).padStart(2, '0');
 
         timerEls.forEach((el) => {
+          const hCd = el.querySelector('[data-cd="hh"]');
+          const mCd = el.querySelector('[data-cd="mm"]');
+          const sCd = el.querySelector('[data-cd="ss"]');
+          if (hCd || mCd || sCd) {
+            if (hCd) hCd.textContent = hh;
+            if (mCd) mCd.textContent = mm;
+            if (sCd) sCd.textContent = ss;
+            return;
+          }
           const fmtStr = el.dataset.countdownFormat || 'HH:MM:SS';
           if (fmtStr === 'split') {
             const hSlot = el.querySelector('.h');

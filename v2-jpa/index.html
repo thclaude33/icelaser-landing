@@ -15,6 +15,11 @@
      HTML), atrasando 200-500ms. fetchpriority high reforça prioridade. -->
 <link rel="preload" as="image" href="assets/cliente-hero.jpg" fetchpriority="high" />
 <link rel="preload" as="image" href="assets/crystal-tech.jpg" fetchpriority="high" />
+<!-- SEO Tier C fix 03/05 v7.1: canonical + robots.
+     canonical evita duplicate content (jpa.icelasers.com.br/ vs /v2/).
+     robots index,follow + max-snippet/image/video 'large' otimiza SERP. -->
+<link rel="canonical" href="https://jpa.icelasers.com.br/v2/" />
+<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />
 <meta property="og:title" content="IceLaser João Pessoa — Depilação a laser Crystal 3D PLUS · Bancários" />
 <meta property="og:description" content="Sessão experimental grátis. Crystal 3D PLUS. 6 anos nos Bancários, João Pessoa. Pacotes 12x sem juros." />
 <meta property="og:image" content="/og-image.jpg" />
