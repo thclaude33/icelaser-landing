@@ -703,7 +703,7 @@
     }
     .hero-photo {
       margin: 0;
-      aspect-ratio: 4 / 5;
+      aspect-ratio: 5 / 4;
       border-radius: 14px;
       overflow: hidden;
       box-shadow: 0 8px 24px rgba(60, 0, 33, 0.12);
@@ -713,6 +713,7 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      object-position: center top;
       display: block;
     }
     .hero > * { position: relative; z-index: 2; }
@@ -1620,8 +1621,8 @@
         column-gap: 72px;
         align-items: start;
       }
-      .hero-photos { max-width: 460px; gap: 14px; margin-bottom: 24px; }
-      .hero-photo { aspect-ratio: 1 / 1; border-radius: 18px; }
+      .hero-photos { max-width: 420px; gap: 14px; margin-bottom: 24px; }
+      .hero-photo { aspect-ratio: 5 / 4; border-radius: 18px; }
 
       .hero h1.display {
         font-size: clamp(40px, 5vw, 72px);
