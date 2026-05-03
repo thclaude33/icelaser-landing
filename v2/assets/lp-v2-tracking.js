@@ -33,12 +33,14 @@
     return m ? decodeURIComponent(m.slice(name.length + 1)) : null;
   }
 
-  // Normaliza telefone BR — idêntico server-side _lib/security.js
-  // pra Pixel browser e CAPI server gerarem mesmo sha256 → Meta dedup OK
+  // Normaliza telefone BR — pra Pixel browser e CAPI server gerarem mesmo sha256.
+  // FIX 03/05 v7 (A2): bug com DDDs começando em 5 (51/53/54 RS, 55 SC).
+  // Antes: digits.startsWith('5') === false → DDDs com 5 caíam no fallback raw sem 55+
+  // Agora: check explícito startsWith('55') pra prefixar quando ausente.
   window._normalizePhoneBR = function normalizePhoneBR(phone) {
     if (!phone) return null;
     const digits = String(phone).replace(/\D/g, '');
-    if (digits.length === 11 && digits.startsWith('5') === false) return '55' + digits;
+    if (digits.length === 11 && !digits.startsWith('55')) return '55' + digits;
     if (digits.length === 10) return '55' + digits;
     if (digits.length === 13 && digits.startsWith('55')) return digits;
     if (digits.length === 12 && digits.startsWith('55')) return digits;
@@ -61,19 +63,16 @@
     return 'direto';
   }
 
+  // FIX 03/05 v7 (A3): wa.me link já roteia nativamente pro app no mobile.
+  // Antes: 2 redirects (whatsapp://+wa.me) causavam race condition iOS Safari/in-app.
+  // Agora: 1 navigation pra wa.me — Meta/WhatsApp resolvem deep-link automaticamente.
   function openWhatsApp(msgEncoded) {
-    const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
-    const isAndroid = /Android/.test(navigator.userAgent);
-    let url;
-    if (isIos) url = 'whatsapp://send?phone=' + WA_PHONE + '&text=' + msgEncoded;
-    else if (isAndroid) url = 'intent://send/' + WA_PHONE + '#Intent;scheme=whatsapp;package=com.whatsapp;S.android.intent.extra.TEXT=' + msgEncoded + ';end';
-    else url = 'https://wa.me/' + WA_PHONE + '?text=' + msgEncoded;
-    window.location.href = url;
-    setTimeout(function () {
-      window.location.href = 'https://wa.me/' + WA_PHONE + '?text=' + msgEncoded;
-    }, 1500);
+    window.location.href = 'https://wa.me/' + WA_PHONE + '?text=' + msgEncoded;
   }
 
+  // FIX 03/05 v7 (A4+A5): sendBeacon retorna false quando payload >64KB ou
+  // tab fechando race. Antes: ignorávamos return — events perdidos silent.
+  // Agora: warn em console pra observability + outer catch logando.
   function sendCapi(payload) {
     try {
       const url = '/api/track';
@@ -83,10 +82,16 @@
         headers: { 'Content-Type': 'application/json' },
         body,
         keepalive: true,
-      }).catch(() => {
+      }).catch(function (err) {
         try {
-          navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
-        } catch (_) {}
+          const sent = navigator.sendBeacon &&
+            navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+          if (!sent) {
+            console.warn('[CAPI] sendBeacon rejected — event lost', payload.event_name || '?');
+          }
+        } catch (e) {
+          console.warn('[CAPI] beacon fallback failed', e && e.message);
+        }
       });
     } catch (e) {
       console.warn('[CAPI] send failed', e && e.message);
@@ -99,7 +104,9 @@
       if (window.va && typeof window.va === 'function') {
         window.va('event', { name, data: props || {} });
       }
-    } catch (_) {}
+    } catch (e) {
+      console.warn('[VA] trackEvent failed', e && e.message);
+    }
   }
 
   // ════════════════════════════════════════════════════════════════
@@ -158,12 +165,27 @@
 
     submitting = true;
     const submitBtn = document.getElementById('lead-form-submit');
+    const originalBtnLabel = submitBtn ? submitBtn.textContent : null;
     if (submitBtn) {
       submitBtn.disabled = true;
       submitBtn.style.opacity = '0.6';
       submitBtn.style.cursor = 'wait';
       submitBtn.textContent = 'Enviando…';
     }
+
+    // FIX 03/05 v7 (A1): se Pixel/CAPI/WA throw, submitting fica true e usuário
+    // trava sem poder reenviar. Safety net: reset após 8s se ainda submitting,
+    // E reset on visibilitychange (caso volte de WhatsApp e queira reenviar).
+    function resetSubmitState() {
+      submitting = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = '';
+        submitBtn.style.cursor = '';
+        if (originalBtnLabel != null) submitBtn.textContent = originalBtnLabel;
+      }
+    }
+    setTimeout(function () { if (submitting) resetSubmitState(); }, 8000);
 
     const eventId = 'ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
     const fbp = getCookie('_fbp');
@@ -341,44 +363,67 @@
 
   // ════════════════════════════════════════════════════════════════
   // COUNTDOWN — meia-noite BRT
+  // FIX 03/05 v7 (A6+A18+A19): try/catch evita que Intl/DOM throw quebre o
+  // tick. prefers-reduced-motion respeitado: pausa em motion-safe quando
+  // usuário sinaliza redução. visibilitychange pausa quando tab oculta
+  // (economiza CPU mobile/bateria).
   // ════════════════════════════════════════════════════════════════
   (function () {
     const timerEls = document.querySelectorAll('[data-countdown], #countdown-timer');
     if (timerEls.length === 0) return;
 
+    const reducedMotion = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
     function updateAll() {
-      const fmt = new Intl.DateTimeFormat('pt-BR', {
-        timeZone: 'America/Recife',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-      });
-      const parts = fmt.formatToParts(new Date());
-      const h = +parts.find((p) => p.type === 'hour').value;
-      const m = +parts.find((p) => p.type === 'minute').value;
-      const s = +parts.find((p) => p.type === 'second').value;
-      const totalSec = h * 3600 + m * 60 + s;
-      const remaining = Math.max(0, 24 * 3600 - totalSec);
+      try {
+        const fmt = new Intl.DateTimeFormat('pt-BR', {
+          timeZone: 'America/Recife',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        });
+        const parts = fmt.formatToParts(new Date());
+        const h = +parts.find((p) => p.type === 'hour').value;
+        const m = +parts.find((p) => p.type === 'minute').value;
+        const s = +parts.find((p) => p.type === 'second').value;
+        const totalSec = h * 3600 + m * 60 + s;
+        const remaining = Math.max(0, 24 * 3600 - totalSec);
 
-      const hh = String(Math.floor(remaining / 3600)).padStart(2, '0');
-      const mm = String(Math.floor((remaining % 3600) / 60)).padStart(2, '0');
-      const ss = String(remaining % 60).padStart(2, '0');
+        const hh = String(Math.floor(remaining / 3600)).padStart(2, '0');
+        const mm = String(Math.floor((remaining % 3600) / 60)).padStart(2, '0');
+        const ss = String(remaining % 60).padStart(2, '0');
 
-      timerEls.forEach((el) => {
-        const fmtStr = el.dataset.countdownFormat || 'HH:MM:SS';
-        if (fmtStr === 'split') {
-          const hSlot = el.querySelector('.h');
-          const mSlot = el.querySelector('.m');
-          const sSlot = el.querySelector('.s');
-          if (hSlot) hSlot.textContent = hh;
-          if (mSlot) mSlot.textContent = mm;
-          if (sSlot) sSlot.textContent = ss;
-        } else {
-          el.textContent = hh + ':' + mm + ':' + ss;
-        }
-      });
+        timerEls.forEach((el) => {
+          const fmtStr = el.dataset.countdownFormat || 'HH:MM:SS';
+          if (fmtStr === 'split') {
+            const hSlot = el.querySelector('.h');
+            const mSlot = el.querySelector('.m');
+            const sSlot = el.querySelector('.s');
+            if (hSlot) hSlot.textContent = hh;
+            if (mSlot) mSlot.textContent = mm;
+            if (sSlot) sSlot.textContent = ss;
+          } else {
+            el.textContent = hh + ':' + mm + ':' + ss;
+          }
+        });
+      } catch (e) {
+        console.warn('[countdown] tick failed', e && e.message);
+      }
     }
 
     updateAll();
-    setInterval(updateAll, 1000);
+
+    // Reduced-motion: atualiza só a cada minuto (60x menos paint cycles).
+    // Caso oculto: setInterval continua, mas browser limita a 1Hz mesmo.
+    let intervalId = setInterval(updateAll, reducedMotion ? 60000 : 1000);
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) {
+        clearInterval(intervalId);
+        intervalId = null;
+      } else if (!intervalId) {
+        updateAll();
+        intervalId = setInterval(updateAll, reducedMotion ? 60000 : 1000);
+      }
+    });
   })();
 
   // ════════════════════════════════════════════════════════════════

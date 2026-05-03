@@ -238,6 +238,42 @@ async function enviarEmailLead(nome, telefone, origem = {}) {
 // Alias local pra manter nome anterior (normalizePhoneBR vem de _lib/security.js).
 const normalizePhone = normalizePhoneBR;
 
+// ════════════════════════════════════════════════════════════════
+// FIX 03/05 v7 (S4 — Tier S BLOCKER): rate limit /api/track per-IP.
+// Antes: zero throttle → 1 IP malicioso podia disparar 10k req/min,
+// queimar quota Meta CAPI (BUC limit) + Pixel quota + ad-spend dolar:
+// cada Lead falso atribuído a campanha CTWA infla CPL, quebra Andromeda
+// optimization, e CRM Chatwoot recebe lixo. Window 10min/IP/5 req balanceia
+// real users (form submit + scroll + WA click ≤ 4 events típico) vs abuso.
+// Map module-level: warm-share entre invocações na mesma instância Vercel.
+// Multi-instância (autoscale): cada uma tem seu Map → ~5×N req efetivo.
+// Suficiente pra Sprint 0; Sprint 2 migra pra Vercel KV / Upstash Redis.
+// ════════════════════════════════════════════════════════════════
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const RATE_LIMIT_MAX = 5;
+const _rateLimitMap = new Map();
+function checkRateLimit(ip) {
+  if (!ip) return { allowed: true };
+  const now = Date.now();
+  const entry = _rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    _rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    // Cleanup oportunístico: 1% chance por request, evita memory leak
+    // sem hot path overhead (10k entries cap natural via TTL).
+    if (Math.random() < 0.01) {
+      for (const [key, val] of _rateLimitMap) {
+        if (now > val.resetAt) _rateLimitMap.delete(key);
+      }
+    }
+    return { allowed: true };
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+  entry.count += 1;
+  return { allowed: true };
+}
+
 export default async function handler(req, res) {
   const origin = req.headers['origin'] || '';
   // CORS: s�� seta Access-Control-Allow-Origin pra origens permitidas.
@@ -254,6 +290,17 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // FIX 03/05 v7 (S4): rate limit per-IP antes de qualquer parse/CAPI work.
+  // IP extraction prioriza x-real-ip (Vercel canonical) sobre primeiro x-forwarded-for
+  // (que pode ser spoofado por client). Cookie _cip ignorado aqui (untrusted).
+  const rlXff = (req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
+  const rlIp = req.headers['x-real-ip'] || rlXff[rlXff.length - 1] || req.socket?.remoteAddress || '';
+  const rlCheck = checkRateLimit(rlIp);
+  if (!rlCheck.allowed) {
+    res.setHeader('Retry-After', String(rlCheck.retryAfter));
+    return res.status(429).json({ error: 'rate_limited', retry_after_sec: rlCheck.retryAfter });
+  }
 
   // Fix LOW AI review 20/04/2026 (L9): validar body parseado. Se Vercel não
   // parsear (Content-Type errado, body vazio), destructuring silenciosamente
