@@ -693,14 +693,27 @@
         linear-gradient(180deg, var(--cream) 0%, var(--surface-alt) 100%);
       overflow: hidden;
     }
-    /* SVG decorativo — ponteira Crystal 3D Plus abstrata com beam dourado */
-    .hero-art {
-      position: absolute;
-      pointer-events: none;
-      right: -40px; top: 80px;
-      width: 280px; height: 280px;
-      opacity: 0.9;
-      z-index: 0;
+    /* Fotos hero — cliente real + equipamento, lado-a-lado no canto sup esq */
+    .hero-photos {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 0 0 24px;
+      max-width: 100%;
+    }
+    .hero-photo {
+      margin: 0;
+      aspect-ratio: 4 / 5;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(60, 0, 33, 0.12);
+      background: var(--surface-alt);
+    }
+    .hero-photo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
     .hero > * { position: relative; z-index: 2; }
 
@@ -1525,11 +1538,12 @@
 
     /* ═══ STAGGERED REVEAL on load ═══ */
     @media (prefers-reduced-motion: no-preference) {
-      .hero > *:not(.hero-art) {
+      .hero > *:not(.hero-photos) {
         opacity: 0;
         transform: translateY(16px);
         animation: rise 800ms var(--ease-out) forwards;
       }
+      .hero .hero-photos     { animation: rise 900ms var(--ease-out) forwards; opacity: 0; transform: translateY(16px); animation-delay: 60ms; }
       .hero .badge           { animation-delay: 100ms; }
       .hero h1.display       { animation-delay: 180ms; }
       .hero-sub              { animation-delay: 260ms; }
@@ -1563,7 +1577,8 @@
         align-items: start;
         min-height: 640px;
       }
-      .hero-art { width: 360px; height: 360px; right: 420px; top: 140px; }
+      .hero-photos { max-width: 520px; gap: 14px; margin-bottom: 32px; }
+      .hero-photo { aspect-ratio: 4 / 5; border-radius: 18px; }
 
       .hero h1.display {
         font-size: clamp(64px, 7vw, 92px);
@@ -1664,36 +1679,11 @@
 
 <!-- HERO -->
 <section class="hero">
-  <!-- SVG decorativo: ponteira laser Crystal 3D Plus com beam dourado -->
-  <svg class="hero-art" viewBox="0 0 360 360" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <defs>
-      <linearGradient id="beam" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#D4A574" stop-opacity="0.9"/>
-        <stop offset="50%" stop-color="#D4A574" stop-opacity="0.4"/>
-        <stop offset="100%" stop-color="#D4A574" stop-opacity="0"/>
-      </linearGradient>
-      <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#640039"/>
-        <stop offset="100%" stop-color="#3D0023"/>
-      </linearGradient>
-    </defs>
-    <!-- beam / feixe -->
-    <path d="M250 80 L330 200 L250 280 Z" fill="url(#beam)" opacity="0.6"/>
-    <!-- ponteira body -->
-    <rect x="70" y="140" width="180" height="52" rx="26" fill="url(#body)"/>
-    <rect x="88" y="152" width="28" height="28" rx="14" fill="#D4A574" opacity="0.85"/>
-    <!-- lente -->
-    <circle cx="250" cy="166" r="18" fill="#1A0A12" stroke="#D4A574" stroke-width="1.5"/>
-    <circle cx="250" cy="166" r="10" fill="#D4A574" opacity="0.5"/>
-    <!-- cabo -->
-    <path d="M70 166 Q40 180 30 220 Q20 260 50 280" stroke="#640039" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.6"/>
-    <!-- linhas de energia -->
-    <path d="M250 166 L340 130" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
-    <path d="M250 166 L340 166" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
-    <path d="M250 166 L340 200" stroke="#D4A574" stroke-width="1" opacity="0.4"/>
-    <!-- label -->
-    <text x="140" y="168" font-family="Fraunces, serif" font-size="9" font-weight="500" fill="#D4A574" letter-spacing="1">CRYSTAL 3D PLUS</text>
-  </svg>
+  <!-- Fotos hero: cliente real (esquerda) + equipamento Crystal 3D PLUS (direita) -->
+  <aside class="hero-photos" aria-hidden="true">
+    <figure class="hero-photo"><img src="hero-result.jpg" alt="" loading="eager" decoding="async" width="720" height="900"></figure>
+    <figure class="hero-photo"><img src="hero-equipment.jpg" alt="" loading="eager" decoding="async" width="720" height="900"></figure>
+  </aside>
 
   <div class="badge">
     <span class="badge-dot">a</span>
