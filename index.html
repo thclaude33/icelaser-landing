@@ -1169,9 +1169,21 @@
     .compare-val { color: var(--ink); font-weight: 600; text-align: right; }
     .compare-col.laser .compare-val { color: var(--brand); }
 
-    /* ═══ COMO FUNCIONA ═══ */
+    /* ═══ COMO FUNCIONA — compactado contra compare-section ═══ */
     .como-funciona {
       background: var(--surface-alt);
+      padding-top: 32px; /* visualmente conectado à compare-section */
+    }
+    .compare-section {
+      padding-bottom: 32px;
+    }
+    @media (min-width: 880px) {
+      .como-funciona { padding-top: 48px; }
+      .compare-section { padding-bottom: 48px; }
+    }
+    @media (min-width: 1200px) {
+      .como-funciona { padding-top: 56px; }
+      .compare-section { padding-bottom: 56px; }
     }
     .steps {
       max-width: 880px; margin: 0 auto;
@@ -1434,6 +1446,14 @@
       line-height: 1.55;
     }
     .cta-final p strong { color: var(--brand); font-weight: 600; }
+    .cta-final .cta-promessa {
+      font-size: var(--fs-base);
+      max-width: 52ch;
+      margin: 0 auto 20px;
+      color: var(--ink-muted);
+      line-height: 1.6;
+    }
+    .cta-final .cta-promessa strong { color: var(--ink); font-weight: 600; }
     .btn-cta2 {
       display: inline-flex; align-items: center; gap: 10px;
       padding: 20px 36px;
@@ -1547,16 +1567,40 @@
       .hero .badge           { animation-delay: 100ms; }
       .hero h1.display       { animation-delay: 180ms; }
       .hero-sub              { animation-delay: 260ms; }
-      .hero-checks           { animation-delay: 340ms; }
-      .hero-stats            { animation-delay: 420ms; }
-      .hero .btn-wa-hero     { animation-delay: 500ms; }
-      .hero-wa-sub           { animation-delay: 560ms; }
+      .hero .btn-wa-hero     { animation-delay: 340ms; }
+      .hero-wa-sub           { animation-delay: 400ms; }
+      .hero-checks           { animation-delay: 460ms; }
+      .hero-stats            { animation-delay: 540ms; }
       .hero-social-proof     { animation-delay: 620ms; }
       .countdown-bar         { animation-delay: 680ms; }
       .hero .card            { animation-delay: 360ms; animation-duration: 900ms; }
       @keyframes rise {
         to { opacity: 1; transform: translateY(0); }
       }
+    }
+
+    /* ═══════════════════════════════════════════════════
+       MOBILE — form ANTES do hero text (conversão first)
+    ═══════════════════════════════════════════════════ */
+    @media (max-width: 879px) {
+      .hero {
+        display: flex;
+        flex-direction: column;
+      }
+      .hero .card {
+        order: -1;
+        margin-bottom: 28px;
+      }
+      .hero-photos     { order: 1; }
+      .hero .badge     { order: 2; }
+      .hero h1.display { order: 3; }
+      .hero-sub        { order: 4; }
+      .hero .btn-wa-hero { order: 5; }
+      .hero-wa-sub     { order: 6; }
+      .hero-checks     { order: 7; }
+      .hero-stats      { order: 8; }
+      .hero-social-proof { order: 9; }
+      .countdown-bar   { order: 10; }
     }
 
     /* ═══════════════════════════════════════════════════
@@ -1570,20 +1614,20 @@
 
       /* HERO — asymmetric 7fr 5fr */
       .hero {
-        padding: 72px 56px 120px;
+        padding: 40px 56px 72px;
         display: grid;
         grid-template-columns: 1.2fr 440px;
         column-gap: 72px;
         align-items: start;
-        min-height: 640px;
       }
-      .hero-photos { max-width: 520px; gap: 14px; margin-bottom: 32px; }
-      .hero-photo { aspect-ratio: 4 / 5; border-radius: 18px; }
+      .hero-photos { max-width: 460px; gap: 14px; margin-bottom: 24px; }
+      .hero-photo { aspect-ratio: 1 / 1; border-radius: 18px; }
 
       .hero h1.display {
-        font-size: clamp(64px, 7vw, 92px);
-        margin-bottom: 24px;
-        max-width: 12ch;
+        font-size: clamp(40px, 5vw, 72px);
+        line-height: 1.05;
+        margin-bottom: 20px;
+        max-width: 16ch;
       }
       .hero-sub { font-size: var(--fs-lg); max-width: 48ch; }
       .hero-checks { padding: 24px 0; }
@@ -1605,8 +1649,8 @@
       }
 
       /* Badge + checks + stats não afetam form */
-      section { padding: 112px 56px; }
-      .section-title { margin-bottom: 64px; }
+      section { padding: 72px 56px; }
+      .section-title { margin-bottom: 48px; }
 
       /* Compare 2 cols no desktop */
       .compare-grid { grid-template-columns: 1fr 1fr; gap: 24px; }
@@ -1625,8 +1669,8 @@
     }
 
     @media (min-width: 1200px) {
-      .hero { padding: 96px 80px 140px; column-gap: 96px; grid-template-columns: 1.3fr 460px; }
-      section { padding: 128px 80px; }
+      .hero { padding: 48px 80px 88px; column-gap: 96px; grid-template-columns: 1.3fr 460px; }
+      section { padding: 80px 80px; }
       .footer-grid, .footer-copy { padding: 0; max-width: 1040px; }
     }
   </style>
@@ -1696,10 +1740,16 @@
     3.000+ clientes atendidas em Recife, nas Graças. Laser <strong>Crystal 3D Plus</strong> — resultado visível desde a 1ª sessão, sem dor e sem pelo encravado.
   </p>
 
+  <!-- BOTÃO WA DIRETO — above the fold (movido pra cima dos checks pra aparecer sem scroll). -->
+  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero" rel="noopener">
+    <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
+    Falar no WhatsApp agora
+  </a>
+  <div class="hero-wa-sub">Resposta em menos de 2 minutos</div>
+
   <div class="hero-checks">
-    <div class="hero-check">Pele lisa por semanas, não por dias</div>
     <div class="hero-check">Resultado visível desde a 1ª sessão</div>
-    <div class="hero-check">Parcelamos em 12x sem juros no cartão</div>
+    <div class="hero-check">Pele lisa por semanas, não por dias</div>
     <div class="hero-check">Avaliação gratuita + brinde surpresa</div>
   </div>
 
@@ -1717,13 +1767,6 @@
       <div class="hero-stat-label">Sem juros</div>
     </div>
   </div>
-
-  <!-- BOTÃO WA DIRETO — above the fold. Usa <use href> referenciando symbol #icon-wa. -->
-  <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero" rel="noopener">
-    <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
-    Falar no WhatsApp agora
-  </a>
-  <div class="hero-wa-sub">Resposta em menos de 2 minutos</div>
 
   <!-- Mini prova social -->
   <div class="hero-social-proof">
@@ -1975,17 +2018,11 @@
   </div>
 </section>
 
-<!-- GARANTIA -->
-<section class="garantia-section">
-  <span class="garantia-eyebrow">Nossa promessa</span>
-  <h3>Avalie de graça.<br><em>Sem pressão.</em> Sem compromisso.</h3>
-  <p>Mais de 3.000 clientes atendidas com nota 5 estrelas no Google. Você vem, conhece a clínica, faz o teste de pele e recebe o orçamento. Se não quiser continuar — sem problema.</p>
-</section>
-
-<!-- CTA FINAL -->
+<!-- GARANTIA + CTA FINAL (fundidas) -->
 <section class="cta-final">
   <span class="section-eyebrow">Última chamada</span>
   <h2>Chega de cera.<br><em>Sua vaga</em> te espera.</h2>
+  <p class="cta-promessa"><strong>Sem pressão, sem compromisso.</strong> Você vem, conhece a clínica, faz o teste de pele gratuito e recebe o orçamento. Se não quiser continuar — sem problema.</p>
   <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>Apenas <strong id="vagas2">3</strong> vagas disponíveis — válido até hoje 23:59</p>
   <a href="https://api.whatsapp.com/send?phone=5581995749947&text=%5BLP4%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-cta2" id="cta-final-btn" rel="noopener">
     <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
