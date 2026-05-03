@@ -392,11 +392,14 @@
     const tagMatch = decodeURIComponent(href).match(/\[LP[0-9]+(?:-[A-Z0-9]+)*\]/);
     const tag = tagMatch ? tagMatch[0] : '[LP-UNKNOWN]';
 
+    // event_name: 'Contact' (não 'Lead') — wa.me click é INTENT, não conversão.
+    // 'Lead' fica reservado pra form submit (handleLead). Match com LP atual
+    // que só dispara Lead em form submit também.
     const eventId = 'ev_wa_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
 
     try {
       if (window.fbq) {
-        fbq('track', 'Lead',
+        fbq('track', 'Contact',
           { content_name: 'WhatsApp Click ' + tag, content_category: 'whatsapp_cta', value: 0, currency: 'BRL' },
           { eventID: eventId }
         );
@@ -407,7 +410,7 @@
     const fbc = getCookie('_fbc');
     const origemFB = getOrigemFallback();
     sendCapi({
-      event_name: 'Lead',
+      event_name: 'Contact',
       event_id: eventId,
       event_source_url: location.href,
       client_user_agent: navigator.userAgent,
@@ -419,7 +422,7 @@
       lp_version: 'v2-jpa-conversion',
     });
 
-    trackEvent('WA Click ' + tag, { tag, lp: 'v2-conversion' });
+    trackEvent('WA Click ' + tag, { tag, lp: 'v2-jpa-conversion' });
   }, true);
 
 })();

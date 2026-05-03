@@ -1369,11 +1369,44 @@ STICKY WHATSAPP FAB
 SCRIPTS
 ============================================================ -->
 <script>
-  // Reveal on scroll
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
-  }, { threshold: 0.08 });
-  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+  // Reveal on scroll — 3 camadas de defesa pra mobile/in-app browsers
+  // (Fix 03/05: bug mobile onde IntersectionObserver não disparava nos
+  //  in-app browsers FB/IG/WA, deixando 41/42 reveals com opacity:0).
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+
+    // Camada 1: feature-detect IntersectionObserver. Se não suportado,
+    // mostrar tudo imediatamente (fail-open).
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function (el) { el.classList.add('in'); });
+      return;
+    }
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.01, rootMargin: '0px 0px -5% 0px' });
+
+    els.forEach(function (el) { io.observe(el); });
+
+    // Camada 2: força reveal de elementos JÁ visíveis no fold inicial
+    // (cobre caso IO em mobile in-app browser inicialmente skip).
+    setTimeout(function () {
+      els.forEach(function (el) {
+        var r = el.getBoundingClientRect();
+        if (r.top < window.innerHeight && r.bottom > 0) {
+          el.classList.add('in');
+        }
+      });
+    }, 100);
+
+    // Camada 3: failsafe — qualquer reveal AINDA escondido após 2s
+    // recebe .in (garante NUNCA elemento permanente invisível).
+    setTimeout(function () {
+      els.forEach(function (el) { el.classList.add('in'); });
+    }, 2000);
+  })();
 
   // Countdown — meia-noite BRT (America/Recife), DST-safe via Intl
   function tickCountdown() {
