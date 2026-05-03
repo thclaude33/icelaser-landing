@@ -307,6 +307,12 @@
 
     setTimeout(function () { openWhatsApp(msg); }, 350);
 
+    // FIX 03/05 v7 (A1 follow-up): success path desliga submitting=true
+    // ANTES do timer A1 (8s) disparar. Sem isso o timer faz reset_button_label
+    // mesmo no happy path, desfazendo o "✓ Enviado!" verde antes do user
+    // navegar. submitting=false aqui mantém o estado verde permanente.
+    submitting = false;
+
     return false;
   };
 

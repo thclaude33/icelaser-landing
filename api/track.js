@@ -292,10 +292,12 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   // FIX 03/05 v7 (S4): rate limit per-IP antes de qualquer parse/CAPI work.
-  // IP extraction prioriza x-real-ip (Vercel canonical) sobre primeiro x-forwarded-for
-  // (que pode ser spoofado por client). Cookie _cip ignorado aqui (untrusted).
+  // IP extraction alinhada ao resto do file (track.js linha ~344): xff[0] (left-most
+  // = client real per HTTP spec) prioritário, então x-real-ip (Vercel canonical),
+  // fallback socket. Cookie _cip ignorado aqui (untrusted client-side input).
+  // Vercel edge sempre seta x-real-ip + xff[0]=client_real → consistente.
   const rlXff = (req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
-  const rlIp = req.headers['x-real-ip'] || rlXff[rlXff.length - 1] || req.socket?.remoteAddress || '';
+  const rlIp = rlXff[0] || req.headers['x-real-ip'] || req.socket?.remoteAddress || '';
   const rlCheck = checkRateLimit(rlIp);
   if (!rlCheck.allowed) {
     res.setHeader('Retry-After', String(rlCheck.retryAfter));
