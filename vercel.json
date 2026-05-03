@@ -164,6 +164,16 @@
       "source": "/home",
       "destination": "/",
       "permanent": true
+    },
+    {
+      "source": "/v2",
+      "destination": "/v2/",
+      "permanent": true
+    },
+    {
+      "source": "/v2-jpa",
+      "destination": "/v2-jpa/",
+      "permanent": true
     }
   ]
 }
