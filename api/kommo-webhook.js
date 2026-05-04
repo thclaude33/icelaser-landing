@@ -433,16 +433,32 @@ async function patchKommoLead(leadId, customFields) {
  */
 async function enrichLeadFromReferral(leadId) {
   if (!leadId) return {};
-  // FIX Vercel Agent #4: URLSearchParams pra encoding seguro de query params.
-  // (leadId é numérico vindo do webhook Kommo — risco baixo, mas best practice.)
+  // 🚨 BUG KOMMO API CONFIRMADO 03/05 — `filter[lead_id]` e `filter[entity_id]`
+  // são SILENTLY IGNORED pelo /leads/unsorted endpoint. API sempre retorna
+  // lista geral por created_at desc. Testado live com 5 valores diferentes
+  // (incluindo lead inexistente 99999999) → todos retornam mesmo result set.
+  //
+  // Workaround: pega N unsorted recentes, filtra client-side por
+  // `_embedded.leads[].id === leadId`. limit=20 cobre caso onde lead novo
+  // chega + 19 outros leads chegando concorrentemente (extremo).
+  const numericLeadId = Number(leadId);
+  if (!Number.isFinite(numericLeadId)) return {};
   const params = new URLSearchParams();
-  params.set('filter[lead_id]', String(leadId));
-  params.set('limit', '1');
+  params.set('limit', '20');
+  params.set('order[created_at]', 'desc');
   const unsortedList = await fetchKommoEntity(`/leads/unsorted?${params.toString()}`);
   const items = unsortedList?._embedded?.unsorted || [];
   if (items.length === 0) return {};
 
-  const u = items[0];
+  // Client-side filter — encontrar o unsorted que tem este leadId em _embedded.leads
+  const u = items.find(item =>
+    item._embedded?.leads?.some(l => Number(l.id) === numericLeadId)
+  );
+  if (!u) {
+    // Lead não veio via WABA/unsorted (criado via API/import/manual)
+    console.log(`[KOMMO-JP] enrich lead=${leadId} no_unsorted_match (origem direta — sem CTWA referral disponível)`);
+    return {};
+  }
   const meta = u.metadata || {};
   const origin = meta.origin || {};
   const sourceName = u.source_name || meta.source_name || '';
