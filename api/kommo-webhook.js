@@ -28,6 +28,15 @@
  * Auth: header `X-Kommo-Token` ou ?token=... validar contra KOMMO_WEBHOOK_SECRET.
  * FAIL-CLOSED em produção (NODE_ENV=production sem secret = rejeita).
  *
+ * Code review v4 aplicado 2026-05-03 — REFERRAL ENRICHMENT:
+ *   - Custom field IDs RECRIADOS (3829010-3829022) — IDs antigos foram deletados
+ *     pela equipe externa, bridge antes referenciava IDs zumbi → ctwa_clid sempre
+ *     vazio → action_source caía pra system_generated → Andromeda CTWA boost perdido
+ *   - enrichLeadFromReferral() roda em todo add_lead, busca metadata.origin via API,
+ *     populates custom fields (ctwa_clid, ad_id, source_url, fbc, etc) via PATCH lead
+ *   - buildLeadEvent agora aceita pii completo + injeta user_data.fbc + custom_data.ad_id
+ *   - Graceful failure: enrich falhar não quebra dispatch CAPI
+ *
  * Code review v3 aplicado 2026-05-02:
  *   - Mapping atualizado pra novos stages (105357711 LEAD FRIO + 105329767 LINK PAGAMENTO)
  *   - Removido stage 105176183 (não existe mais no pipeline atual)
@@ -58,13 +67,26 @@ const KOMMO_SUBDOMAIN = 'thiagosml';
 // Meta linke evento ao domain correto e não reduza EMQ por mismatch.
 const LP_DOMAIN_JP = 'https://icelaser-landing.vercel.app';
 
-// Custom field IDs JP (criados via API 28/04 — vide reference_kommo_jp_complete §1)
-const CF_CTWA_CLID = 3815860;
-const CF_META_AD_ID = 3815864;
-const CF_WHATSAPP_PHONE = 3815868;   // text type (criado por nós, não multitext nativo)
-const CF_PURCHASE_VALUE = 3815870;   // numeric (fallback pra lead.price)
-// CF_LEAD_ID_FACEBOOK=3815862, CF_META_CAMPAIGN_NAME=3815866, CF_SERVICO_INTERESSE=3815872
-// (declared pra futuro custom_data enrichment)
+// Custom field IDs JP — VERSÃO ATUAL (03/05/2026).
+// Os IDs antigos (3815860/3815862/3815864/3815866/3815868/3815870) foram deletados
+// pela equipe externa — recriei via API com IDs novos abaixo. Bridge anterior
+// estava com IDs zumbi → ctwa_clid + ad_id sempre vinham vazios → action_source
+// caía pra "system_generated" sempre, perdendo Andromeda CTWA boost.
+const CF_CTWA_CLID         = 3829010;  // text — Meta WhatsApp Click ID
+const CF_META_AD_ID        = 3829012;  // text — Meta ad_id (referral.source_id)
+const CF_META_ADSET_ID     = 3829014;  // text
+const CF_META_CAMPAIGN_ID  = 3829016;  // text
+const CF_META_SOURCE_URL   = 3829018;  // text — referral.source_url
+const CF_META_FBC          = 3829020;  // text — fb.1.{ts}.{ctwa_clid}
+const CF_META_FBP          = 3829022;  // text — Pixel browser ID
+// LEGACY (auto-criados pelo Kommo, mantidos):
+const CF_FBCLID            = 3813890;  // tracking_data
+const CF_UTM_SOURCE        = 3813878;
+const CF_UTM_CAMPAIGN      = 3813876;
+const CF_UTM_MEDIUM        = 3813874;
+const CF_UTM_CONTENT       = 3813872;
+const CF_REFERRER          = 3813884;
+const CF_SERVICO_INTERESSE = 3815872;  // único survivor da leva 28/04
 
 // Kommo stage → Meta event mapping (v3 — não-conflito com WAM + Kommo native CAPI).
 // Pipeline JP 13628687, 9 stages (atualizado 01/05 pela equipe externa).
@@ -101,7 +123,12 @@ function normalizePhone(raw) {
  * enum_code (WORK/MOB/etc) ou text custom (WHATSAPP_PHONE 3815868).
  */
 function extractContactPII(contact, lead) {
-  let email, phone, ctwaClid, hasMetaAdId, purchaseValueCustom;
+  let email, phone;
+  let ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, fbp, fbclid;
+  let utmSource, utmCampaign, utmMedium, utmContent, referrer;
+  // FIX Vercel Agent #3: removido `purchaseValueCustom` (CF_PURCHASE_VALUE foi
+  // deletado pela equipe externa em 03/05). Purchase events usam lead.price como
+  // fonte canônica. Se lead.price ausente, fallback hardcoded 497 em buildLeadEvent.
   const fields = [
     ...(contact?.custom_fields_values || contact?.custom_fields || []),
     ...(lead?.custom_fields_values || lead?.custom_fields || []),
@@ -114,16 +141,75 @@ function extractContactPII(contact, lead) {
     // PHONE/EMAIL nativos = multitext (Kommo doc §AA)
     if (code === 'PHONE' && !phone) phone = String(val);
     if (code === 'EMAIL' && !email) email = String(val);
-    // Custom JP fields
-    if (Number(id) === CF_WHATSAPP_PHONE && !phone) phone = String(val);
-    if (Number(id) === CF_CTWA_CLID && val) ctwaClid = String(val);
-    if (Number(id) === CF_META_AD_ID && val) hasMetaAdId = true;
-    if (Number(id) === CF_PURCHASE_VALUE) {
-      const n = Number(val);
-      if (Number.isFinite(n) && n > 0) purchaseValueCustom = n;
-    }
+
+    // Meta CTWA tracking fields (criados 03/05)
+    if (Number(id) === CF_CTWA_CLID)        ctwaClid = String(val);
+    if (Number(id) === CF_META_AD_ID)       adId = String(val);
+    if (Number(id) === CF_META_ADSET_ID)    adsetId = String(val);
+    if (Number(id) === CF_META_CAMPAIGN_ID) campaignId = String(val);
+    if (Number(id) === CF_META_SOURCE_URL)  sourceUrl = String(val);
+    if (Number(id) === CF_META_FBC)         fbc = String(val);
+    if (Number(id) === CF_META_FBP)         fbp = String(val);
+
+    // Tracking_data fields auto-criados (utm_*, fbclid)
+    if (Number(id) === CF_FBCLID)        fbclid = String(val);
+    if (Number(id) === CF_UTM_SOURCE)    utmSource = String(val);
+    if (Number(id) === CF_UTM_CAMPAIGN)  utmCampaign = String(val);
+    if (Number(id) === CF_UTM_MEDIUM)    utmMedium = String(val);
+    if (Number(id) === CF_UTM_CONTENT)   utmContent = String(val);
+    if (Number(id) === CF_REFERRER)      referrer = String(val);
   }
-  return { email, phone, ctwaClid, hasMetaAdId, purchaseValueCustom };
+  // hasMetaAdId mantido como flag pra compat com buildLeadEvent
+  const hasMetaAdId = Boolean(adId);
+  return {
+    email, phone,
+    ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, fbp, fbclid,
+    utmSource, utmCampaign, utmMedium, utmContent, referrer,
+    hasMetaAdId,
+  };
+}
+
+/**
+ * Mergea pii base (do contact + lead payload) com enrichment recém-PATCHado.
+ * FIX Vercel Agent #2 (race condition): enrichLeadFromReferral PATCH o lead via API
+ * mas o `lead` passado pra extractContactPII vem do webhook payload original — sem
+ * os fields recém-populados. Solução: enrich retorna os valores e a gente mergea
+ * preferindo enrichValues (mais frescos) sobre pii original.
+ */
+function mergeEnrichmentIntoPII(pii, enrich) {
+  if (!enrich || Object.keys(enrich).length === 0) return pii;
+  const merged = { ...pii };
+  // Enrich values têm prioridade — foram acabados de PATCHar
+  if (enrich.ctwaClid    && !merged.ctwaClid)    merged.ctwaClid = enrich.ctwaClid;
+  if (enrich.adId        && !merged.adId)        merged.adId = enrich.adId;
+  if (enrich.adsetId     && !merged.adsetId)     merged.adsetId = enrich.adsetId;
+  if (enrich.campaignId  && !merged.campaignId)  merged.campaignId = enrich.campaignId;
+  if (enrich.sourceUrl   && !merged.sourceUrl)   merged.sourceUrl = enrich.sourceUrl;
+  if (enrich.fbc         && !merged.fbc)         merged.fbc = enrich.fbc;
+  if (enrich.utmSource   && !merged.utmSource)   merged.utmSource = enrich.utmSource;
+  if (enrich.fbclid      && !merged.fbclid)      merged.fbclid = enrich.fbclid;
+  // Recompute hasMetaAdId
+  merged.hasMetaAdId = Boolean(merged.adId);
+  return merged;
+}
+
+/**
+ * FIX Vercel Agent #1: messaging_channel dinâmico baseado no source.
+ * Meta CAPI accepted values: 'whatsapp', 'messenger', 'instagram_direct'.
+ * Source name vem como `waba:{phone_id}`, `instagram_business:{ig_id}`,
+ * `facebook:{page_id}` (Kommo padrão).
+ */
+function inferMessagingChannel(sourceName, utmSource) {
+  const src = String(sourceName || '').toLowerCase();
+  if (src.startsWith('waba:') || src.startsWith('whatsapp:')) return 'whatsapp';
+  if (src.startsWith('instagram_business:') || src.startsWith('instagram:')) return 'instagram_direct';
+  if (src.startsWith('facebook:') || src.startsWith('messenger:')) return 'messenger';
+  // Fallback: usa utm_source se conhecido
+  const u = String(utmSource || '').toLowerCase();
+  if (u === 'whatsapp_ad' || u === 'whatsapp') return 'whatsapp';
+  if (u === 'instagram') return 'instagram_direct';
+  if (u === 'facebook') return 'messenger';
+  return 'whatsapp'; // default seguro pra business_messaging (CTWA é o caso dominante)
 }
 
 function splitName(name) {
@@ -166,7 +252,7 @@ async function buildUserDataKommo(contact, pii) {
  *
  * @param dedupKey  string única por evento lógico (ex: "add_105176167" ou "incoming_to_frio")
  */
-function buildLeadEvent({ leadId, eventName, dedupKey, lead, userData, ctwaClid, hasMetaAdId, customData = {} }) {
+function buildLeadEvent({ leadId, eventName, dedupKey, lead, userData, pii, customData = {} }) {
   // event_time = lead.updated_at se vier (algumas variantes Kommo populam),
   // senão now. NÃO usado pra dedup (event_id é o dedup key real).
   const eventTimeSec = Number(lead?.updated_at) || Number(lead?.modified_at) ||
@@ -176,8 +262,39 @@ function buildLeadEvent({ leadId, eventName, dedupKey, lead, userData, ctwaClid,
   //   - business_messaging quando lead vem de Click-to-Message ad (CTWA_CLID/META_AD_ID populados)
   //     → Andromeda dá boost de atribuição em CTWA campaigns
   //   - system_generated pra leads CRM-driven (manual/import/form)
-  const isCtwa = Boolean(ctwaClid || hasMetaAdId);
+  const isCtwa = Boolean(pii?.ctwaClid || pii?.hasMetaAdId);
   const actionSource = isCtwa ? 'business_messaging' : 'system_generated';
+
+  // FIX 03/05 v4: enrichment user_data.fbc + custom_data.ad_id pra atribuição CAPI.
+  // user_data.fbc no formato oficial Meta CAPI: fb.1.{ts_ms}.{ctwa_clid}
+  // (https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters)
+  // sem isso, Meta atribui evento mas NÃO conecta ao ad CTWA original — Andromeda
+  // não otimiza CTWA campaigns sem fbc.
+  const enrichedUserData = { ...userData };
+  if (pii?.fbc) {
+    enrichedUserData.fbc = pii.fbc;
+  } else if (pii?.ctwaClid) {
+    enrichedUserData.fbc = `fb.1.${eventTimeSec * 1000}.${pii.ctwaClid}`;
+  }
+  if (pii?.fbp) enrichedUserData.fbp = pii.fbp;
+  if (pii?.fbclid && !enrichedUserData.fbc) {
+    // fallback fbclid (browser-side click) caso ctwa_clid ausente mas fbclid populado
+    enrichedUserData.fbc = `fb.1.${eventTimeSec * 1000}.${pii.fbclid}`;
+  }
+
+  // custom_data enriquecido com ad attribution
+  const enrichedCustomData = {
+    lead_event_source: 'Kommo',
+    event_source: 'crm',
+    ...customData,
+  };
+  if (pii?.adId)        enrichedCustomData.ad_id = pii.adId;
+  if (pii?.adsetId)     enrichedCustomData.adset_id = pii.adsetId;
+  if (pii?.campaignId)  enrichedCustomData.campaign_id = pii.campaignId;
+  if (pii?.utmSource)   enrichedCustomData.utm_source = pii.utmSource;
+  if (pii?.utmCampaign) enrichedCustomData.utm_campaign = pii.utmCampaign;
+  if (pii?.utmMedium)   enrichedCustomData.utm_medium = pii.utmMedium;
+  if (pii?.utmContent)  enrichedCustomData.utm_content = pii.utmContent;
 
   const event = {
     event_name: eventName,
@@ -186,17 +303,15 @@ function buildLeadEvent({ leadId, eventName, dedupKey, lead, userData, ctwaClid,
     event_id: `kommo_jp_${leadId}_${eventName}_${dedupKey}`,
     action_source: actionSource,
     // FIX #6: domain LP verificado (não Kommo CRM)
-    event_source_url: `${LP_DOMAIN_JP}/jp`,
-    user_data: userData,
-    custom_data: {
-      lead_event_source: 'Kommo',
-      event_source: 'crm',
-      ...customData,
-    },
+    event_source_url: pii?.sourceUrl || `${LP_DOMAIN_JP}/jp`,
+    user_data: enrichedUserData,
+    custom_data: enrichedCustomData,
   };
   // business_messaging requer messaging_channel (filterValidEvents valida — error 2804063 sem ele)
+  // FIX Vercel Agent #1: dinâmico baseado em source — antes era hardcoded 'whatsapp'
+  // causando misattribution em leads Instagram/Facebook.
   if (actionSource === 'business_messaging') {
-    event.messaging_channel = 'whatsapp';
+    event.messaging_channel = inferMessagingChannel(pii?.sourceName, pii?.utmSource);
   }
   return event;
 }
@@ -271,6 +386,118 @@ async function fetchKommoEntity(path) {
   }
 }
 
+async function patchKommoLead(leadId, customFields) {
+  const token = process.env.KOMMO_TOKEN_JP;
+  if (!token || !customFields?.length) return null;
+  try {
+    const r = await fetch(`https://${KOMMO_SUBDOMAIN}.kommo.com/api/v4/leads/${leadId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ custom_fields_values: customFields }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      console.warn(`[KOMMO-JP] PATCH lead ${leadId} failed: ${r.status} ${body.slice(0, 200)}`);
+      return null;
+    }
+    return await r.json();
+  } catch (e) {
+    console.warn(`[KOMMO-JP] PATCH lead ${leadId} error: ${e?.message}`);
+    return null;
+  }
+}
+
+/**
+ * FIX 03/05 v4: Captura metadata.referral do WABA payload e popula custom fields.
+ *
+ * Quando lead chega via CTWA, Meta envia metadata em `messages[0].referral` com:
+ *   source_id (= ad_id), source_type, source_url, ctwa_clid, headline, body
+ * Kommo recebe esse payload via integration WhatsApp Cloud API e armazena em
+ * `unsorted.metadata.origin` (campos disponíveis: chat_id, ref, visitor_uid).
+ *
+ * Estratégia:
+ *   1. Busca unsorted matching o lead → /leads/unsorted?filter[lead_id]={id}
+ *   2. Extrai metadata.origin (ctwa_clid pode vir em ref OU visitor_uid)
+ *   3. PATCH lead com custom_fields_values populados
+ *   4. Eventos CAPI subsequentes (Frio/IC/Schedule) puxam fields populados
+ *      → user_data.fbc + custom_data.ad_id corretos → atribuição precisa Meta
+ *
+ * Graceful failure: se algum step falhar, retorna {} sem throw — bridge continua
+ * disparando CAPI com os dados que tem (degrada como hoje, sem regressão).
+ *
+ * @returns {Promise<{ctwaClid?: string, adId?: string, sourceUrl?: string}>}
+ */
+async function enrichLeadFromReferral(leadId) {
+  if (!leadId) return {};
+  // FIX Vercel Agent #4: URLSearchParams pra encoding seguro de query params.
+  // (leadId é numérico vindo do webhook Kommo — risco baixo, mas best practice.)
+  const params = new URLSearchParams();
+  params.set('filter[lead_id]', String(leadId));
+  params.set('limit', '1');
+  const unsortedList = await fetchKommoEntity(`/leads/unsorted?${params.toString()}`);
+  const items = unsortedList?._embedded?.unsorted || [];
+  if (items.length === 0) return {};
+
+  const u = items[0];
+  const meta = u.metadata || {};
+  const origin = meta.origin || {};
+  const sourceName = u.source_name || meta.source_name || '';
+
+  // Captura via metadata.origin (Kommo armazena ref + visitor_uid + chat_id aqui).
+  // Em CTWA WABA, Meta passa source_id e ctwa_clid no welcome message.
+  // Kommo NÃO mapeia 1:1 atualmente — visitor_uid pode ser ctwa_clid em alguns casos.
+  // Como fallback, source_name "waba:..." indica origem WhatsApp Business.
+  const ctwaClid = origin.ctwa_clid || origin.ref || null;
+  const adId = meta.referral?.source_id || origin.source_id || null;
+  const adsetId = meta.referral?.adset_id || null;
+  const campaignId = meta.referral?.campaign_id || null;
+  const sourceUrl = meta.referral?.source_url || null;
+  const fbclid = meta.referral?.fbclid || null;
+
+  // Determina utm_source baseado em source_name
+  let utmSource;
+  if (sourceName.startsWith('waba:')) utmSource = 'whatsapp_ad';
+  else if (sourceName.startsWith('instagram_business:')) utmSource = 'instagram';
+  else if (sourceName.startsWith('facebook:')) utmSource = 'facebook';
+
+  // Constrói fbc no formato Meta CAPI se temos ctwa_clid
+  const tsMs = (Number(u.created_at) || Math.floor(Date.now() / 1000)) * 1000;
+  const fbc = ctwaClid ? `fb.1.${tsMs}.${ctwaClid}` : null;
+
+  // Monta payload PATCH só com fields que temos valor
+  const fields = [];
+  const push = (id, value) => {
+    if (value != null && value !== '') {
+      fields.push({ field_id: id, values: [{ value: String(value) }] });
+    }
+  };
+  push(CF_CTWA_CLID,         ctwaClid);
+  push(CF_META_AD_ID,        adId);
+  push(CF_META_ADSET_ID,     adsetId);
+  push(CF_META_CAMPAIGN_ID,  campaignId);
+  push(CF_META_SOURCE_URL,   sourceUrl);
+  push(CF_META_FBC,          fbc);
+  if (utmSource) push(CF_UTM_SOURCE, utmSource);
+  if (fbclid)    push(CF_FBCLID, fbclid);
+
+  if (fields.length === 0) {
+    // Sem dados úteis no metadata — registra que tentou (origem orgânica/sem CTWA)
+    console.log(`[KOMMO-JP] enrich lead=${leadId} source=${sourceName} no_referral_data`);
+    return {};
+  }
+
+  await patchKommoLead(leadId, fields);
+  console.log(
+    `[KOMMO-JP] enriched lead=${leadId} source=${sourceName} ` +
+    `fields=${fields.map(f => f.field_id).join(',')}`
+  );
+  return { ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, utmSource, fbclid, sourceName };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'method_not_allowed' });
@@ -330,11 +557,20 @@ export default async function handler(req, res) {
   }
 
   // === ADD_LEAD: lead criado ===
-  // FIX N#2: SÓ dispara se stage atual mapeia pra evento Meta. Caso contrário
-  // (ex: stage=incoming 105176163), espera transition status_lead. Evita
-  // 2x Lead duplicate (incoming via add_lead + Lead Frio via status_lead).
+  // FIX 03/05 v4: enrichLeadFromReferral roda PRA TODO add_lead (não só os com
+  // stage mapeado), pra garantir que custom fields ctwa_clid/ad_id/fbc são
+  // populados ASSIM que lead chega — antes de qualquer transition pra Frio/IC.
+  // Eventos CAPI subsequentes (status_lead → Frio/IC/Schedule) puxam fields já
+  // populados via extractContactPII → user_data.fbc + custom_data.ad_id corretos.
   for (const lead of leadsAdd) {
     if (lead.pipeline_id && String(lead.pipeline_id) !== KOMMO_PIPELINE_JP) continue;
+
+    // FIX Vercel Agent #2 (race condition): enrich retorna os valores que populou.
+    // Pii do lead original (webhook payload) NÃO tem fields recém-PATCHados ainda
+    // (o lead full re-fetch seria 1 round-trip extra). Mergeamos enrich into pii
+    // ao invés. Falha graciosa: se enrich fail, retorna {} e segue fluxo normal.
+    const enrich = await enrichLeadFromReferral(lead.id).catch(() => ({}));
+
     const stageId = String(lead.status_id || '');
     const eventName = STAGE_TO_META_EVENT[stageId];
     if (!eventName) continue; // incoming → espera transition
@@ -345,7 +581,8 @@ export default async function handler(req, res) {
       errors.push({ lead: lead.id, reason: 'no_contact', event: 'add_lead', stage: stageId });
       continue;
     }
-    const pii = extractContactPII(contact, lead);
+    const piiBase = extractContactPII(contact, lead);
+    const pii = mergeEnrichmentIntoPII(piiBase, enrich);
     const userData = await buildUserDataKommo(contact, pii);
 
     const customData = {};
@@ -353,8 +590,9 @@ export default async function handler(req, res) {
       customData.currency = 'BRL';
       const priceNum = Number(lead.price);
       const valFromLead = Number.isFinite(priceNum) && priceNum > 0 ? priceNum : null;
-      // FIX N#7: fallback CF_PURCHASE_VALUE custom field se lead.price ausente
-      customData.value = valFromLead || pii.purchaseValueCustom || 497;
+      // FIX Vercel Agent #3: removido pii.purchaseValueCustom (CF foi deletado).
+      // Fallback hardcoded 497 (valor médio serviço IceLaser).
+      customData.value = valFromLead || 497;
     }
 
     events.push(buildLeadEvent({
@@ -364,13 +602,15 @@ export default async function handler(req, res) {
       dedupKey: `add_${stageId}`,
       lead,
       userData,
-      ctwaClid: pii.ctwaClid,
-      hasMetaAdId: pii.hasMetaAdId,
+      pii,
       customData,
     }));
   }
 
   // === STATUS_LEAD: lead mudou de stage ===
+  // Note: enrich não roda aqui — em status_lead o lead já existe há tempo,
+  // os custom fields já foram populados em add_lead anterior. extractContactPII
+  // pega os values populated diretamente do lead (sem race condition).
   for (const lead of leadsStatus) {
     if (lead.pipeline_id && String(lead.pipeline_id) !== KOMMO_PIPELINE_JP) continue;
 
@@ -385,7 +625,11 @@ export default async function handler(req, res) {
       errors.push({ lead: lead.id, reason: 'no_contact', stage: newStatusId, event: eventName });
       continue;
     }
-    const pii = extractContactPII(contact, lead);
+    // status_lead webhook payload tem lead minimal (id, status_id, old_status_id) —
+    // refetch lead full pra pegar custom_fields_values populated em add_lead anterior.
+    const leadFull = await fetchKommoEntity(`/leads/${lead.id}`);
+    const leadForPII = leadFull || lead;
+    const pii = extractContactPII(contact, leadForPII);
     const userData = await buildUserDataKommo(contact, pii);
 
     const customData = {};
@@ -393,7 +637,8 @@ export default async function handler(req, res) {
       customData.currency = 'BRL';
       const priceNum = Number(lead.price);
       const valFromLead = Number.isFinite(priceNum) && priceNum > 0 ? priceNum : null;
-      customData.value = valFromLead || pii.purchaseValueCustom || 497;
+      // FIX Vercel Agent #3: hardcoded 497 fallback (CF_PURCHASE_VALUE deletado)
+      customData.value = valFromLead || 497;
     }
 
     events.push(buildLeadEvent({
@@ -403,8 +648,7 @@ export default async function handler(req, res) {
       dedupKey: `${oldStatusId}_to_${newStatusId}`,
       lead,
       userData,
-      ctwaClid: pii.ctwaClid,
-      hasMetaAdId: pii.hasMetaAdId,
+      pii,
       customData,
     }));
   }
