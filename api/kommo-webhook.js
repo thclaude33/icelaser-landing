@@ -126,7 +126,9 @@ function extractContactPII(contact, lead) {
   let email, phone;
   let ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, fbp, fbclid;
   let utmSource, utmCampaign, utmMedium, utmContent, referrer;
-  let purchaseValueCustom;
+  // FIX Vercel Agent #3: removido `purchaseValueCustom` (CF_PURCHASE_VALUE foi
+  // deletado pela equipe externa em 03/05). Purchase events usam lead.price como
+  // fonte canônica. Se lead.price ausente, fallback hardcoded 497 em buildLeadEvent.
   const fields = [
     ...(contact?.custom_fields_values || contact?.custom_fields || []),
     ...(lead?.custom_fields_values || lead?.custom_fields || []),
@@ -163,8 +165,51 @@ function extractContactPII(contact, lead) {
     email, phone,
     ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, fbp, fbclid,
     utmSource, utmCampaign, utmMedium, utmContent, referrer,
-    hasMetaAdId, purchaseValueCustom,
+    hasMetaAdId,
   };
+}
+
+/**
+ * Mergea pii base (do contact + lead payload) com enrichment recém-PATCHado.
+ * FIX Vercel Agent #2 (race condition): enrichLeadFromReferral PATCH o lead via API
+ * mas o `lead` passado pra extractContactPII vem do webhook payload original — sem
+ * os fields recém-populados. Solução: enrich retorna os valores e a gente mergea
+ * preferindo enrichValues (mais frescos) sobre pii original.
+ */
+function mergeEnrichmentIntoPII(pii, enrich) {
+  if (!enrich || Object.keys(enrich).length === 0) return pii;
+  const merged = { ...pii };
+  // Enrich values têm prioridade — foram acabados de PATCHar
+  if (enrich.ctwaClid    && !merged.ctwaClid)    merged.ctwaClid = enrich.ctwaClid;
+  if (enrich.adId        && !merged.adId)        merged.adId = enrich.adId;
+  if (enrich.adsetId     && !merged.adsetId)     merged.adsetId = enrich.adsetId;
+  if (enrich.campaignId  && !merged.campaignId)  merged.campaignId = enrich.campaignId;
+  if (enrich.sourceUrl   && !merged.sourceUrl)   merged.sourceUrl = enrich.sourceUrl;
+  if (enrich.fbc         && !merged.fbc)         merged.fbc = enrich.fbc;
+  if (enrich.utmSource   && !merged.utmSource)   merged.utmSource = enrich.utmSource;
+  if (enrich.fbclid      && !merged.fbclid)      merged.fbclid = enrich.fbclid;
+  // Recompute hasMetaAdId
+  merged.hasMetaAdId = Boolean(merged.adId);
+  return merged;
+}
+
+/**
+ * FIX Vercel Agent #1: messaging_channel dinâmico baseado no source.
+ * Meta CAPI accepted values: 'whatsapp', 'messenger', 'instagram_direct'.
+ * Source name vem como `waba:{phone_id}`, `instagram_business:{ig_id}`,
+ * `facebook:{page_id}` (Kommo padrão).
+ */
+function inferMessagingChannel(sourceName, utmSource) {
+  const src = String(sourceName || '').toLowerCase();
+  if (src.startsWith('waba:') || src.startsWith('whatsapp:')) return 'whatsapp';
+  if (src.startsWith('instagram_business:') || src.startsWith('instagram:')) return 'instagram_direct';
+  if (src.startsWith('facebook:') || src.startsWith('messenger:')) return 'messenger';
+  // Fallback: usa utm_source se conhecido
+  const u = String(utmSource || '').toLowerCase();
+  if (u === 'whatsapp_ad' || u === 'whatsapp') return 'whatsapp';
+  if (u === 'instagram') return 'instagram_direct';
+  if (u === 'facebook') return 'messenger';
+  return 'whatsapp'; // default seguro pra business_messaging (CTWA é o caso dominante)
 }
 
 function splitName(name) {
@@ -263,8 +308,10 @@ function buildLeadEvent({ leadId, eventName, dedupKey, lead, userData, pii, cust
     custom_data: enrichedCustomData,
   };
   // business_messaging requer messaging_channel (filterValidEvents valida — error 2804063 sem ele)
+  // FIX Vercel Agent #1: dinâmico baseado em source — antes era hardcoded 'whatsapp'
+  // causando misattribution em leads Instagram/Facebook.
   if (actionSource === 'business_messaging') {
-    event.messaging_channel = 'whatsapp';
+    event.messaging_channel = inferMessagingChannel(pii?.sourceName, pii?.utmSource);
   }
   return event;
 }
@@ -386,10 +433,12 @@ async function patchKommoLead(leadId, customFields) {
  */
 async function enrichLeadFromReferral(leadId) {
   if (!leadId) return {};
-  // Tenta achar unsorted que linka pra esse lead
-  const unsortedList = await fetchKommoEntity(
-    `/leads/unsorted?filter%5Blead_id%5D=${leadId}&limit=1`
-  );
+  // FIX Vercel Agent #4: URLSearchParams pra encoding seguro de query params.
+  // (leadId é numérico vindo do webhook Kommo — risco baixo, mas best practice.)
+  const params = new URLSearchParams();
+  params.set('filter[lead_id]', String(leadId));
+  params.set('limit', '1');
+  const unsortedList = await fetchKommoEntity(`/leads/unsorted?${params.toString()}`);
   const items = unsortedList?._embedded?.unsorted || [];
   if (items.length === 0) return {};
 
@@ -446,7 +495,7 @@ async function enrichLeadFromReferral(leadId) {
     `[KOMMO-JP] enriched lead=${leadId} source=${sourceName} ` +
     `fields=${fields.map(f => f.field_id).join(',')}`
   );
-  return { ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, utmSource, fbclid };
+  return { ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, utmSource, fbclid, sourceName };
 }
 
 export default async function handler(req, res) {
@@ -516,9 +565,11 @@ export default async function handler(req, res) {
   for (const lead of leadsAdd) {
     if (lead.pipeline_id && String(lead.pipeline_id) !== KOMMO_PIPELINE_JP) continue;
 
-    // FIX 03/05 v4: enrich SEMPRE (mesmo Incoming). Não dispara CAPI aqui — só
-    // popula custom fields. Falha graciosa: se fail, retorna {} e segue fluxo.
-    await enrichLeadFromReferral(lead.id).catch(() => ({}));
+    // FIX Vercel Agent #2 (race condition): enrich retorna os valores que populou.
+    // Pii do lead original (webhook payload) NÃO tem fields recém-PATCHados ainda
+    // (o lead full re-fetch seria 1 round-trip extra). Mergeamos enrich into pii
+    // ao invés. Falha graciosa: se enrich fail, retorna {} e segue fluxo normal.
+    const enrich = await enrichLeadFromReferral(lead.id).catch(() => ({}));
 
     const stageId = String(lead.status_id || '');
     const eventName = STAGE_TO_META_EVENT[stageId];
@@ -530,7 +581,8 @@ export default async function handler(req, res) {
       errors.push({ lead: lead.id, reason: 'no_contact', event: 'add_lead', stage: stageId });
       continue;
     }
-    const pii = extractContactPII(contact, lead);
+    const piiBase = extractContactPII(contact, lead);
+    const pii = mergeEnrichmentIntoPII(piiBase, enrich);
     const userData = await buildUserDataKommo(contact, pii);
 
     const customData = {};
@@ -538,8 +590,9 @@ export default async function handler(req, res) {
       customData.currency = 'BRL';
       const priceNum = Number(lead.price);
       const valFromLead = Number.isFinite(priceNum) && priceNum > 0 ? priceNum : null;
-      // FIX N#7: fallback CF_PURCHASE_VALUE custom field se lead.price ausente
-      customData.value = valFromLead || pii.purchaseValueCustom || 497;
+      // FIX Vercel Agent #3: removido pii.purchaseValueCustom (CF foi deletado).
+      // Fallback hardcoded 497 (valor médio serviço IceLaser).
+      customData.value = valFromLead || 497;
     }
 
     events.push(buildLeadEvent({
@@ -555,6 +608,9 @@ export default async function handler(req, res) {
   }
 
   // === STATUS_LEAD: lead mudou de stage ===
+  // Note: enrich não roda aqui — em status_lead o lead já existe há tempo,
+  // os custom fields já foram populados em add_lead anterior. extractContactPII
+  // pega os values populated diretamente do lead (sem race condition).
   for (const lead of leadsStatus) {
     if (lead.pipeline_id && String(lead.pipeline_id) !== KOMMO_PIPELINE_JP) continue;
 
@@ -569,7 +625,11 @@ export default async function handler(req, res) {
       errors.push({ lead: lead.id, reason: 'no_contact', stage: newStatusId, event: eventName });
       continue;
     }
-    const pii = extractContactPII(contact, lead);
+    // status_lead webhook payload tem lead minimal (id, status_id, old_status_id) —
+    // refetch lead full pra pegar custom_fields_values populated em add_lead anterior.
+    const leadFull = await fetchKommoEntity(`/leads/${lead.id}`);
+    const leadForPII = leadFull || lead;
+    const pii = extractContactPII(contact, leadForPII);
     const userData = await buildUserDataKommo(contact, pii);
 
     const customData = {};
@@ -577,7 +637,8 @@ export default async function handler(req, res) {
       customData.currency = 'BRL';
       const priceNum = Number(lead.price);
       const valFromLead = Number.isFinite(priceNum) && priceNum > 0 ? priceNum : null;
-      customData.value = valFromLead || pii.purchaseValueCustom || 497;
+      // FIX Vercel Agent #3: hardcoded 497 fallback (CF_PURCHASE_VALUE deletado)
+      customData.value = valFromLead || 497;
     }
 
     events.push(buildLeadEvent({
