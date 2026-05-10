@@ -220,9 +220,11 @@ export default async function handler(req, res) {
   // Feature flag: CHATWOOT_BOT_ENABLED='1' (default '0' = bot desativado).
   // Dry-run flag : CHATWOOT_BOT_DRY_RUN='1' (loga payload, não envia mensagens).
   if (process.env.CHATWOOT_BOT_ENABLED === '1') {
+    // TRACE log temporário pra debug — descobrir onde Chatwoot manda inbox_id
     const botInboxId = body.inbox_id || body.inbox?.id || body.conversation?.inbox_id;
     const isWhatsAppRecife = botInboxId === 7;
     const isBotEvent = event === 'conversation_created' || event === 'message_created';
+    console.log(`[CRM→BOT TRACE] event=${event} inbox_id_detected=${botInboxId} isWhatsApp=${isWhatsAppRecife} isBotEvent=${isBotEvent} body_keys=${JSON.stringify(Object.keys(body || {}))}`);
     if (isWhatsAppRecife && isBotEvent) {
       // Fire-and-forget (sem await — bot roda em paralelo, nunca bloqueia CAPI)
       import('./chatwoot-bot/index.js')
