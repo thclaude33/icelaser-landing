@@ -212,6 +212,34 @@ export default async function handler(req, res) {
   ).slice(0, 120);
   console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
 
+  // ────────────────────────────────────────────────────────────────────
+  // 🤖 BOT WELCOME WA-RC — fire-and-forget delegation
+  // ────────────────────────────────────────────────────────────────────
+  // Delega pro bot quando: inbox=7 (WhatsApp Recife) + bot habilitado.
+  // NÃO bloqueia o fluxo principal. Erros são silenciosos (try/catch interno).
+  // Feature flag: CHATWOOT_BOT_ENABLED='1' (default '0' = bot desativado).
+  // Dry-run flag : CHATWOOT_BOT_DRY_RUN='1' (loga payload, não envia mensagens).
+  if (process.env.CHATWOOT_BOT_ENABLED === '1') {
+    const botInboxId = body.inbox_id || body.inbox?.id || body.conversation?.inbox_id;
+    const isWhatsAppRecife = botInboxId === 7;
+    const isBotEvent = event === 'conversation_created' || event === 'message_created';
+    if (isWhatsAppRecife && isBotEvent) {
+      // Fire-and-forget (sem await — bot roda em paralelo, nunca bloqueia CAPI)
+      import('./chatwoot-bot/index.js')
+        .then(({ handleNewConversation, handleIncomingMessage }) => {
+          const fn = event === 'conversation_created' ? handleNewConversation : handleIncomingMessage;
+          return fn(body);
+        })
+        .then(result => {
+          console.log(`[CRM→BOT] event=${event} conv=${body.id || body.conversation?.id || '?'} result=${JSON.stringify(result).slice(0, 150)}`);
+        })
+        .catch(e => {
+          // Bot pode falhar — NÃO afeta processamento CAPI normal abaixo
+          console.error(`[CRM→BOT] error (non-blocking): ${e?.message || e}`);
+        });
+    }
+  }
+
   // ── OUTER TRY/CATCH ──
   // Envolve todo o processamento — buildUserData, list Blob, fetch Graph,
   // sendCAPI. Antes da 25ª passada só o sendCAPI estava protegido (linha ~657),

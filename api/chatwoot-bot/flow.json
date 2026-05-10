@@ -1,0 +1,195 @@
+{
+  "version": "1.0.0",
+  "name": "Welcome WA-RC",
+  "description": "Bot de qualificação CTWA WhatsApp IceLaser Recife. Replica do Welcome WA-JP v22 fix (Kommo) adaptado pra Chatwoot. Remove etapa escolha unidade (Recife tem só 1 clínica em Graças).",
+  "source_reference": "kommo-jp-blueprint/Welcome-WA-JP-v22-fixed.json (bot id 45922)",
+  "clinic": "icelaser_recife",
+  "phone_number_id": "1140709345781659",
+  "waba_id": "920807647253970",
+  "chatwoot_inbox_id": 7,
+  "address": "R. Amélia, 896 - Graças - Galeria Top Center, Recife - PE",
+  "default_timeout_ms": 120000,
+  "default_timeout_step": "duvidas_handoff",
+  "start_step": "welcome",
+  "steps": {
+    "welcome": {
+      "type": "send_message",
+      "text": "Oi 💜 Aqui é da *IceLaser Recife*.\n\nRecebi seu interesse e vou te ajudar a agendar uma *avaliação gratuita* 🎁\n\nPra te indicar o pacote ideal, qual combinação combina mais com você? 👇",
+      "next": "wait_3s"
+    },
+    "wait_3s": {
+      "type": "wait",
+      "delay_ms": 3000,
+      "next": "dispatch_pacotes"
+    },
+    "dispatch_pacotes": {
+      "type": "list_message",
+      "header": "Pacotes IceLaser Recife",
+      "body": "Toque e veja todos os detalhes",
+      "footer": "Toque no botão abaixo",
+      "button": "Ver pacotes",
+      "section_title": "Menu",
+      "rows": [
+        {
+          "id": "pacote_p1",
+          "title": "💜 Virilha + Axilas",
+          "description": "Virilha completa, perianal, axilas e buço de brinde"
+        },
+        {
+          "id": "pacote_p2",
+          "title": "💜 Pacote Top",
+          "description": "Virilha completa, perianal, axilas, meia perna e joelhos de brinde"
+        },
+        {
+          "id": "pacote_p3",
+          "title": "⭐ VIP Corpo Todo",
+          "description": "Virilha completa, perianal, axilas, pernas completas e pés de brinde"
+        },
+        {
+          "id": "pacote_p4",
+          "title": "✨ Rosto + Pescoço",
+          "description": "Rosto completo + Pescoço de brinde"
+        },
+        {
+          "id": "pacote_p5",
+          "title": "🦵 Pernas Completas",
+          "description": "Pernas completas, pés de brinde"
+        },
+        {
+          "id": "pacote_p6",
+          "title": "🦵 Meia perna",
+          "description": "Meia perna, joelho de brinde"
+        },
+        {
+          "id": "pacote_p7",
+          "title": "🍑 Glúteos",
+          "description": "Apenas glúteos"
+        },
+        {
+          "id": "combo_personalizado",
+          "title": "✏️ Outras áreas",
+          "description": "Combo personalizado / outra área"
+        }
+      ]
+    },
+    "pacote_p1": {
+      "type": "interactive_buttons",
+      "add_labels": ["pacote_p1"],
+      "text": "Excelente escolha! 💜\n\n✅ *Pacote 1* — 10 sessões em cada área:\n• Virilha completa\n• Perianal\n• Axilas\n• Buço (BRINDE 🎁)\n\nInvestimento: *12x R$ 54,90* no cartão.\n\nQuer agendar sua avaliação *GRATUITA*? 🗓",
+      "buttons": [
+        {"id": "quer_agendar", "title": "Sim, quero agendar 💜"},
+        {"id": "tem_duvidas", "title": "Tenho uma dúvida 🤔"}
+      ]
+    },
+    "pacote_p2": {
+      "type": "interactive_buttons",
+      "add_labels": ["pacote_p2"],
+      "text": "Excelente escolha! 💜\n\n✅ *Pacote Top* — 10 sessões em cada área:\n• Virilha completa\n• Perianal\n• Axilas\n• Meia perna\n• Joelhos (BRINDE 🎁)\n\nInvestimento: *12x R$ 84,90* no cartão.\n\nQuer agendar sua avaliação *GRATUITA*? 🗓",
+      "buttons": [
+        {"id": "quer_agendar", "title": "Sim, quero agendar 💜"},
+        {"id": "tem_duvidas", "title": "Tenho uma dúvida 🤔"}
+      ]
+    },
+    "pacote_p3": {
+      "type": "interactive_buttons",
+      "add_labels": ["pacote_p3"],
+      "text": "Excelente escolha! 💜\n\n✅ *VIP Corpo Todo* — 10 sessões em cada área:\n• Virilha completa\n• Perianal\n• Axilas\n• Pernas completas\n• Pés (BRINDE 🎁)\n\nInvestimento: *12x R$ 124,90* no cartão.\n\nQuer agendar sua avaliação *GRATUITA*? 🗓",
+      "buttons": [
+        {"id": "quer_agendar", "title": "Sim, quero agendar 💜"},
+        {"id": "tem_duvidas", "title": "Tenho uma dúvida 🤔"}
+      ]
+    },
+    "pacote_p4": {
+      "type": "interactive_buttons",
+      "add_labels": ["pacote_p4"],
+      "text": "Excelente escolha! 💜\n\n✅ *Pacote Rosto* — 10 sessões em cada área:\n• Rosto completo\n• Pescoço (BRINDE 🎁)\n\nInvestimento: *12x R$ 49,90* no cartão.\n\nQuer agendar sua avaliação *GRATUITA*? 🗓",
+      "buttons": [
+        {"id": "quer_agendar", "title": "Sim, quero agendar 💜"},
+        {"id": "tem_duvidas", "title": "Tenho uma dúvida 🤔"}
+      ]
+    },
+    "pacote_p5": {
+      "type": "interactive_buttons",
+      "add_labels": ["pacote_p5"],
+      "text": "Excelente escolha! 💜\n\n✅ *Pacote Pernas* — 10 sessões em cada área:\n• Pernas completas\n• Pés (BRINDE 🎁)\n\nInvestimento: *12x R$ 79,90* no cartão.\n\nQuer agendar sua avaliação *GRATUITA*? 🗓",
+      "buttons": [
+        {"id": "quer_agendar", "title": "Sim, quero agendar 💜"},
+        {"id": "tem_duvidas", "title": "Tenho uma dúvida 🤔"}
+      ]
+    },
+    "pacote_p6": {
+      "type": "interactive_buttons",
+      "add_labels": ["pacote_p6"],
+      "text": "Excelente escolha! 💜\n\n✅ *Pacote Meia Perna* — 10 sessões em cada área:\n• Meia perna\n• Joelho (BRINDE 🎁)\n\nInvestimento: *12x R$ 64,90* no cartão.\n\nQuer agendar sua avaliação *GRATUITA*? 🗓",
+      "buttons": [
+        {"id": "quer_agendar", "title": "Sim, quero agendar 💜"},
+        {"id": "tem_duvidas", "title": "Tenho uma dúvida 🤔"}
+      ]
+    },
+    "pacote_p7": {
+      "type": "interactive_buttons",
+      "add_labels": ["pacote_p7"],
+      "text": "Excelente escolha! 💜\n\n✅ *Pacote Glúteos* — 10 sessões:\n• Glúteos\n\nInvestimento: *12x R$ 39,90* no cartão.\n\nQuer agendar sua avaliação *GRATUITA*? 🗓",
+      "buttons": [
+        {"id": "quer_agendar", "title": "Sim, quero agendar 💜"},
+        {"id": "tem_duvidas", "title": "Tenho uma dúvida 🤔"}
+      ]
+    },
+    "combo_personalizado": {
+      "type": "send_message",
+      "add_labels": ["combo_personalizado"],
+      "text": "Combo Personalizado é com a nossa equipe! 💜\n\nVou conectar você com uma de nossas atendentes pra montar o combo ideal pra você, com os melhores valores 🎁\n\nAguarda só um momentinho 😊",
+      "next": "duvidas_handoff"
+    },
+    "quer_agendar": {
+      "type": "noop",
+      "add_labels": ["quer_agendar"],
+      "next": "pre_qualif"
+    },
+    "tem_duvidas": {
+      "type": "noop",
+      "add_labels": ["tem_duvidas"],
+      "next": "duvidas_handoff"
+    },
+    "pre_qualif": {
+      "type": "interactive_buttons",
+      "text": "Ótimo! Pra nossas atendentes já chegarem preparadas, 2 perguntas rápidas:\n\nVocê já fez depilação a laser antes?",
+      "buttons": [
+        {"id": "ja_fez_laser", "title": "Sim, já fiz"},
+        {"id": "primeira_vez_laser", "title": "Não, primeira vez"}
+      ]
+    },
+    "ja_fez_laser": {
+      "type": "noop",
+      "add_labels": ["ja_fez_laser"],
+      "next": "wait_2s_handoff"
+    },
+    "primeira_vez_laser": {
+      "type": "noop",
+      "add_labels": ["primeira_vez_laser"],
+      "next": "wait_2s_handoff"
+    },
+    "wait_2s_handoff": {
+      "type": "wait",
+      "delay_ms": 2000,
+      "next": "lead_quente_handoff"
+    },
+    "lead_quente_handoff": {
+      "type": "send_message",
+      "add_labels": ["lead_quente"],
+      "text": "Pronto! 💜\n\nUma de nossas atendentes vai te chamar nos próximos minutos pra confirmar dia e horário da sua avaliação 🗓\n\n📍 *Graças* — R. Amélia, 896 - Galeria Top Center, Recife/PE\n\nAguarda só um momentinho 😊",
+      "next": "finish"
+    },
+    "duvidas_handoff": {
+      "type": "send_message",
+      "text": "Sem problema 💜\n\nVou conectar você com uma de nossas atendentes — ela vai esclarecer todas as suas dúvidas.\n\nAguarda só um momentinho 😊",
+      "next": "finish"
+    },
+    "finish": {
+      "type": "finish",
+      "set_custom_attributes": {
+        "bot_active": false
+      }
+    }
+  }
+}
