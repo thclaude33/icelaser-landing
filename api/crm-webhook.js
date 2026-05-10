@@ -211,20 +211,18 @@ export default async function handler(req, res) {
     (body.conversation || body.data || {}).labels || (body.changed_attributes || [])
   ).slice(0, 120);
   console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
-  console.log(`[BOT-DIAG] ENABLED=${process.env.CHATWOOT_BOT_ENABLED} DRY=${process.env.CHATWOOT_BOT_DRY_RUN} typeof=${typeof process.env.CHATWOOT_BOT_ENABLED} inbox=${body.inbox_id || body.inbox?.id || body.conversation?.inbox_id} eventOk=${event === 'conversation_created' || event === 'message_created'}`);
 
   // ────────────────────────────────────────────────────────────────────
-  // 🤖 BOT WELCOME WA-RC — fire-and-forget delegation
+  // 🤖 BOT WELCOME WA-RC — await síncrono delegation
   // ────────────────────────────────────────────────────────────────────
   // Delega pro bot quando: inbox=7 (WhatsApp Recife) + bot habilitado.
-  // NÃO bloqueia o fluxo principal. Erros são silenciosos (try/catch interno).
+  // AWAIT obrigatório — Vercel mata promises pendentes após response.
   // Feature flag: CHATWOOT_BOT_ENABLED='1' (default '0' = bot desativado).
   // Dry-run flag : CHATWOOT_BOT_DRY_RUN='1' (loga payload, não envia mensagens).
   if (process.env.CHATWOOT_BOT_ENABLED === '1') {
     const botInboxId = body.inbox_id || body.inbox?.id || body.conversation?.inbox_id;
     const isWhatsAppRecife = botInboxId === 7;
     const isBotEvent = event === 'conversation_created' || event === 'message_created';
-    console.log(`[CRM→BOT TRACE] event=${event} inbox_id_detected=${botInboxId} isWhatsApp=${isWhatsAppRecife} isBotEvent=${isBotEvent} body_keys=${JSON.stringify(Object.keys(body || {}))}`);
     if (isWhatsAppRecife && isBotEvent) {
       // AWAIT SÍNCRONO — Vercel serverless mata promises pendentes após response.
       // Bot roda ANTES do CAPI normal processar. ~5s adicional (welcome+wait3s+dispatch).

@@ -123,6 +123,80 @@ export async function setCustomAttributes(conversationId, attrs) {
 }
 
 /**
+ * GET contact details (pra checar custom_attributes do contato)
+ */
+export async function getContact(contactId) {
+  if (!contactId) return { ok: false, error: 'no_contact_id' };
+  const url = `${CW_URL}/api/v1/accounts/${CW_ACCOUNT}/contacts/${contactId}`;
+  try {
+    const res = await fetch(url, { headers: { 'api_access_token': CW_TOKEN } });
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 200);
+      console.error(`[CW-BOT] getContact ${contactId} HTTP ${res.status}: ${body}`);
+      return { ok: false, status: res.status };
+    }
+    const json = await res.json();
+    // Chatwoot envelope: { payload: {...} }
+    return { ok: true, data: json?.payload || json };
+  } catch (e) {
+    console.error(`[CW-BOT] getContact ${contactId} network:`, e.message);
+    return { ok: false, error: 'network', detail: e.message };
+  }
+}
+
+/**
+ * Update contact custom_attributes (merge — não substitui outros).
+ * Usado pra marcar bot_welcomed=true após primeiro welcome.
+ */
+export async function updateContactCustomAttributes(contactId, attrs) {
+  if (!contactId) return { ok: false, error: 'no_contact_id' };
+  if (!attrs || typeof attrs !== 'object') return { ok: true, skipped: true };
+
+  if (isDryRun()) {
+    console.log(`[CW-BOT DRY-RUN] updateContactCustomAttributes contact=${contactId} attrs=${JSON.stringify(attrs)}`);
+    return { ok: true, dryRun: true };
+  }
+
+  // Ler attrs atuais pra merge (não substituir outros campos)
+  const cur = await getContact(contactId);
+  const currentAttrs = cur.ok ? (cur.data?.custom_attributes || {}) : {};
+  const merged = { ...currentAttrs, ...attrs };
+
+  const url = `${CW_URL}/api/v1/accounts/${CW_ACCOUNT}/contacts/${contactId}`;
+  try {
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'api_access_token': CW_TOKEN },
+      body: JSON.stringify({ custom_attributes: merged }),
+    });
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 200);
+      console.error(`[CW-BOT] updateContact ${contactId} HTTP ${res.status}: ${body}`);
+      return { ok: false, status: res.status };
+    }
+    console.log(`[CW-BOT] updateContact ${contactId} attrs=${JSON.stringify(attrs)}`);
+    return { ok: true };
+  } catch (e) {
+    console.error(`[CW-BOT] updateContact network:`, e.message);
+    return { ok: false, error: 'network', detail: e.message };
+  }
+}
+
+/**
+ * Extrai contact_id do payload Chatwoot
+ */
+export function extractContactId(payload) {
+  return (
+    payload?.meta?.sender?.id ||
+    payload?.sender?.id ||
+    payload?.conversation?.meta?.sender?.id ||
+    payload?.contact?.id ||
+    payload?.contact_id ||
+    null
+  );
+}
+
+/**
  * Extrai phone number do payload Chatwoot (suporta diferentes formatos)
  */
 export function extractPhone(payload) {

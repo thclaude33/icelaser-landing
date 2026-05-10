@@ -25,9 +25,12 @@ import {
   addLabels,
   setCustomAttributes,
   getConversation,
+  getContact,
+  updateContactCustomAttributes,
   extractPhone,
   extractInboxId,
   extractConversationId,
+  extractContactId,
 } from './chatwoot.js';
 
 // Lê flow.json estático (não recarrega — Vercel cacheia o módulo)
@@ -143,6 +146,11 @@ async function executeStep(stepName, ctx) {
         bot_active: false,
         ...(step.set_custom_attributes || {}),
       });
+      // Marca contato como bot_welcomed=true pra não disparar welcome de novo
+      // em conversas futuras desse mesmo cliente (cliente recorrente).
+      if (ctx.contactId) {
+        await updateContactCustomAttributes(ctx.contactId, { bot_welcomed: true });
+      }
       return { nextStep: null, paused: false };
     }
 
@@ -159,12 +167,13 @@ async function executeStep(stepName, ctx) {
 function hashStep(name) {
   const names = Object.keys(FLOW.steps);
   const idx = names.indexOf(name);
-  return idx >= 0 ? idx + 1 : 0;
-}
-
-function unhashStep(num) {
-  const names = Object.keys(FLOW.steps);
-  return names[num - 1] || null;
+  if (idx < 0) {
+    // step inválido — não deve acontecer (executeStep já valida antes), mas
+    // se acontecer, logar pra investigar e retornar -1 (não 0 que mascara real step 0).
+    logErr(`hashStep called with invalid stepName="${name}"`);
+    return -1;
+  }
+  return idx + 1;
 }
 
 /**
@@ -196,10 +205,15 @@ async function runFlow(startStep, ctx) {
 
 /**
  * Entry: nova conversa criada no Chatwoot inbox 7
+ *
+ * FILTRO ANTI-RECORRENTE: se contato já foi welcomado antes (custom_attribute
+ * bot_welcomed=true), pula bot inteiro — cliente recorrente NÃO vê welcome msg
+ * de novo. Atendente humano cuida.
  */
 export async function handleNewConversation(payload) {
   const inboxId = extractInboxId(payload);
   const conversationId = extractConversationId(payload);
+  const contactId = extractContactId(payload);
   const phone = extractPhone(payload);
 
   if (inboxId !== REQUIRED_INBOX_ID) {
@@ -215,9 +229,26 @@ export async function handleNewConversation(payload) {
     return { skipped: true, reason: 'no_phone' };
   }
 
-  log(`new conversation ${conversationId} phone=${maskPhone(phone)}`);
+  // GUARD ANTI-RECORRENTE: checar se contato já foi welcomado antes
+  if (contactId) {
+    const contactResult = await getContact(contactId);
+    if (contactResult.ok) {
+      const alreadyWelcomed = contactResult.data?.custom_attributes?.bot_welcomed === true
+        || contactResult.data?.custom_attributes?.bot_welcomed === 'true';
+      if (alreadyWelcomed) {
+        log(`skip: contact ${contactId} já foi welcomed antes — atendente humano cuida`);
+        return { skipped: true, reason: 'contact_already_welcomed' };
+      }
+    } else {
+      // Se falhar GET contact, NÃO bloqueia o bot — apenas loga e segue
+      // (preferir falso positivo a perder cliente novo por bug API)
+      log(`warn: cannot fetch contact ${contactId} pra check bot_welcomed — seguindo welcome de qualquer jeito`);
+    }
+  }
 
-  const ctx = { phone, conversationId };
+  log(`new conversation ${conversationId} phone=${maskPhone(phone)} contact=${contactId || '?'}`);
+
+  const ctx = { phone, conversationId, contactId };
   return runFlow(FLOW.start_step, ctx);
 }
 

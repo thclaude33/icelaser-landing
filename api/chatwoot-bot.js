@@ -79,10 +79,17 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'method_not_allowed' });
   }
 
-  // Validar token interno (proteção: só crm-webhook pode chamar)
+  // Validar token interno (fail-safe: rejeita se env var não configurada).
+  // Antes: `if (internalToken && providedToken !== internalToken)` permitia
+  // bypass quando CHATWOOT_BOT_INTERNAL_TOKEN não setada — buraco de segurança.
+  // Agora: token OBRIGATÓRIO no Vercel. Sem token configurado = 503 fail-closed.
   const internalToken = process.env.CHATWOOT_BOT_INTERNAL_TOKEN;
+  if (!internalToken) {
+    console.error('[CHATWOOT-BOT] CHATWOOT_BOT_INTERNAL_TOKEN not set — fail-closed');
+    return res.status(503).json({ error: 'bot_misconfigured' });
+  }
   const providedToken = req.headers['x-bot-internal-token'];
-  if (internalToken && providedToken !== internalToken) {
+  if (providedToken !== internalToken) {
     console.warn('[CHATWOOT-BOT] unauthorized POST attempt');
     return res.status(401).json({ error: 'unauthorized' });
   }
