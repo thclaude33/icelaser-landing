@@ -221,25 +221,23 @@ export default async function handler(req, res) {
   // Feature flag: CHATWOOT_BOT_ENABLED='1' (default '0' = bot desativado).
   // Dry-run flag : CHATWOOT_BOT_DRY_RUN='1' (loga payload, não envia mensagens).
   if (process.env.CHATWOOT_BOT_ENABLED === '1') {
-    // TRACE log temporário pra debug — descobrir onde Chatwoot manda inbox_id
     const botInboxId = body.inbox_id || body.inbox?.id || body.conversation?.inbox_id;
     const isWhatsAppRecife = botInboxId === 7;
     const isBotEvent = event === 'conversation_created' || event === 'message_created';
     console.log(`[CRM→BOT TRACE] event=${event} inbox_id_detected=${botInboxId} isWhatsApp=${isWhatsAppRecife} isBotEvent=${isBotEvent} body_keys=${JSON.stringify(Object.keys(body || {}))}`);
     if (isWhatsAppRecife && isBotEvent) {
-      // Fire-and-forget (sem await — bot roda em paralelo, nunca bloqueia CAPI)
-      import('./chatwoot-bot/index.js')
-        .then(({ handleNewConversation, handleIncomingMessage }) => {
-          const fn = event === 'conversation_created' ? handleNewConversation : handleIncomingMessage;
-          return fn(body);
-        })
-        .then(result => {
-          console.log(`[CRM→BOT] event=${event} conv=${body.id || body.conversation?.id || '?'} result=${JSON.stringify(result).slice(0, 150)}`);
-        })
-        .catch(e => {
-          // Bot pode falhar — NÃO afeta processamento CAPI normal abaixo
-          console.error(`[CRM→BOT] error (non-blocking): ${e?.message || e}`);
-        });
+      // AWAIT SÍNCRONO — Vercel serverless mata promises pendentes após response.
+      // Bot roda ANTES do CAPI normal processar. ~5s adicional (welcome+wait3s+dispatch).
+      // Em DRY-RUN não envia nada, logs only. Em produção pode chegar a 10s — Chatwoot tolera.
+      try {
+        const { handleNewConversation, handleIncomingMessage } = await import('./chatwoot-bot/index.js');
+        const fn = event === 'conversation_created' ? handleNewConversation : handleIncomingMessage;
+        const botResult = await fn(body);
+        console.log(`[CRM→BOT] event=${event} conv=${body.id || body.conversation?.id || '?'} result=${JSON.stringify(botResult).slice(0, 200)}`);
+      } catch (e) {
+        // Bot pode falhar — log mas NÃO afeta processamento CAPI normal abaixo
+        console.error(`[CRM→BOT] error (non-blocking): ${e?.message || e}`);
+      }
     }
   }
 
