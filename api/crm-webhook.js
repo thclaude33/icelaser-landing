@@ -211,6 +211,7 @@ export default async function handler(req, res) {
     (body.conversation || body.data || {}).labels || (body.changed_attributes || [])
   ).slice(0, 120);
   console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
+  console.log(`[BOT-DIAG] ENABLED=${process.env.CHATWOOT_BOT_ENABLED} DRY=${process.env.CHATWOOT_BOT_DRY_RUN} typeof=${typeof process.env.CHATWOOT_BOT_ENABLED} inbox=${body.inbox_id || body.inbox?.id || body.conversation?.inbox_id} eventOk=${event === 'conversation_created' || event === 'message_created'}`);
 
   // ────────────────────────────────────────────────────────────────────
   // 🤖 BOT WELCOME WA-RC — fire-and-forget delegation
