@@ -71,7 +71,8 @@ export default async function handler(req, res) {
 
   // Tokens com escopo Ads: usa DATASET_QUALITY_API_TOKEN (recomendação Meta) ou
   // fallback pro META_ACCESS_TOKEN System User geral. Sem token = 503.
-  const token = process.env.DATASET_QUALITY_API_TOKEN || process.env.META_ACCESS_TOKEN;
+  // Defense-in-depth: .trim() remove \n parasita de env vars (bug Vercel PROD 11/05/2026)
+  const token = process.env.DATASET_QUALITY_API_TOKEN?.trim() || process.env.META_ACCESS_TOKEN?.trim();
   if (!token) {
     return res.status(503).json({ error: 'meta_token_not_configured' });
   }

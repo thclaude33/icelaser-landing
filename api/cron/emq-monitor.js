@@ -66,7 +66,8 @@ export default async function handler(req, res) {
 
   // Prefere DATASET_QUALITY_API_TOKEN (gerado via Events Manager para esta finalidade)
   // Fallback para META_ACCESS_TOKEN se não configurado
-  const token = process.env.DATASET_QUALITY_API_TOKEN || process.env.META_ACCESS_TOKEN;
+  // Defense-in-depth: .trim() remove \n parasita de env vars (bug Vercel PROD 11/05/2026)
+  const token = process.env.DATASET_QUALITY_API_TOKEN?.trim() || process.env.META_ACCESS_TOKEN?.trim();
   if (!token) return res.status(500).json({ error: 'No access token configured' });
 
   try {

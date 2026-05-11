@@ -192,7 +192,8 @@ export default async function handler(req, res) {
   const isCron = isVercelCron(req);
 
   // Token com escopo reduzido (fallback META_ACCESS_TOKEN se não setado)
-  const token = process.env.DATASET_QUALITY_API_TOKEN || process.env.META_ACCESS_TOKEN;
+  // Defense-in-depth: .trim() remove \n parasita de env vars (bug Vercel PROD 11/05/2026)
+  const token = process.env.DATASET_QUALITY_API_TOKEN?.trim() || process.env.META_ACCESS_TOKEN?.trim();
   if (!token) return res.status(503).json({ error: 'meta_token_not_configured' });
 
   try {

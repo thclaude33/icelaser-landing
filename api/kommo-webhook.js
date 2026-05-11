@@ -372,7 +372,8 @@ function parseKommoBody(rawBody) {
 }
 
 async function fetchKommoEntity(path) {
-  const token = process.env.KOMMO_TOKEN_JP;
+  // Defense-in-depth: .trim() remove \n parasita de env vars (bug Vercel PROD 11/05/2026)
+  const token = process.env.KOMMO_TOKEN_JP?.trim();
   if (!token) return null;
   try {
     const r = await fetch(`https://${KOMMO_SUBDOMAIN}.kommo.com/api/v4${path}`, {
@@ -387,7 +388,8 @@ async function fetchKommoEntity(path) {
 }
 
 async function patchKommoLead(leadId, customFields) {
-  const token = process.env.KOMMO_TOKEN_JP;
+  // Defense-in-depth: .trim() remove \n parasita de env vars (bug Vercel PROD 11/05/2026)
+  const token = process.env.KOMMO_TOKEN_JP?.trim();
   if (!token || !customFields?.length) return null;
   try {
     const r = await fetch(`https://${KOMMO_SUBDOMAIN}.kommo.com/api/v4/leads/${leadId}`, {
