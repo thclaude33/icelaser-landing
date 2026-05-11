@@ -286,15 +286,21 @@ export async function handleIncomingMessage(payload) {
   const conversationId = extractConversationId(payload);
   const phone = extractPhone(payload);
 
+  // DIAG TEMP — debug por que bot não continua flow pós-resposta user
+  log(`incoming entry payload_keys=${JSON.stringify(Object.keys(payload || {}))} inboxId=${inboxId} convId=${conversationId} phone=${phone ? maskPhone(phone) : null} msg_type=${payload?.message_type} content="${(payload?.content || '').slice(0,50)}" content_attrs=${JSON.stringify(payload?.content_attributes || {})}`);
+
   if (inboxId !== REQUIRED_INBOX_ID) {
+    log(`SKIP wrong_inbox: got ${inboxId} expected ${REQUIRED_INBOX_ID}`);
     return { skipped: true, reason: 'wrong_inbox' };
   }
   if (!conversationId || !phone) {
+    log(`SKIP missing_ids: convId=${conversationId} phone=${phone}`);
     return { skipped: true, reason: 'missing_ids' };
   }
 
   // Só processa mensagens incoming do contato (message_type=0). Outgoing = ignorar.
   if (payload?.message_type !== undefined && payload.message_type !== 0 && payload.message_type !== 'incoming') {
+    log(`SKIP not_incoming: msg_type=${payload.message_type}`);
     return { skipped: true, reason: 'not_incoming' };
   }
 
