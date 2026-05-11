@@ -344,6 +344,10 @@ export async function handleIncomingMessage(payload) {
 /**
  * Extract reply ID de payload Chatwoot
  * WhatsApp interactive responses chegam como content_attributes ou content específico.
+ *
+ * IMPORTANTE — WhatsApp Cloud API trunca button title em 20 chars (UTF-16 code units).
+ * Emoji multi-codepoint (ex: 💜) é truncado e substituído por "…" no echo do user.
+ * Por isso fazemos fuzzy match removendo emoji+ellipsis+whitespace trailing.
  */
 function extractReplyId(payload) {
   // Chatwoot mapeia button/list replies em content_attributes
@@ -351,19 +355,35 @@ function extractReplyId(payload) {
   if (attrs?.items?.[0]?.id) return attrs.items[0].id; // list reply
   if (attrs?.id) return attrs.id; // button reply
   if (attrs?.in_reply_to?.id) return attrs.in_reply_to.id;
-  // Fallback: content matching exato com row title ou button title
+  // Fallback: content matching com row/button title (fuzzy pra cobrir truncate WhatsApp)
   const text = String(payload?.content || '').trim();
   if (!text) return null;
+  // Normalizar: remover emojis trailing + ellipsis + whitespace + lowercase
+  // Regex /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}…]+/u cobre maioria dos emojis Unicode 15
+  const normalize = (s) => String(s || '')
+    .replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2700}-\u{27FF}…]+\s*$/u, '')  // emojis trailing + …
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const normText = normalize(text);
+  if (!normText) return null;
   // Procura nos steps que têm botões/rows
   for (const [stepName, step] of Object.entries(FLOW.steps)) {
     if (step.buttons) {
       for (const b of step.buttons) {
-        if (b.title === text) return b.id;
+        const normTitle = normalize(b.title);
+        // exato OU startsWith (cobre truncate WhatsApp)
+        if (normTitle === normText || normTitle.startsWith(normText) || normText.startsWith(normTitle)) {
+          return b.id;
+        }
       }
     }
     if (step.rows) {
       for (const r of step.rows) {
-        if (r.title === text) return r.id;
+        const normTitle = normalize(r.title);
+        if (normTitle === normText || normTitle.startsWith(normText) || normText.startsWith(normTitle)) {
+          return r.id;
+        }
       }
     }
   }
