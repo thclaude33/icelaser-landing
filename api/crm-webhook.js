@@ -213,14 +213,6 @@ export default async function handler(req, res) {
   console.log(`[CRM-WEBHOOK] event=${event} | auth=${authCheck.mode} | labels=${labelsPreview}`);
 
   // ────────────────────────────────────────────────────────────────────
-  // 🔬 DIAG TEMP: trace inbox_id detection (REMOVER após bot estável)
-  // ────────────────────────────────────────────────────────────────────
-  if (event === 'conversation_created' || event === 'message_created') {
-    const diag_inbox = body.inbox_id || body.inbox?.id || body.conversation?.inbox_id || body.account?.id;
-    console.log(`[BOT-DIAG] event=${event} ENABLED=${process.env.CHATWOOT_BOT_ENABLED} inbox=${diag_inbox} bodyKeys=${JSON.stringify(Object.keys(body || {}))} additional=${JSON.stringify({direct:body.inbox_id, nested:body.inbox?.id, conv:body.conversation?.inbox_id, account:body.account?.id})}`);
-  }
-
-  // ────────────────────────────────────────────────────────────────────
   // 🤖 BOT WELCOME WA-RC — await síncrono delegation
   // ────────────────────────────────────────────────────────────────────
   // Delega pro bot quando: inbox=7 (WhatsApp Recife) + bot habilitado.
