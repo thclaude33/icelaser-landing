@@ -41,6 +41,16 @@ const FLOW = JSON.parse(fs.readFileSync(FLOW_PATH, 'utf8'));
 const REQUIRED_INBOX_ID = FLOW.chatwoot_inbox_id; // 7
 const MAX_STEPS_PER_RUN = 10;
 
+/**
+ * BOT_LAUNCH_TS — timestamp Unix marcando quando o bot Welcome WA-RC entrou no ar.
+ * Contatos criados ANTES desse timestamp NÃO recebem welcome (são clientes pré-existentes
+ * que já foram atendidos por humanos antes do bot existir).
+ *
+ * Validado LIVE 10/05/2026: 434 contatos < BOT_LAUNCH_TS, 1 contato (Thiago id 483 teste) >= TS.
+ * 1778453000 = 10/05/2026 19:43:20 BRT (~14min antes do 1º commit do bot c309439 às 19:44:09).
+ */
+const BOT_LAUNCH_TS = 1778453000;
+
 function log(msg, extra = {}) {
   const ts = new Date().toISOString();
   console.log(`[BOT-WARC ${ts}] ${msg}`, JSON.stringify(extra).slice(0, 300));
@@ -94,6 +104,15 @@ async function executeStep(stepName, ctx) {
         logErr('sendText failed', result);
         return { nextStep: null, paused: false, error: 'send_failed' };
       }
+      // Marca contato como bot_welcomed=true LOGO APÓS welcome msg ser enviada com sucesso.
+      // Antes era marcado só no FINISH step — mas cliente que abandona mid-flow
+      // (ex: não escolhe pacote) nunca chegava ao FINISH e bot disparava welcome
+      // de novo em conversa futura.
+      // !result.dryRun: em DRY-RUN não envia msg real, então NÃO marca contact (evita
+      // poluir state com contatos que "viram" o welcome só nos logs).
+      if (stepName === 'welcome' && ctx.contactId && result.ok && !result.dryRun) {
+        await updateContactCustomAttributes(ctx.contactId, { bot_welcomed: true });
+      }
       return { nextStep: step.next || null, paused: false };
     }
 
@@ -146,11 +165,7 @@ async function executeStep(stepName, ctx) {
         bot_active: false,
         ...(step.set_custom_attributes || {}),
       });
-      // Marca contato como bot_welcomed=true pra não disparar welcome de novo
-      // em conversas futuras desse mesmo cliente (cliente recorrente).
-      if (ctx.contactId) {
-        await updateContactCustomAttributes(ctx.contactId, { bot_welcomed: true });
-      }
+      // bot_welcomed=true já foi marcado no step welcome (não duplicar aqui).
       return { nextStep: null, paused: false };
     }
 
@@ -229,15 +244,26 @@ export async function handleNewConversation(payload) {
     return { skipped: true, reason: 'no_phone' };
   }
 
-  // GUARD ANTI-RECORRENTE: checar se contato já foi welcomado antes
+  // GUARD ANTI-RECORRENTE (defesa em profundidade — OR de 2 condições):
+  //   1. bot_welcomed === true (cliente já recebeu welcome do bot antes)
+  //   2. contact.created_at < BOT_LAUNCH_TS (cliente pré-existente ao bot)
+  //
+  // Se QUALQUER uma der match → skip. Se migration falhar pra alguns contatos,
+  // safety net temporal protege. Zero risco de welcome em cliente recorrente.
   if (contactId) {
     const contactResult = await getContact(contactId);
     if (contactResult.ok) {
-      const alreadyWelcomed = contactResult.data?.custom_attributes?.bot_welcomed === true
-        || contactResult.data?.custom_attributes?.bot_welcomed === 'true';
-      if (alreadyWelcomed) {
-        log(`skip: contact ${contactId} já foi welcomed antes — atendente humano cuida`);
-        return { skipped: true, reason: 'contact_already_welcomed' };
+      const customAttrs = contactResult.data?.custom_attributes || {};
+      const contactCreatedAt = contactResult.data?.created_at;
+
+      const alreadyWelcomed = customAttrs.bot_welcomed === true
+        || customAttrs.bot_welcomed === 'true';
+      const isPreBotLaunch = contactCreatedAt && contactCreatedAt < BOT_LAUNCH_TS;
+
+      if (alreadyWelcomed || isPreBotLaunch) {
+        const reason = alreadyWelcomed ? 'contact_already_welcomed' : 'contact_pre_bot_launch';
+        log(`skip: contact ${contactId} (${reason}) created_at=${contactCreatedAt} bot_welcomed=${customAttrs.bot_welcomed}`);
+        return { skipped: true, reason };
       }
     } else {
       // Se falhar GET contact, NÃO bloqueia o bot — apenas loga e segue

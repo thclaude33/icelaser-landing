@@ -8,8 +8,6 @@
   "waba_id": "920807647253970",
   "chatwoot_inbox_id": 7,
   "address": "R. Amélia, 896 - Graças - Galeria Top Center, Recife - PE",
-  "default_timeout_ms": 120000,
-  "default_timeout_step": "duvidas_handoff",
   "start_step": "welcome",
   "steps": {
     "welcome": {
