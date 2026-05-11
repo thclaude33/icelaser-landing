@@ -223,12 +223,24 @@ export function extractInboxId(payload) {
 
 /**
  * Extrai conversation_id do payload Chatwoot
+ *
+ * CRÍTICO: ordem dos paths importa.
+ *   - Em conversation_created/updated: payload É a conversation → payload.id = conv_id ✅
+ *   - Em message_created: payload é a MENSAGEM → payload.id = msg_id ❌
+ *     pra esses, precisa pegar de payload.conversation.id ou payload.conversation_id.
+ *
+ * Estratégia: priorizar paths que SÓ existem em conversation-scoped events,
+ * fallback pra payload.id apenas se não há conversation nested.
  */
 export function extractConversationId(payload) {
-  return (
-    payload?.id ||                  // payload é a própria conversation
-    payload?.conversation?.id ||
-    payload?.conversation_id ||
-    null
-  );
+  // Path 1: message_created/updated/contact events tem conversation nested
+  if (payload?.conversation?.id) return payload.conversation.id;
+  // Path 2: explicit conversation_id field
+  if (payload?.conversation_id) return payload.conversation_id;
+  // Path 3 (fallback): payload.id pode ser conv_id pra conversation_created/updated
+  //   MAS verifica que o event suporta — pra evitar confundir msg_id com conv_id.
+  //   Heurística: se payload tem 'inbox_id' top-level (próprio da conversation), payload.id é safe.
+  if (payload?.id && payload?.inbox_id !== undefined) return payload.id;
+  // Caso especial: payload.id existe mas sem inbox_id top-level — pode ser msg_id, NÃO usar.
+  return null;
 }
