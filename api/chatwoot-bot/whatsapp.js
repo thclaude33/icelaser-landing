@@ -23,11 +23,21 @@ function sanitizePhone(raw) {
 }
 
 /**
- * Truncate text safely (WhatsApp tem limites estritos)
+ * Truncate text safely (WhatsApp tem limites estritos em CHARS REAIS, não UTF-16 code units)
+ *
+ * BUG fixado: `.length` e `.slice` de string JS contam UTF-16 code units.
+ * Emoji multi-codepoint (ex: 💜 = surrogate pair, 2 code units) era contado errado.
+ * Resultado: "Sim, quero agendar 💜" (20 chars reais) tinha .length=21 → truncava
+ * adicionando "…" pos-19, DESTRUINDO o emoji. WhatsApp recebia "Sim, quero agendar …"
+ * e quando user clicava button, content do echo perdia o 💜 → fuzzy match falhava.
+ *
+ * Fix: Array.from(str) itera CODE POINTS reais (emoji 💜 = 1 elemento).
  */
 function truncate(s, max) {
   const str = String(s || '');
-  return str.length > max ? str.slice(0, max - 1) + '…' : str;
+  const codePoints = Array.from(str);
+  if (codePoints.length <= max) return str;
+  return codePoints.slice(0, max - 1).join('') + '…';
 }
 
 /**
