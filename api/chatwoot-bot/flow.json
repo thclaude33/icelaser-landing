@@ -137,7 +137,7 @@
       "type": "send_message",
       "add_labels": ["combo_personalizado"],
       "text": "Combo Personalizado é com a nossa equipe! 💜\n\nVou conectar você com uma de nossas atendentes pra montar o combo ideal pra você, com os melhores valores 🎁\n\nAguarda só um momentinho 😊",
-      "next": "duvidas_handoff"
+      "next": "finish"
     },
     "quer_agendar": {
       "type": "noop",
