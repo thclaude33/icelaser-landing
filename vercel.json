@@ -15,7 +15,8 @@
     { "path": "/api/cron/capi-alerts",      "schedule": "5 * * * *" },
     { "path": "/api/cron/daily-report",     "schedule": "25 23 * * *" },
     { "path": "/api/cron/process-leadgen",  "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/wam-whitelist-validate", "schedule": "0 14 1 * *" }
+    { "path": "/api/cron/wam-whitelist-validate", "schedule": "0 14 1 * *" },
+    { "path": "/api/cron/bot-stuck-check",   "schedule": "*/30 * * * *" }
   ],
 
   "rewrites": [
