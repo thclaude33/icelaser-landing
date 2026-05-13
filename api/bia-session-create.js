@@ -76,9 +76,15 @@ export default async function handler(req, res) {
     }
 
     // 2. Enviar 1ª mensagem do cliente
+    // CRITICAL — injetar prefixo `(TELEFONE_CLIENTE: +XXX)` pra Coordinator conseguir:
+    //   (a) buscar profile.md em /mnt/memory/bia-lead-profiles/{tel}/
+    //   (b) aplicar GEO-FLAG (DDD distante = clínica presencial Recife)
+    //   (c) escolher cenário saudação A/B/C/D corretamente
+    // Sem isso, Bia só vê msg cliente e não tem como cravar telefone na decision tree.
+    const mensagemComPrefixo = `(TELEFONE_CLIENTE: +${telefone}) ${mensagem_cliente}`;
     const eventPayload = {
       events: [
-        { type: 'user.message', content: [{ type: 'text', text: mensagem_cliente }] },
+        { type: 'user.message', content: [{ type: 'text', text: mensagemComPrefixo }] },
       ],
     };
     const evResp = await fetch(`${ANTHROPIC_BASE}/sessions/${session.id}/events`, {
