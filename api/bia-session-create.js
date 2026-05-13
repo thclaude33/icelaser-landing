@@ -173,6 +173,41 @@ async function pollSessionForResponse(sessionId, deadlineMs) {
   return { ready: false, error: 'timeout' };
 }
 
+// CONTEXTO CHATWOOT — busca histórico da conversa pra injetar no prompt
+// Resolve Bug #3 (re-apresentação): Bia vê "já me apresentei antes nessa conv"
+// e aplica Cenário D (continuação) em vez de Cenário A (saudação completa).
+async function fetchChatwootHistory(convId, limit = 20) {
+  try {
+    const resp = await fetch(
+      `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages?page=1`,
+      {
+        headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN },
+      }
+    );
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const all = data.payload || [];
+    // Filter: só incoming/outgoing texto (skip activity logs / private notes)
+    const filtered = all.filter((m) => {
+      const t = m.message_type;
+      const isText = t === 0 || t === 1 || t === 'incoming' || t === 'outgoing';
+      return isText && !m.private && (m.content || '').trim().length > 0;
+    });
+    // Order ASC by timestamp + limit últimas N (mais recentes ao final)
+    filtered.sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+    const recent = filtered.slice(-limit);
+    return recent.map((m) => {
+      const mt = m.message_type;
+      const role = (mt === 0 || mt === 'incoming') ? 'CLIENTE' : 'BIA';
+      const ts = m.created_at ? new Date(m.created_at * 1000).toISOString().slice(11, 16) : '';
+      const content = String(m.content || '').replace(/\n/g, ' ').slice(0, 250);
+      return `[${ts}] ${role}: ${content}`;
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function postChatwootMessage(convId, content) {
   const resp = await fetch(
     `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages`,
@@ -288,8 +323,23 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'session_no_id', detail: sessText.slice(0, 500), source });
     }
 
-    // 2. Enviar msg cliente prefixada
-    const mensagemComPrefixo = `(TELEFONE_CLIENTE: +${telefone}) ${mensagem_cliente}`;
+    // 2. Buscar histórico Chatwoot (se webhook path) pra Bia ver continuidade da conv
+    //    Resolve Bug #3 — Bia detecta "já me apresentei" e aplica Cenário D
+    let historico = '';
+    if (source === 'chatwoot_webhook' && chatwoot_thread_id) {
+      const histLines = await fetchChatwootHistory(chatwoot_thread_id, 20);
+      if (histLines && histLines.length > 1) {
+        // Remove a última linha (mensagem atual já está no `mensagem_cliente`)
+        // pra não duplicar
+        const prev = histLines.slice(0, -1);
+        if (prev.length > 0) {
+          historico = `(HISTÓRICO CONVERSA CHATWOOT — você está em CONTINUAÇÃO, NÃO repita saudação completa, aplique Cenário D do decision tree):\n${prev.join('\n')}\n\n(MENSAGEM ATUAL DO CLIENTE — responde ela):\n`;
+        }
+      }
+    }
+
+    // 3. Enviar msg cliente prefixada com telefone + histórico (se houver)
+    const mensagemComPrefixo = `${historico}(TELEFONE_CLIENTE: +${telefone}) ${mensagem_cliente}`;
     const eventPayload = {
       events: [{ type: 'user.message', content: [{ type: 'text', text: mensagemComPrefixo }] }],
     };
