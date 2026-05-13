@@ -18,7 +18,8 @@
     { "path": "/api/cron/wam-whitelist-validate", "schedule": "0 14 1 * *" },
     { "path": "/api/cron/bot-stuck-check",   "schedule": "*/30 * * * *" },
     { "path": "/api/cron/bia-daily-review",  "schedule": "0 2 * * *" },
-    { "path": "/api/cron/bia-skill-refresh", "schedule": "30 2 * * *" }
+    { "path": "/api/cron/bia-skill-refresh", "schedule": "30 2 * * *" },
+    { "path": "/api/cron/bia-postback",      "schedule": "* * * * *" }
   ],
 
   "rewrites": [
@@ -126,6 +127,10 @@
     },
     "api/cron/bia-skill-refresh.js": {
       "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/cron/bia-postback.js": {
+      "maxDuration": 60,
       "regions": ["gru1"]
     }
   },

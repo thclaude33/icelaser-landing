@@ -19,6 +19,12 @@
 //   - conversation.labels contém SHADOW_LABEL (default 'bia_teste')
 //
 // Auth Chatwoot: ?auth=<CHATWOOT_WEBHOOK_QUERY_TOKEN>
+//
+// DEDUP CRON FALLBACK: quando handler posta com sucesso inline, marca
+// `bia/postback/posted/{session_id}.json` no Vercel Blob. Cron bia-postback
+// checa esse marker antes de postar — zero duplicação.
+
+import { list, put } from '@vercel/blob';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -181,6 +187,29 @@ async function postChatwootMessage(convId, content) {
   try { return JSON.parse(txt); } catch { return { raw: txt }; }
 }
 
+const BLOB_PREFIX = 'bia/postback/posted/';
+
+async function markPosted(sessionId, payload) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  try {
+    await put(`${BLOB_PREFIX}${sessionId}.json`, JSON.stringify(payload), {
+      access: 'public',
+      addRandomSuffix: false,
+      contentType: 'application/json',
+    });
+  } catch {}
+}
+
+async function alreadyPosted(sessionId) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return false;
+  try {
+    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${sessionId}` });
+    return blobs.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -283,7 +312,26 @@ export default async function handler(req, res) {
         const clean = stripWhatsAppMarkdown(clientResp);
         if (clean && clean.length >= 10) {
           try {
+            // RE-CHECK dedup right before posting (race window minimal)
+            if (await alreadyPosted(session.id)) {
+              return res.status(200).json({
+                success: true,
+                source,
+                session_id: session.id,
+                already_posted: true,
+                elapsed_ms,
+              });
+            }
             const posted = await postChatwootMessage(chatwoot_thread_id, clean);
+            // Marca Blob pra cron fallback não duplicar
+            await markPosted(session.id, {
+              session_id: session.id,
+              conv_id: chatwoot_thread_id,
+              chatwoot_msg_id: posted.id,
+              posted_at: new Date().toISOString(),
+              posted_by: 'handler_inline',
+              elapsed_ms,
+            });
             return res.status(200).json({
               success: true,
               source,
