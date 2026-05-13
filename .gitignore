@@ -10,3 +10,4 @@ node_modules/
 *.bak-*
 *.bak2-*
 CLAUDE.md
+knowledge-base/

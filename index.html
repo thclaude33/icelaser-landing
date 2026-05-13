@@ -46,8 +46,8 @@
   <!-- Schema: BeautySalon (LocalBusiness subtype)
        Google Search Central 2026 — required for rich results:
        name, address (PostalAddress full), image, telephone, priceRange, geo, openingHoursSpecification.
-       `geo` é CRÍTICO pra Maps / local pack; coordenadas oficiais Rua Amélia 598 Graças
-       (REGRA #8 do JARVIS — NÃO usar -8.0547/-34.9030 do Derby).
+       `geo` é CRÍTICO pra Maps / local pack; coordenadas oficiais Rua Amélia 896 Graças
+       (corrigido 12/05/2026 — antes estava 598/coords antigas; novo GPS -8.0449818/-34.8992092).
        openingHoursSpecification estruturado permite Google mostrar horário
        por dia corretamente em Rich Results. -->
   <script type="application/ld+json">
@@ -63,7 +63,7 @@
     "logo": "https://icelasers.com.br/favicon.ico",
     "address": {
       "@type": "PostalAddress",
-      "streetAddress": "Rua Amélia, 598",
+      "streetAddress": "Rua Amélia, 896",
       "addressLocality": "Recife",
       "addressRegion": "PE",
       "postalCode": "52011-050",
@@ -71,8 +71,8 @@
     },
     "geo": {
       "@type": "GeoCoordinates",
-      "latitude": -8.045105173587222,
-      "longitude": -34.901371694639224
+      "latitude": -8.0449818,
+      "longitude": -34.8992092
     },
     "aggregateRating": {
       "@type": "AggregateRating",
