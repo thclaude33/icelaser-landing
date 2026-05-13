@@ -114,7 +114,7 @@
       "regions": ["gru1"]
     },
     "api/bia-session-create.js": {
-      "maxDuration": 30,
+      "maxDuration": 60,
       "regions": ["gru1"]
     },
     "api/bia-session-poll.js": {

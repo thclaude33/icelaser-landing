@@ -1,23 +1,27 @@
 // api/bia-session-create.js
 // P9.7 — Cria session Anthropic Managed Agents (Bia Coordinator + 4 memory stores).
 //
-// Aceita 2 formatos de input:
+// Aceita 2 formatos:
 //   A) DIRECT API: { telefone, mensagem_cliente, chatwoot_thread_id? }
 //   B) CHATWOOT WEBHOOK: payload flat { event, conversation, sender, content, ... }
-//      → normaliza pra (A) + filtros Shadow Mode antes de criar session.
 //
-// Filtros Shadow Mode (Chatwoot webhook path):
+// LATENCY MODE (cravado 13/05/2026):
+//   Path Chatwoot webhook → faz polling INLINE síncrono (2s tick) até Bia
+//   responder OU timeout 45s. Quando resposta vem → posta no Chatwoot
+//   imediatamente (outgoing → WhatsApp Cloud entrega cliente).
+//   Se timeout 45s → retorna 202 (Bia continua processando, cron postback
+//   pega depois como fallback).
+//
+// Filtros Shadow Mode (Chatwoot path):
 //   - event === 'message_created'
-//   - message_type === 'incoming' (ou 0 — só msg do cliente, ignora bot/agent)
-//   - inbox.id === SHADOW_INBOX_ID (default 7 = WhatsApp IceLaser)
-//   - labels conversation contém 'bia_teste' (gate user-controlled)
+//   - message_type === 'incoming'
+//   - inbox.id === SHADOW_INBOX_ID (default 7)
+//   - conversation.labels contém SHADOW_LABEL (default 'bia_teste')
 //
-// Auth Chatwoot: ?auth=<CHATWOOT_WEBHOOK_QUERY_TOKEN> (mesmo mecanismo crm-webhook).
-//
-// Schema Anthropic LIVE: resources aceita SÓ { type, memory_store_id }.
+// Auth Chatwoot: ?auth=<CHATWOOT_WEBHOOK_QUERY_TOKEN>
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
-const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coordinator v17 Sonnet 4.6
+const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
 const ENV_ID = 'env_01ANo8eEPnZ3P51da4TQz2HR';
 
 const KB_MASTER = 'memstore_01QLnM9ZTBG1U4WMKT7J19x6';
@@ -27,10 +31,15 @@ const BIA_AUDIT_LOG = 'memstore_014QBMrxVyhm2u2P3x3MzvGr';
 
 const SHADOW_INBOX_ID = parseInt(process.env.BIA_SHADOW_INBOX_ID || '7', 10);
 const SHADOW_LABEL = process.env.BIA_SHADOW_LABEL || 'bia_teste';
+const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
+const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
 
-function buildHeaders(apiKey) {
+const POLLING_TICK_MS = 2000; // 2s entre polls
+const POLLING_TIMEOUT_MS = 45000; // 45s max — Vercel maxDuration handler é 60s
+
+function buildAnthropicHeaders() {
   return {
-    'x-api-key': apiKey,
+    'x-api-key': process.env.ANTHROPIC_API_KEY_ICELASER,
     'anthropic-version': '2023-06-01',
     'anthropic-beta': 'managed-agents-2026-04-01',
     'content-type': 'application/json',
@@ -48,34 +57,24 @@ function checkAuth(req) {
   return { ok: false, mode: 'missing_or_invalid' };
 }
 
-// Detecta payload Chatwoot — chave `event` + ausência de `mensagem_cliente`
 function isChatwootPayload(body) {
   return typeof body?.event === 'string' && !body.mensagem_cliente;
 }
 
-// Normaliza payload Chatwoot message_created → { telefone, mensagem_cliente, ..., skip? }
 function normalizeChatwoot(body) {
   const event = body.event;
-  const messageType = body.message_type; // 'incoming' | 'outgoing' | 0 | 1
+  const messageType = body.message_type;
 
-  // Filtro 1: event tipo
-  if (event !== 'message_created') {
-    return { skip: true, reason: 'event_not_message_created', event };
-  }
+  if (event !== 'message_created') return { skip: true, reason: 'event_not_message_created', event };
 
-  // Filtro 2: incoming only
   const isIncoming = messageType === 'incoming' || messageType === 0;
-  if (!isIncoming) {
-    return { skip: true, reason: 'message_not_incoming', message_type: messageType };
-  }
+  if (!isIncoming) return { skip: true, reason: 'message_not_incoming', message_type: messageType };
 
-  // Filtro 3: inbox correto
   const inboxId = body.inbox?.id ?? body.conversation?.inbox_id ?? body.inbox_id;
   if (Number(inboxId) !== SHADOW_INBOX_ID) {
     return { skip: true, reason: 'inbox_not_shadow', inbox_id: inboxId, expected: SHADOW_INBOX_ID };
   }
 
-  // Filtro 4: gate label (Shadow Mode)
   const labels = Array.isArray(body.conversation?.labels)
     ? body.conversation.labels
     : Array.isArray(body.labels)
@@ -87,39 +86,99 @@ function normalizeChatwoot(body) {
     return { skip: true, reason: 'label_gate_not_present', labels, expected_label: SHADOW_LABEL };
   }
 
-  // Filtro 5: pular mensagens vazias / private notes
-  const isPrivate = body.private === true;
-  if (isPrivate) {
-    return { skip: true, reason: 'private_note' };
-  }
+  if (body.private === true) return { skip: true, reason: 'private_note' };
 
   const content = String(body.content || '').trim();
-  if (!content) {
-    return { skip: true, reason: 'empty_content' };
-  }
+  if (!content) return { skip: true, reason: 'empty_content' };
 
-  // Extrair telefone
-  const phone =
-    body.sender?.phone_number ||
-    body.conversation?.meta?.sender?.phone_number ||
-    body.contact?.phone_number ||
-    '';
+  const phone = body.sender?.phone_number || body.conversation?.meta?.sender?.phone_number || body.contact?.phone_number || '';
   const telefone = String(phone || '').replace(/^\+/, '').replace(/\D/g, '');
-  if (!telefone) {
-    return { skip: true, reason: 'no_phone_number' };
-  }
-
-  const conversation_id = body.conversation?.id ?? body.conversation_id ?? null;
-  const sender_name = body.sender?.name || body.conversation?.meta?.sender?.name || null;
+  if (!telefone) return { skip: true, reason: 'no_phone_number' };
 
   return {
     skip: false,
     telefone,
     mensagem_cliente: content,
-    chatwoot_thread_id: conversation_id ? String(conversation_id) : null,
-    sender_name,
+    chatwoot_thread_id: body.conversation?.id ?? body.conversation_id ?? null,
+    sender_name: body.sender?.name || body.conversation?.meta?.sender?.name || null,
     chatwoot_message_id: body.id ?? null,
   };
+}
+
+function stripWhatsAppMarkdown(text) {
+  return String(text || '')
+    .replace(/\*\*([^*\n]+)\*\*/g, '*$1*') // **bold** → *bold* (WA suporta)
+    .replace(/^---+\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractClientResponse(text) {
+  if (!text) return null;
+  // Bloco entre "---\n\n" (Bia separa thinking interno da resposta cliente)
+  const blocks = text.split(/\n---+\n/).map((s) => s.trim()).filter(Boolean);
+  // Bloco contendo "Oi" ou "R$" ou saudação típica
+  for (const b of blocks) {
+    if (/(\bOi[!,\s]|R\$|Sinto muito|Que (bom|legal|ótim))/i.test(b) && b.length > 30 && b.length < 3000) {
+      return b;
+    }
+  }
+  // Fallback: bloco mais longo
+  if (blocks.length > 1) return blocks.sort((a, b) => b.length - a.length)[0];
+  return text.trim();
+}
+
+async function fetchAnthropic(path) {
+  const resp = await fetch(`${ANTHROPIC_BASE}${path}`, { headers: buildAnthropicHeaders() });
+  if (!resp.ok) throw new Error(`Anthropic ${path} HTTP ${resp.status}`);
+  return resp.json();
+}
+
+async function pollSessionForResponse(sessionId, deadlineMs) {
+  while (Date.now() < deadlineMs) {
+    const data = await fetchAnthropic(`/sessions/${sessionId}/events?limit=100`);
+    const events = data.data || [];
+    const hasIdle = events.some((e) => e.type === 'session.status_idle');
+    const hasError = events.some((e) => e.type === 'session.error');
+    if (hasError) return { ready: false, error: 'session.error' };
+    if (hasIdle) {
+      // Pegar última agent.message cliente-facing
+      const agentMsgs = events.filter((e) => e.type === 'agent.message');
+      for (let i = agentMsgs.length - 1; i >= 0; i--) {
+        const content = agentMsgs[i].content || [];
+        for (const c of content) {
+          if (c.type === 'text' && c.text) {
+            if (/(R\$|\bOi[!,\s]|Sinto muito|atendente humana|consultora|💜)/i.test(c.text) && c.text.length > 30) {
+              return { ready: true, text: c.text };
+            }
+          }
+        }
+      }
+      // Fallback: última text qualquer
+      if (agentMsgs.length > 0) {
+        const last = agentMsgs[agentMsgs.length - 1].content || [];
+        for (const c of last) if (c.type === 'text' && c.text) return { ready: true, text: c.text };
+      }
+      return { ready: false, error: 'no_text_found_but_idle' };
+    }
+    // Não terminou ainda — sleep tick
+    await new Promise((r) => setTimeout(r, POLLING_TICK_MS));
+  }
+  return { ready: false, error: 'timeout' };
+}
+
+async function postChatwootMessage(convId, content) {
+  const resp = await fetch(
+    `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages`,
+    {
+      method: 'POST',
+      headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, message_type: 'outgoing' }),
+    }
+  );
+  const txt = await resp.text();
+  if (!resp.ok) throw new Error(`Chatwoot POST HTTP ${resp.status}: ${txt.slice(0, 200)}`);
+  try { return JSON.parse(txt); } catch { return { raw: txt }; }
 }
 
 export default async function handler(req, res) {
@@ -127,31 +186,21 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'method_not_allowed' });
   }
-
-  const apiKey = process.env.ANTHROPIC_API_KEY_ICELASER;
-  if (!apiKey) {
+  if (!process.env.ANTHROPIC_API_KEY_ICELASER) {
     return res.status(500).json({ error: 'missing_env', detail: 'ANTHROPIC_API_KEY_ICELASER not set' });
   }
 
   const rawBody = req.body || {};
-
-  // Caminho B — Chatwoot webhook
-  let telefone;
-  let mensagem_cliente;
-  let chatwoot_thread_id;
+  let telefone, mensagem_cliente, chatwoot_thread_id;
   let extra = {};
   let source = 'direct';
 
   if (isChatwootPayload(rawBody)) {
     source = 'chatwoot_webhook';
-    // Auth obrigatório quando payload Chatwoot
     const auth = checkAuth(req);
-    if (!auth.ok) {
-      return res.status(401).json({ error: 'unauthorized', detail: auth.mode });
-    }
+    if (!auth.ok) return res.status(401).json({ error: 'unauthorized', detail: auth.mode });
     const normalized = normalizeChatwoot(rawBody);
     if (normalized.skip) {
-      // Retorna 200 OK pra Chatwoot não tentar retransmitir — evento simplesmente foi filtrado.
       return res.status(200).json({ ok: true, skipped: true, reason: normalized.reason, source });
     }
     telefone = normalized.telefone;
@@ -162,19 +211,19 @@ export default async function handler(req, res) {
       chatwoot_message_id: normalized.chatwoot_message_id,
     };
   } else {
-    // Caminho A — Direct API
     telefone = String(rawBody.telefone || '').trim();
     mensagem_cliente = String(rawBody.mensagem_cliente || '').trim();
     chatwoot_thread_id = rawBody.chatwoot_thread_id ?? null;
     if (!telefone || !mensagem_cliente) {
       return res.status(400).json({
         error: 'bad_request',
-        detail: 'telefone + mensagem_cliente obrigatórios (caminho direct) OU envie payload Chatwoot com {event, conversation, sender, content}',
+        detail: 'telefone + mensagem_cliente obrigatórios (caminho direct) OU envie payload Chatwoot',
       });
     }
   }
 
-  const headers = buildHeaders(apiKey);
+  const t_start = Date.now();
+  const headers = buildAnthropicHeaders();
 
   try {
     // 1. Criar session
@@ -186,7 +235,6 @@ export default async function handler(req, res) {
         telefone,
         inicio: new Date().toISOString(),
         source,
-        // Anthropic metadata.* rejeita null — usar spread condicional pra omitir quando ausente
         ...(chatwoot_thread_id ? { chatwoot_thread_id: String(chatwoot_thread_id) } : {}),
         ...(extra.sender_name ? { sender_name: extra.sender_name } : {}),
         ...(extra.chatwoot_message_id ? { chatwoot_message_id: String(extra.chatwoot_message_id) } : {}),
@@ -200,9 +248,7 @@ export default async function handler(req, res) {
     };
 
     const sessResp = await fetch(`${ANTHROPIC_BASE}/sessions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(sessionPayload),
+      method: 'POST', headers, body: JSON.stringify(sessionPayload),
     });
     const sessText = await sessResp.text();
     if (!sessResp.ok) {
@@ -213,42 +259,74 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'session_no_id', detail: sessText.slice(0, 500), source });
     }
 
-    // 2. Enviar mensagem cliente prefixada com TELEFONE_CLIENTE pra decision tree
+    // 2. Enviar msg cliente prefixada
     const mensagemComPrefixo = `(TELEFONE_CLIENTE: +${telefone}) ${mensagem_cliente}`;
     const eventPayload = {
-      events: [
-        { type: 'user.message', content: [{ type: 'text', text: mensagemComPrefixo }] },
-      ],
+      events: [{ type: 'user.message', content: [{ type: 'text', text: mensagemComPrefixo }] }],
     };
     const evResp = await fetch(`${ANTHROPIC_BASE}/sessions/${session.id}/events`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(eventPayload),
+      method: 'POST', headers, body: JSON.stringify(eventPayload),
     });
     const evText = await evResp.text();
     if (!evResp.ok) {
-      return res.status(502).json({
-        error: 'event_send_failed',
-        session_id: session.id,
-        status: evResp.status,
-        detail: evText.slice(0, 500),
-        source,
-      });
-    }
-    let event;
-    try {
-      event = JSON.parse(evText);
-    } catch {
-      event = { raw: evText.slice(0, 200) };
+      return res.status(502).json({ error: 'event_send_failed', session_id: session.id, status: evResp.status, detail: evText.slice(0, 500), source });
     }
 
+    // 3. SE Chatwoot webhook → polling inline síncrono + posta resposta
+    if (source === 'chatwoot_webhook' && chatwoot_thread_id) {
+      const deadline = t_start + POLLING_TIMEOUT_MS;
+      const result = await pollSessionForResponse(session.id, deadline);
+      const elapsed_ms = Date.now() - t_start;
+
+      if (result.ready && result.text) {
+        const clientResp = extractClientResponse(result.text);
+        const clean = stripWhatsAppMarkdown(clientResp);
+        if (clean && clean.length >= 10) {
+          try {
+            const posted = await postChatwootMessage(chatwoot_thread_id, clean);
+            return res.status(200).json({
+              success: true,
+              source,
+              session_id: session.id,
+              chatwoot_msg_id: posted.id ?? null,
+              elapsed_ms,
+              resources_attached: session.resources?.length ?? null,
+            });
+          } catch (postErr) {
+            // Bia respondeu mas Chatwoot falhou → cron fallback pega depois
+            return res.status(200).json({
+              success: true,
+              source,
+              session_id: session.id,
+              warning: 'response_ready_but_chatwoot_post_failed',
+              detail: String(postErr?.message || postErr),
+              elapsed_ms,
+            });
+          }
+        }
+      }
+
+      // Timeout ou no_text — retorna 202, deixa cron fallback pegar
+      return res.status(202).json({
+        ok: true,
+        source,
+        session_id: session.id,
+        warning: 'response_not_ready_in_window',
+        reason: result.error || 'unknown',
+        elapsed_ms,
+        note: 'cron bia-postback fallback will deliver when ready',
+      });
+    }
+
+    // Caminho A direct — retorna info da session (sem polling)
+    let event;
+    try { event = JSON.parse(evText); } catch { event = { raw: evText.slice(0, 200) }; }
     return res.status(200).json({
       success: true,
       source,
       session_id: session.id,
       event_id: event?.data?.[0]?.id ?? event?.id ?? null,
       resources_attached: session.resources?.length ?? null,
-      ...(extra.chatwoot_message_id ? { chatwoot_message_id: extra.chatwoot_message_id } : {}),
     });
   } catch (err) {
     return res.status(500).json({ error: 'unhandled', detail: String(err?.message || err), source });
