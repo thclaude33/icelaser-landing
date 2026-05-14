@@ -248,7 +248,7 @@ export default async function handler(req, res) {
     const hasBiaTesteLabel = allLabelsForGate.includes('bia_teste');
 
     if (isWhatsAppRecife && isBotEvent && hasBiaTesteLabel) {
-      console.log(`[CRM→BOT] skipped: bia_teste label present — Bia AI handles this conv | event=${event} conv=${body.id || body.conversation?.id || '?'}`);
+      console.log(`[CRM-BOT] skipped: bia_teste label present — Bia AI handles this conv | event=${event} conv=${body.id || body.conversation?.id || '?'}`);
     } else if (isWhatsAppRecife && isBotEvent) {
       // AWAIT SÍNCRONO — Vercel serverless mata promises pendentes após response.
       // Bot roda ANTES do CAPI normal processar. ~5s adicional (welcome+wait3s+dispatch).
@@ -257,10 +257,10 @@ export default async function handler(req, res) {
         const { handleNewConversation, handleIncomingMessage } = await import('./chatwoot-bot/index.js');
         const fn = event === 'conversation_created' ? handleNewConversation : handleIncomingMessage;
         const botResult = await fn(body);
-        console.log(`[CRM→BOT] event=${event} conv=${body.id || body.conversation?.id || '?'} result=${JSON.stringify(botResult).slice(0, 200)}`);
+        console.log(`[CRM-BOT] event=${event} conv=${body.id || body.conversation?.id || '?'} result=${JSON.stringify(botResult).slice(0, 200)}`);
       } catch (e) {
         // Bot pode falhar — log mas NÃO afeta processamento CAPI normal abaixo
-        console.error(`[CRM→BOT] error (non-blocking): ${e?.message || e}`);
+        console.error(`[CRM-BOT] error (non-blocking): ${e?.message || e}`);
       }
     }
   }
