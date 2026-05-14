@@ -58,25 +58,31 @@ function validateChatwootWebhook(req, rawBody) {
   if (!secret && !queryToken) return { valid: false, mode: 'no-auth-configured' };
 
   // 1. Try HMAC signature (Chatwoot 3.17+)
+  // Se HMAC válido → aceita. Se HMAC INVÁLIDO → cai pra fallback query token
+  // (defesa contra regen do secret no Chatwoot dessincronizar com Vercel env).
   const sig = req.headers['x-chatwoot-signature'];
   const ts = req.headers['x-chatwoot-timestamp'];
   if (secret && sig && ts) {
     const valid = verifyChatwootSignature(rawBody, sig, ts, secret);
-    return { valid, mode: valid ? 'hmac-valid' : 'hmac-invalid' };
+    if (valid) return { valid: true, mode: 'hmac-valid' };
+    // HMAC falhou: NÃO retorna invalid ainda — tenta fallback query token abaixo.
   }
 
-  // 2. Fallback: query token na URL (compat com Chatwoot antigo)
+  // 2. Fallback: query token na URL (compat com Chatwoot antigo + recovery
+  // quando secret HMAC desincroniza após recriar webhook).
   if (queryToken) {
     const reqUrl = new URL(req.url, `https://${req.headers.host || 'localhost'}`);
     const providedToken = reqUrl.searchParams.get('auth') || '';
     if (timingSafeStringEqual(providedToken, queryToken)) {
-      return { valid: true, mode: 'query-token-valid' };
+      // Diferencia se HMAC tava presente mas inválido (cai aqui após fallback) vs query-token direto
+      const mode = (sig && ts) ? 'hmac-invalid-but-query-token-valid' : 'query-token-valid';
+      return { valid: true, mode };
     }
-    return { valid: false, mode: 'query-token-invalid-or-missing' };
+    return { valid: false, mode: (sig && ts) ? 'hmac-invalid-and-query-token-invalid' : 'query-token-invalid-or-missing' };
   }
 
-  // Secret configurado mas Chatwoot não enviou signature (old version)
-  return { valid: false, mode: 'no-signature' };
+  // Secret configurado mas Chatwoot não enviou signature válida E sem query token
+  return { valid: false, mode: sig && ts ? 'hmac-invalid' : 'no-signature' };
 }
 
 async function sendCAPI(events, token, retryCount = 0, targetPixelId = PIXEL_ID) {
