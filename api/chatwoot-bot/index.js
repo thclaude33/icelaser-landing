@@ -62,6 +62,31 @@ function logErr(msg, extra = {}) {
 }
 
 /**
+ * Shadow Mode label guard — verifica se conversa tem label `bia_teste`.
+ *
+ * Labels podem vir em múltiplos lugares no payload Chatwoot:
+ *   - payload.conversation.labels (array)
+ *   - payload.labels (array, em conversation_updated)
+ *   - payload.conversation.cached_label_list (CSV string)
+ *   - payload.cached_label_list (CSV)
+ *
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function hasBiaTesteLabel(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  const labelSources = [payload?.conversation?.labels, payload?.labels];
+  const csvSources = [payload?.conversation?.cached_label_list, payload?.cached_label_list];
+  const labelArray = labelSources.find((l) => Array.isArray(l)) || [];
+  const labelCsv = csvSources.find((s) => typeof s === 'string') || '';
+  const all = [
+    ...labelArray.map((l) => String(l).toLowerCase()),
+    ...labelCsv.split(',').map((l) => l.trim().toLowerCase()).filter(Boolean),
+  ];
+  return all.includes('bia_teste');
+}
+
+/**
  * Helper: dorme N ms (pra waits)
  */
 function sleep(ms) {
@@ -244,6 +269,14 @@ export async function handleNewConversation(payload) {
     return { skipped: true, reason: 'no_phone' };
   }
 
+  // SHADOW MODE GUARD (defesa em profundidade — 13/05/2026):
+  // Se conv tem label `bia_teste`, Bia AI é a responsável. Bot Welcome PULA
+  // mesmo se chamado direto (sem passar pelo gate do crm-webhook.js).
+  if (hasBiaTesteLabel(payload)) {
+    log(`skip: bia_teste label present — Bia AI handles conv ${conversationId}`);
+    return { skipped: true, reason: 'bia_teste_label' };
+  }
+
   // GUARD ANTI-RECORRENTE (defesa em profundidade — OR de 2 condições):
   //   1. bot_welcomed === true (cliente já recebeu welcome do bot antes)
   //   2. contact.created_at < BOT_LAUNCH_TS (cliente pré-existente ao bot)
@@ -296,6 +329,13 @@ export async function handleIncomingMessage(payload) {
   if (!conversationId || !phone) {
     log(`SKIP missing_ids: convId=${conversationId} phone=${phone}`);
     return { skipped: true, reason: 'missing_ids' };
+  }
+
+  // SHADOW MODE GUARD (defesa em profundidade — 13/05/2026):
+  // Se conv tem label `bia_teste`, Bia AI processa. Bot ignora msg incoming.
+  if (hasBiaTesteLabel(payload)) {
+    log(`SKIP bia_teste: label present — Bia AI handles conv ${conversationId}`);
+    return { skipped: true, reason: 'bia_teste_label' };
   }
 
   // Só processa mensagens incoming do contato (message_type=0). Outgoing = ignorar.

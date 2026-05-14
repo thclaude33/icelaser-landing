@@ -219,11 +219,37 @@ export default async function handler(req, res) {
   // AWAIT obrigatório — Vercel mata promises pendentes após response.
   // Feature flag: CHATWOOT_BOT_ENABLED='1' (default '0' = bot desativado).
   // Dry-run flag : CHATWOOT_BOT_DRY_RUN='1' (loga payload, não envia mensagens).
+  //
+  // SHADOW MODE GUARD (13/05/2026): se conv tem label `bia_teste`, Bia AI é
+  // quem processa via /api/bia-session-create — Bot Welcome deve PULAR pra
+  // evitar conflito (2 respostas paralelas no WhatsApp do cliente).
   if (process.env.CHATWOOT_BOT_ENABLED === '1') {
     const botInboxId = body.inbox_id || body.inbox?.id || body.conversation?.inbox_id;
     const isWhatsAppRecife = botInboxId === 7;
     const isBotEvent = event === 'conversation_created' || event === 'message_created';
-    if (isWhatsAppRecife && isBotEvent) {
+
+    // Shadow Mode label guard — Bia AI handles instead of Bot Welcome.
+    // Labels podem vir em: body.conversation.labels (array) | body.labels (array)
+    // | body.conversation.cached_label_list (CSV string) | body.cached_label_list.
+    const labelSources = [
+      body.conversation?.labels,
+      body.labels,
+    ];
+    const csvSources = [
+      body.conversation?.cached_label_list,
+      body.cached_label_list,
+    ];
+    const labelArray = labelSources.find((l) => Array.isArray(l)) || [];
+    const labelCsv = csvSources.find((s) => typeof s === 'string') || '';
+    const allLabelsForGate = [
+      ...labelArray.map((l) => String(l).toLowerCase()),
+      ...labelCsv.split(',').map((l) => l.trim().toLowerCase()).filter(Boolean),
+    ];
+    const hasBiaTesteLabel = allLabelsForGate.includes('bia_teste');
+
+    if (isWhatsAppRecife && isBotEvent && hasBiaTesteLabel) {
+      console.log(`[CRM→BOT] skipped: bia_teste label present — Bia AI handles this conv | event=${event} conv=${body.id || body.conversation?.id || '?'}`);
+    } else if (isWhatsAppRecife && isBotEvent) {
       // AWAIT SÍNCRONO — Vercel serverless mata promises pendentes após response.
       // Bot roda ANTES do CAPI normal processar. ~5s adicional (welcome+wait3s+dispatch).
       // Em DRY-RUN não envia nada, logs only. Em produção pode chegar a 10s — Chatwoot tolera.
