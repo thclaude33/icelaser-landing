@@ -232,12 +232,9 @@ export default async function handler(req, res) {
   if (process.env.CHATWOOT_BOT_ENABLED === '1') {
     const botInboxId = body.inbox_id || body.inbox?.id || body.conversation?.inbox_id;
     // FIX 14/05/2026: aceitar string OU number — Chatwoot envia inbox_id como string em alguns eventos.
-    // Bug antigo: `botInboxId === 7` (strict) falhava quando Chatwoot mandava `'7'` string → Bot Welcome
-    // NUNCA disparava em conv real. Conv ficava sem welcome msg.
+    // Bug antigo: `botInboxId === 7` (strict) podia falhar quando Chatwoot mandava `'7'` string.
     const isWhatsAppRecife = Number(botInboxId) === 7;
     const isBotEvent = event === 'conversation_created' || event === 'message_created';
-    // Diagnóstico (temporário): logar valores reais pra confirmar fix.
-    console.log(`[CRM-BOT-DIAG] enabled=true inboxRaw=${JSON.stringify(botInboxId)}(${typeof botInboxId}) isWA=${isWhatsAppRecife} event=${event} isBotEvent=${isBotEvent}`);
 
     // Shadow Mode label guard — Bia AI handles instead of Bot Welcome.
     // Labels podem vir em: body.conversation.labels (array) | body.labels (array)
