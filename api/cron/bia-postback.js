@@ -1,14 +1,20 @@
 // api/cron/bia-postback.js
-// FALLBACK ONLY — quando handler bia-session-create.js timeout (45s) sem conseguir
+// FALLBACK ONLY — quando handler bia-session-create.js timeout (55s) sem conseguir
 // postar resposta (Bia ainda processando), este cron pega a resposta quando idle
 // e posta no Chatwoot.
 //
-// DEDUP: Blob marker `bia/postback/posted/{session_id}.json` é gravado por:
-//   1. Handler quando posta com sucesso inline (no path bia-session-create)
-//   2. Este cron quando posta como fallback
-// Antes de postar, AMBOS checam o marker. Zero race condition.
+// DEDUP (FASE 2 — 15/05/2026): Blob marker key SHIFT
+//   ANTES: `bia/postback/posted/{session_id}.json`
+//   AGORA: `bia/postback/posted/msg_{chatwoot_message_id}.json` (preferred)
+//           fallback `bia/postback/posted/sess_{session_id}.json`
+//   Motivo: Chatwoot retry pode abrir 2 sessions diferentes pra mesma msg →
+//   dedup por session.id falhava. Por msg_id é único por mensagem.
+//
+// CLAIM-AND-ACT (FASE 2): handler marca marker ANTES de postar.
+//   Se POST falha, handler deleta marker → cron pode retry.
+//   Cron usa MESMA estratégia: marker pré-claim, post, confirm OR delete-and-skip.
 
-import { list, put } from '@vercel/blob';
+import { list, put, del } from '@vercel/blob';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
@@ -57,25 +63,45 @@ async function fetchAnthropic(path) {
   return resp.json();
 }
 
-async function alreadyPosted(sessionId) {
+// FASE 2 Item 5: dedup_key prefere chatwoot_message_id sobre session.id
+function getDedupKey(sessionId, chatwootMessageId) {
+  return chatwootMessageId ? `msg_${chatwootMessageId}` : `sess_${sessionId}`;
+}
+
+async function alreadyPosted(dedupKey) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return false;
   try {
-    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${sessionId}` });
+    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
     return blobs.length > 0;
   } catch {
     return false;
   }
 }
 
-async function markPosted(sessionId, payload) {
+async function markPosted(dedupKey, payload) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return;
   try {
-    await put(`${BLOB_PREFIX}${sessionId}.json`, JSON.stringify(payload), {
+    await put(`${BLOB_PREFIX}${dedupKey}.json`, JSON.stringify(payload), {
       access: 'public',
       addRandomSuffix: false,
       contentType: 'application/json',
     });
-  } catch {}
+  } catch (err) {
+    console.error(`[BIA-POSTBACK-MARK] put failed ${dedupKey}: ${err?.message || err}`);
+  }
+}
+
+// FASE 2 Item 1: delete marker quando POST Chatwoot falha (cron retry no próximo tick)
+async function deleteMarker(dedupKey) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  try {
+    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
+    for (const b of blobs) {
+      await del(b.url);
+    }
+  } catch (err) {
+    console.error(`[BIA-POSTBACK-DEL] failed ${dedupKey}: ${err?.message || err}`);
+  }
 }
 
 async function postChatwoot(convId, content) {
@@ -115,9 +141,13 @@ export default async function handler(req, res) {
     for (const s of sessions) {
       const sid = s.id;
       const convId = s.metadata?.chatwoot_thread_id;
+      // FASE 2 Item 5: dedup_key prefere chatwoot_message_id do metadata da session.
+      // Handler salva no metadata quando cria session com source=chatwoot_webhook.
+      const incomingMsgId = s.metadata?.chatwoot_message_id;
+      const dedupKey = getDedupKey(sid, incomingMsgId);
       try {
-        // DEDUP: handler já postou?
-        if (await alreadyPosted(sid)) {
+        // DEDUP: handler já postou? (verifica marker pré ou pós claim)
+        if (await alreadyPosted(dedupKey)) {
           stats.skipped_already += 1;
           continue;
         }
@@ -153,21 +183,41 @@ export default async function handler(req, res) {
           stats.skipped_no_content += 1;
           continue;
         }
-        // RE-CHECK dedup right before posting (race window minimal)
-        if (await alreadyPosted(sid)) {
+        // FASE 2 Item 1: CLAIM-AND-ACT — marca marker ANTES de postar
+        // Re-check dedup uma última vez (race window minimal)
+        if (await alreadyPosted(dedupKey)) {
           stats.skipped_already += 1;
           continue;
         }
-        const posted = await postChatwoot(convId, clean);
-        await markPosted(sid, {
+        await markPosted(dedupKey, {
           session_id: sid,
           conv_id: convId,
-          chatwoot_msg_id: posted.id,
+          chatwoot_msg_id: null, // será atualizado pós-POST
+          chatwoot_message_id_incoming: incomingMsgId || null,
+          dedup_key: dedupKey,
           posted_at: new Date().toISOString(),
-          posted_by: 'cron_fallback',
+          posted_by: 'cron_fallback_claiming',
         });
-        stats.posted += 1;
-        stats.details.push({ sid: sid.slice(-12), conv: convId, msg_id: posted.id });
+        try {
+          const posted = await postChatwoot(convId, clean);
+          // POST sucesso — confirma marker com msg_id real
+          await markPosted(dedupKey, {
+            session_id: sid,
+            conv_id: convId,
+            chatwoot_msg_id: posted.id,
+            chatwoot_message_id_incoming: incomingMsgId || null,
+            dedup_key: dedupKey,
+            posted_at: new Date().toISOString(),
+            posted_by: 'cron_fallback_confirmed',
+          });
+          stats.posted += 1;
+          stats.details.push({ sid: sid.slice(-12), conv: convId, msg_id: posted.id, dedup_key: dedupKey });
+        } catch (postErr) {
+          // POST falhou — DELETA marker pra próximo cron tick retry
+          await deleteMarker(dedupKey);
+          stats.errors += 1;
+          stats.details.push({ sid: sid.slice(-12), error: String(postErr?.message || postErr).slice(0, 150), marker_deleted: true });
+        }
       } catch (err) {
         stats.errors += 1;
         stats.details.push({ sid: sid.slice(-12), error: String(err?.message || err).slice(0, 150) });

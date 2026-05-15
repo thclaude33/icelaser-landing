@@ -24,7 +24,7 @@
 // `bia/postback/posted/{session_id}.json` no Vercel Blob. Cron bia-postback
 // checa esse marker antes de postar — zero duplicação.
 
-import { list, put } from '@vercel/blob';
+import { list, put, del } from '@vercel/blob';
 import { sanitizeHeader } from './_lib/security.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
@@ -364,21 +364,43 @@ async function postChatwootMessage(convId, content) {
 
 const BLOB_PREFIX = 'bia/postback/posted/';
 
-async function markPosted(sessionId, payload) {
+// FASE 2 Item 5 (15/05/2026): dedup_key prefere chatwoot_message_id (único por msg)
+// sobre session.id. Chatwoot retry duplicado abre 2 sessions diferentes — antes
+// dedup falhava (key session.id era diferente). Agora msg_id é único por mensagem.
+function getDedupKey(sessionId, chatwootMessageId) {
+  return chatwootMessageId ? `msg_${chatwootMessageId}` : `sess_${sessionId}`;
+}
+
+async function markPosted(dedupKey, payload) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return;
   try {
-    await put(`${BLOB_PREFIX}${sessionId}.json`, JSON.stringify(payload), {
+    await put(`${BLOB_PREFIX}${dedupKey}.json`, JSON.stringify(payload), {
       access: 'public',
       addRandomSuffix: false,
       contentType: 'application/json',
     });
-  } catch {}
+  } catch (err) {
+    console.error(`[BIA-MARK] put failed for ${dedupKey}: ${err?.message || err}`);
+  }
 }
 
-async function alreadyPosted(sessionId) {
+// FASE 2 Item 1: delete marker quando POST Chatwoot falha — permite cron retry.
+async function deleteMarker(dedupKey) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  try {
+    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
+    for (const b of blobs) {
+      await del(b.url);
+    }
+  } catch (err) {
+    console.error(`[BIA-DEL-MARKER] failed for ${dedupKey}: ${err?.message || err}`);
+  }
+}
+
+async function alreadyPosted(dedupKey) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) return false;
   try {
-    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${sessionId}` });
+    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
     return blobs.length > 0;
   } catch {
     return false;
@@ -504,43 +526,80 @@ export default async function handler(req, res) {
         const clientResp = extractClientResponse(result.text);
         const clean = stripWhatsAppMarkdown(clientResp);
         if (clean && clean.length >= 10) {
+          // FASE 2 Item 5: dedup_key prefere chatwoot_message_id (único por msg).
+          // Chatwoot retry pode abrir 2 sessions → mesmo msg_id → dedup pega.
+          const dedupKey = getDedupKey(session.id, extra.chatwoot_message_id);
           try {
-            // RE-CHECK dedup right before posting (race window minimal)
-            if (await alreadyPosted(session.id)) {
+            // RE-CHECK dedup right before posting
+            if (await alreadyPosted(dedupKey)) {
               return res.status(200).json({
                 success: true,
                 source,
                 session_id: session.id,
+                dedup_key: dedupKey,
                 already_posted: true,
                 elapsed_ms,
               });
             }
-            const posted = await postChatwootMessage(chatwoot_thread_id, clean);
-            // Marca Blob pra cron fallback não duplicar
-            await markPosted(session.id, {
+            // FASE 2 Item 1: CLAIM-AND-ACT — marca marker ANTES de postar.
+            // Bloqueia race com cron-postback que checa marker entre POST e markPosted.
+            // Se POST falhar, deleta marker pra permitir cron retry.
+            await markPosted(dedupKey, {
               session_id: session.id,
               conv_id: chatwoot_thread_id,
-              chatwoot_msg_id: posted.id,
+              chatwoot_msg_id: null, // será atualizado pós-POST
+              chatwoot_message_id_incoming: extra.chatwoot_message_id || null,
+              dedup_key: dedupKey,
               posted_at: new Date().toISOString(),
-              posted_by: 'handler_inline',
+              posted_by: 'handler_inline_claiming',
               elapsed_ms,
             });
+            try {
+              const posted = await postChatwootMessage(chatwoot_thread_id, clean);
+              // POST sucesso — confirma marker com msg_id real
+              await markPosted(dedupKey, {
+                session_id: session.id,
+                conv_id: chatwoot_thread_id,
+                chatwoot_msg_id: posted.id,
+                chatwoot_message_id_incoming: extra.chatwoot_message_id || null,
+                dedup_key: dedupKey,
+                posted_at: new Date().toISOString(),
+                posted_by: 'handler_inline_confirmed',
+                elapsed_ms,
+              });
+              return res.status(200).json({
+                success: true,
+                source,
+                session_id: session.id,
+                dedup_key: dedupKey,
+                chatwoot_msg_id: posted.id ?? null,
+                elapsed_ms,
+                resources_attached: session.resources?.length ?? null,
+              });
+            } catch (postErr) {
+              // POST falhou — DELETA marker pra cron poder retry
+              await deleteMarker(dedupKey);
+              console.warn(`[BIA-CLAIM] post failed, marker deleted for ${dedupKey}: ${postErr?.message || postErr}`);
+              return res.status(200).json({
+                success: true,
+                source,
+                session_id: session.id,
+                dedup_key: dedupKey,
+                warning: 'response_ready_but_chatwoot_post_failed',
+                detail: String(postErr?.message || postErr),
+                marker_deleted: true,
+                elapsed_ms,
+              });
+            }
+          } catch (claimErr) {
+            // Falha no claim — log + cron pega depois
+            console.error(`[BIA-CLAIM] claim failed for ${dedupKey}: ${claimErr?.message || claimErr}`);
             return res.status(200).json({
               success: true,
               source,
               session_id: session.id,
-              chatwoot_msg_id: posted.id ?? null,
-              elapsed_ms,
-              resources_attached: session.resources?.length ?? null,
-            });
-          } catch (postErr) {
-            // Bia respondeu mas Chatwoot falhou → cron fallback pega depois
-            return res.status(200).json({
-              success: true,
-              source,
-              session_id: session.id,
-              warning: 'response_ready_but_chatwoot_post_failed',
-              detail: String(postErr?.message || postErr),
+              warning: 'claim_failed_cron_will_pickup',
+              detail: String(claimErr?.message || claimErr),
               elapsed_ms,
             });
           }
