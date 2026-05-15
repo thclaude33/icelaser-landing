@@ -468,10 +468,14 @@ export default async function handler(req, res) {
   // FASE PRÉ-3 ITEM B (BUG #31) — Pre-session dedup check.
   // Antes: dedup só impede DUPLICAÇÃO no Chatwoot, MAS 2 webhooks paralelos
   // criam 2 sessions Anthropic ($0.065 wasted cada race).
-  // Agora: alreadyPosted(dedupKey) ANTES de POST /sessions. Se marker existe,
+  // Agora: alreadyPosted(preDedupKey) ANTES de POST /sessions. Se marker existe,
   // retorna cedo sem criar session Anthropic.
+  //
+  // IMPORTANTE: pre-session usa KEY DIFERENTE (`pre_msg_{id}`) do post-session
+  // (`msg_{id}`). Senão handler que claim pre-session bloqueia ele mesmo no
+  // post-session dedup check (próprio marker bloqueia próprio POST Chatwoot).
   const preSessionDedupKey = source === 'chatwoot_webhook' && extra.chatwoot_message_id
-    ? `msg_${extra.chatwoot_message_id}`
+    ? `pre_msg_${extra.chatwoot_message_id}`
     : null;
   if (preSessionDedupKey && await alreadyPosted(preSessionDedupKey)) {
     return res.status(200).json({
