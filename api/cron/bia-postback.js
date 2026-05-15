@@ -15,6 +15,7 @@
 //   Cron usa MESMA estratégia: marker pré-claim, post, confirm OR delete-and-skip.
 
 import { list, put, del } from '@vercel/blob';
+import { shouldSendNow } from '../_lib/send-window.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
@@ -39,15 +40,11 @@ function stripWhatsAppMarkdown(text) {
     .trim();
 }
 
+// FASE PRÉ-3 Fix #2/#4 — extractClientResponse simplificado, consistente com handler.
+// Bug histórico: regex incluía "laser" que match "IceLaser" em qualquer bloco —
+// produzia inconsistência handler×cron (msg 5441 conv 510). Fix: retornar full text.
 function extractClientResponse(text) {
   if (!text) return null;
-  const blocks = text.split(/\n---+\n/).map((s) => s.trim()).filter(Boolean);
-  for (const b of blocks) {
-    if (/(\bOi[!,\s]|R\$|Sinto muito|Que (bom|legal|ótim)|Bu[çc]o|laser)/i.test(b) && b.length > 30 && b.length < 3000) {
-      return b;
-    }
-  }
-  if (blocks.length > 1) return blocks.sort((a, b) => b.length - a.length)[0];
   return text.trim();
 }
 
@@ -73,7 +70,9 @@ async function alreadyPosted(dedupKey) {
   try {
     const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
     return blobs.length > 0;
-  } catch {
+  } catch (err) {
+    // FASE PRÉ-3 Fix #10: log Blob errors
+    console.error(`[BIA-POSTBACK-DEDUP] check failed for ${dedupKey}: ${err?.message || err}`);
     return false;
   }
 }
@@ -159,20 +158,28 @@ export default async function handler(req, res) {
           stats.skipped_processing += 1;
           continue;
         }
-        const agentMsgs = events.filter((e) => e.type === 'agent.message');
+        // FASE PRÉ-3 Fix #1 + #2/#4: pegar agent.message FINAL (após último tool_use)
+        // Consistente com handler pollSessionForResponse. NÃO usar regex pra escolher
+        // bloco — pegar full text APÓS último tool_use.
+        let lastToolUseIdx = -1;
+        for (let i = events.length - 1; i >= 0; i--) {
+          if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
+        }
+        let finalMsg = null;
+        for (let i = events.length - 1; i > lastToolUseIdx; i--) {
+          if (events[i].type === 'agent.message') { finalMsg = events[i]; break; }
+        }
+        if (!finalMsg) {
+          const agentMsgs = events.filter((e) => e.type === 'agent.message');
+          finalMsg = agentMsgs[agentMsgs.length - 1] || null;
+        }
         let bestText = null;
-        for (let i = agentMsgs.length - 1; i >= 0; i--) {
-          for (const c of (agentMsgs[i].content || [])) {
-            if (c.type === 'text' && c.text && /(R\$|\bOi[!,\s]|Sinto muito|atendente humana|consultora|💜|Bu[çc]o|laser)/i.test(c.text) && c.text.length > 30) {
+        if (finalMsg) {
+          for (const c of (finalMsg.content || [])) {
+            if (c.type === 'text' && c.text && c.text.length > 0) {
               bestText = c.text;
               break;
             }
-          }
-          if (bestText) break;
-        }
-        if (!bestText && agentMsgs.length > 0) {
-          for (const c of (agentMsgs[agentMsgs.length - 1].content || [])) {
-            if (c.type === 'text' && c.text) { bestText = c.text; break; }
           }
         }
         if (!bestText) {
@@ -182,6 +189,14 @@ export default async function handler(req, res) {
         const clean = stripWhatsAppMarkdown(extractClientResponse(bestText));
         if (!clean || clean.length < 10) {
           stats.skipped_no_content += 1;
+          continue;
+        }
+        // FASE PRÉ-3 ITEM C — Gate janela horária (08:00-20:30 BRT).
+        // Lê session_type do metadata. reactive_reply sempre passa.
+        const sessionType = s.metadata?.session_type || 'reactive_reply'; // legacy default
+        const windowGate = shouldSendNow({ session_type: sessionType });
+        if (!windowGate.ok) {
+          stats.details.push({ sid: sid.slice(-12), skipped_window: windowGate.reason, next: windowGate.next_send_at });
           continue;
         }
         // FASE 2 Item 1: CLAIM-AND-ACT — marca marker ANTES de postar

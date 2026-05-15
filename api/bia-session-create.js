@@ -26,6 +26,7 @@
 
 import { list, put, del } from '@vercel/blob';
 import { sanitizeHeader } from './_lib/security.js';
+import { shouldSendNow } from './_lib/send-window.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -259,18 +260,13 @@ function stripWhatsAppMarkdown(text) {
     .trim();
 }
 
+// FASE PRÉ-3 Fix #2/#4 — extractClientResponse simplificado.
+// Bug histórico: regex anterior pegava bloco errado quando Bia gerava multi-block
+// response (ex: msg 5441 conv 510 — cliente perguntou "meia perna" recebeu apenas
+// bloco "recorrência"). Causa raiz: regex match parcial em palavras como "IceLaser".
+// Fix: retornar texto completo. stripWhatsAppMarkdown remove "---" separadores.
 function extractClientResponse(text) {
   if (!text) return null;
-  // Bloco entre "---\n\n" (Bia separa thinking interno da resposta cliente)
-  const blocks = text.split(/\n---+\n/).map((s) => s.trim()).filter(Boolean);
-  // Bloco contendo "Oi" ou "R$" ou saudação típica
-  for (const b of blocks) {
-    if (/(\bOi[!,\s]|R\$|Sinto muito|Que (bom|legal|ótim))/i.test(b) && b.length > 30 && b.length < 3000) {
-      return b;
-    }
-  }
-  // Fallback: bloco mais longo
-  if (blocks.length > 1) return blocks.sort((a, b) => b.length - a.length)[0];
   return text.trim();
 }
 
@@ -288,22 +284,29 @@ async function pollSessionForResponse(sessionId, deadlineMs) {
     const hasError = events.some((e) => e.type === 'session.error');
     if (hasError) return { ready: false, error: 'session.error' };
     if (hasIdle) {
-      // Pegar última agent.message cliente-facing
-      const agentMsgs = events.filter((e) => e.type === 'agent.message');
-      for (let i = agentMsgs.length - 1; i >= 0; i--) {
-        const content = agentMsgs[i].content || [];
-        for (const c of content) {
-          if (c.type === 'text' && c.text) {
-            if (/(R\$|\bOi[!,\s]|Sinto muito|atendente humana|consultora|💜)/i.test(c.text) && c.text.length > 30) {
-              return { ready: true, text: c.text };
-            }
+      // FASE PRÉ-3 Fix #1: pegar agent.message FINAL (após último tool_use).
+      // Garante "post-thinking response", evita pegar mensagem intermediária
+      // que pode conter raciocínio meta-thinking ou texto pré-tool resolution.
+      let lastToolUseIdx = -1;
+      for (let i = events.length - 1; i >= 0; i--) {
+        if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
+      }
+      // Última agent.message com índice > lastToolUseIdx (ou primeira encontrada se sem tool_use)
+      let finalMsg = null;
+      for (let i = events.length - 1; i > lastToolUseIdx; i--) {
+        if (events[i].type === 'agent.message') { finalMsg = events[i]; break; }
+      }
+      if (!finalMsg) {
+        // Fallback: última agent.message qualquer (caso tool_use seja o último event)
+        const agentMsgs = events.filter((e) => e.type === 'agent.message');
+        finalMsg = agentMsgs[agentMsgs.length - 1] || null;
+      }
+      if (finalMsg) {
+        for (const c of (finalMsg.content || [])) {
+          if (c.type === 'text' && c.text && c.text.length > 0) {
+            return { ready: true, text: c.text };
           }
         }
-      }
-      // Fallback: última text qualquer
-      if (agentMsgs.length > 0) {
-        const last = agentMsgs[agentMsgs.length - 1].content || [];
-        for (const c of last) if (c.type === 'text' && c.text) return { ready: true, text: c.text };
       }
       return { ready: false, error: 'no_text_found_but_idle' };
     }
@@ -316,7 +319,10 @@ async function pollSessionForResponse(sessionId, deadlineMs) {
 // CONTEXTO CHATWOOT — busca histórico da conversa pra injetar no prompt
 // Resolve Bug #3 (re-apresentação): Bia vê "já me apresentei antes nessa conv"
 // e aplica Cenário D (continuação) em vez de Cenário A (saudação completa).
-async function fetchChatwootHistory(convId, limit = 20) {
+// FASE PRÉ-3 Fix #5 — history limits 20→50 msgs + 250→1500 chars.
+// Bia precisa contexto rico pra responder coerente (especialmente Cenário D 24h+).
+// Custo extra absorvido por auto-cache 95% hit_rate. ~$0.04-0.06/turn aceitável.
+async function fetchChatwootHistory(convId, limit = 50) {
   try {
     const resp = await fetch(
       `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages?page=1`,
@@ -340,10 +346,12 @@ async function fetchChatwootHistory(convId, limit = 20) {
       const mt = m.message_type;
       const role = (mt === 0 || mt === 'incoming') ? 'CLIENTE' : 'BIA';
       const ts = m.created_at ? new Date(m.created_at * 1000).toISOString().slice(11, 16) : '';
-      const content = String(m.content || '').replace(/\n/g, ' ').slice(0, 250);
+      const content = String(m.content || '').replace(/\n/g, ' ').slice(0, 1500);
       return `[${ts}] ${role}: ${content}`;
     });
-  } catch {
+  } catch (err) {
+    // FASE PRÉ-3 Fix #10: log error em vez de silent fail
+    console.error(`[BIA-HISTORY] fetch failed conv=${convId}: ${err?.message || err}`);
     return null;
   }
 }
@@ -403,8 +411,10 @@ async function alreadyPosted(dedupKey) {
   try {
     const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
     return blobs.length > 0;
-  } catch {
-    return false;
+  } catch (err) {
+    // FASE PRÉ-3 Fix #10: log Blob errors (não silent — fail-open mas observável)
+    console.error(`[BIA-DEDUP] alreadyPosted check failed for ${dedupKey}: ${err?.message || err}`);
+    return false; // fail-open: prefere duplicate-risk vs perder msg
   }
 }
 
@@ -455,6 +465,33 @@ export default async function handler(req, res) {
   const t_start = Date.now();
   const headers = buildAnthropicHeaders();
 
+  // FASE PRÉ-3 ITEM B (BUG #31) — Pre-session dedup check.
+  // Antes: dedup só impede DUPLICAÇÃO no Chatwoot, MAS 2 webhooks paralelos
+  // criam 2 sessions Anthropic ($0.065 wasted cada race).
+  // Agora: alreadyPosted(dedupKey) ANTES de POST /sessions. Se marker existe,
+  // retorna cedo sem criar session Anthropic.
+  const preSessionDedupKey = source === 'chatwoot_webhook' && extra.chatwoot_message_id
+    ? `msg_${extra.chatwoot_message_id}`
+    : null;
+  if (preSessionDedupKey && await alreadyPosted(preSessionDedupKey)) {
+    return res.status(200).json({
+      skipped: true,
+      reason: 'already_processed_msg_pre_session',
+      dedup_key: preSessionDedupKey,
+      source,
+    });
+  }
+  // CLAIM marker ANTES de criar session Anthropic
+  if (preSessionDedupKey) {
+    await markPosted(preSessionDedupKey, {
+      conv_id: chatwoot_thread_id,
+      chatwoot_message_id_incoming: extra.chatwoot_message_id,
+      dedup_key: preSessionDedupKey,
+      claimed_at: new Date().toISOString(),
+      posted_by: 'handler_pre_session_claim',
+    });
+  }
+
   try {
     // 1. Criar session
     const sessionPayload = {
@@ -465,6 +502,7 @@ export default async function handler(req, res) {
         telefone,
         inicio: new Date().toISOString(),
         source,
+        session_type: 'reactive_reply', // FASE PRÉ-3 ITEM C: prepara gate janela horária
         ...(chatwoot_thread_id ? { chatwoot_thread_id: String(chatwoot_thread_id) } : {}),
         ...(extra.sender_name ? { sender_name: extra.sender_name } : {}),
         ...(extra.chatwoot_message_id ? { chatwoot_message_id: String(extra.chatwoot_message_id) } : {}),
@@ -482,10 +520,13 @@ export default async function handler(req, res) {
     });
     const sessText = await sessResp.text();
     if (!sessResp.ok) {
+      // FASE PRÉ-3 ITEM B: session create falhou — DELETA marker pré-claim pra cron retry
+      if (preSessionDedupKey) await deleteMarker(preSessionDedupKey);
       return res.status(502).json({ error: 'session_create_failed', status: sessResp.status, detail: sessText.slice(0, 500), source });
     }
     const session = JSON.parse(sessText);
     if (!session.id) {
+      if (preSessionDedupKey) await deleteMarker(preSessionDedupKey);
       return res.status(502).json({ error: 'session_no_id', detail: sessText.slice(0, 500), source });
     }
 
@@ -514,6 +555,8 @@ export default async function handler(req, res) {
     });
     const evText = await evResp.text();
     if (!evResp.ok) {
+      // FASE PRÉ-3 ITEM B: event send falhou — DELETA marker pré-claim pra cron retry
+      if (preSessionDedupKey) await deleteMarker(preSessionDedupKey);
       return res.status(502).json({ error: 'event_send_failed', session_id: session.id, status: evResp.status, detail: evText.slice(0, 500), source });
     }
 
@@ -539,6 +582,22 @@ export default async function handler(req, res) {
                 session_id: session.id,
                 dedup_key: dedupKey,
                 already_posted: true,
+                elapsed_ms,
+              });
+            }
+            // FASE PRÉ-3 ITEM C — Gate janela horária (08:00-20:30 BRT).
+            // session_type='reactive_reply' sempre passa (cliente esperando).
+            // Outros tipos (proactive_followup) bloqueia fora janela.
+            const windowGate = shouldSendNow({ session_type: 'reactive_reply' });
+            if (!windowGate.ok) {
+              console.warn(`[BIA-WINDOW] blocked session=${session.id} reason=${windowGate.reason}`);
+              return res.status(202).json({
+                ok: true,
+                source,
+                session_id: session.id,
+                warning: 'blocked_outside_send_window',
+                reason: windowGate.reason,
+                next_send_at: windowGate.next_send_at,
                 elapsed_ms,
               });
             }
