@@ -27,6 +27,7 @@
 import { list, put, del } from '@vercel/blob';
 import { sanitizeHeader } from './_lib/security.js';
 import { shouldSendNow } from './_lib/send-window.js';
+import { kvClaim, kvRelease } from './_lib/kv-rate-limit.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -483,36 +484,42 @@ export default async function handler(req, res) {
   const t_start = Date.now();
   const headers = buildAnthropicHeaders();
 
-  // FASE PRÉ-3 ITEM B (BUG #31) — Pre-session dedup check.
-  // Antes: dedup só impede DUPLICAÇÃO no Chatwoot, MAS 2 webhooks paralelos
-  // criam 2 sessions Anthropic ($0.065 wasted cada race).
-  // Agora: alreadyPosted(preDedupKey) ANTES de POST /sessions. Se marker existe,
-  // retorna cedo sem criar session Anthropic.
+  // FASE 3.3 (BUG #31 fix) — KV atomic claim substitui Blob pre_msg_X marker.
+  // Vercel KV SETNX é ATÔMICO (zero TOCTOU). Blob list+put tinha race window ~50ms.
+  // Resultado: handler 100% impede 2 sessions Anthropic em parallel webhooks.
   //
-  // IMPORTANTE: pre-session usa KEY DIFERENTE (`pre_msg_{id}`) do post-session
-  // (`msg_{id}`). Senão handler que claim pre-session bloqueia ele mesmo no
-  // post-session dedup check (próprio marker bloqueia próprio POST Chatwoot).
-  const preSessionDedupKey = source === 'chatwoot_webhook' && extra.chatwoot_message_id
-    ? `pre_msg_${extra.chatwoot_message_id}`
-    : null;
-  if (preSessionDedupKey && await alreadyPosted(preSessionDedupKey)) {
-    return res.status(200).json({
-      skipped: true,
-      reason: 'already_processed_msg_pre_session',
-      dedup_key: preSessionDedupKey,
+  // Pattern:
+  //   - Claim KV `rl:thread:{conv_id}:in_flight` antes POST /sessions Anthropic
+  //   - Se ok=false → outro handler já processando esta thread → 429 rate_limit_in_flight
+  //   - Se ok=true → segue fluxo, libera KV no finish (success + error paths)
+  //   - TTL 90s cobre POLLING 55s + buffer Anthropic + slack
+  //
+  // Fail-open: se KV indisponível (env missing/timeout), helper retorna ok:true+fallback:true.
+  // Handler continua operando degraded (race volta, mas sistema não cai).
+  //
+  // Fallback: msg sem chatwoot_message_id (direct path) usa telefone como dedup key.
+  const kvClaimKey = chatwoot_thread_id
+    ? `rl:thread:${chatwoot_thread_id}:in_flight`
+    : `rl:phone:${telefone}:in_flight`;
+  const kvClaimValue = extra.chatwoot_message_id
+    ? `msg_${extra.chatwoot_message_id}`
+    : `pre_${Date.now()}`;
+  const KV_CLAIM_TTL_SEC = 90;
+  const kvClaimResult = await kvClaim(kvClaimKey, kvClaimValue, KV_CLAIM_TTL_SEC);
+  if (!kvClaimResult.ok && !kvClaimResult.fallback) {
+    return res.status(429).json({
+      error: 'rate_limit_in_flight',
+      detail: 'Outra requisição já está processando esta thread/telefone',
+      claim_key: kvClaimKey,
+      existing_claim: kvClaimResult.existing,
       source,
     });
   }
-  // CLAIM marker ANTES de criar session Anthropic
-  if (preSessionDedupKey) {
-    await markPosted(preSessionDedupKey, {
-      conv_id: chatwoot_thread_id,
-      chatwoot_message_id_incoming: extra.chatwoot_message_id,
-      dedup_key: preSessionDedupKey,
-      claimed_at: new Date().toISOString(),
-      posted_by: 'handler_pre_session_claim',
-    });
-  }
+  // FASE 3.3 — kept Blob pre_msg_X marker as SECONDARY dedup (defesa em camadas):
+  // KV cobre race in-flight; Blob marker pos-session (msg_X) cobre Chatwoot retry.
+  // Removemos APENAS o pre_msg_X claim/check (substituído por KV); msg_X (pós-POST
+  // Chatwoot) continua existindo lá embaixo.
+  const preSessionDedupKey = null; // legacy — não usado mais (substituído por KV claim)
 
   try {
     // 1. Criar session
@@ -712,5 +719,11 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     return res.status(500).json({ error: 'unhandled', detail: String(err?.message || err), source });
+  } finally {
+    // FASE 3.3 — release KV claim em TODA saída (success, error, exception).
+    // Garante que a key não fica "presa" por 90s bloqueando reentrada legítima.
+    // kvRelease é idempotent (DEL no-op se não existe).
+    try { await kvRelease(kvClaimKey); }
+    catch (e) { console.error(`[KV-RELEASE-FINALLY] ${kvClaimKey}: ${e?.message || e}`); }
   }
 }
