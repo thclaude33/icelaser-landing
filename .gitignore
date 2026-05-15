@@ -11,3 +11,6 @@ node_modules/
 *.bak2-*
 CLAUDE.md
 knowledge-base/
+# Exceção: skill-source é versionado pra cron drift detector
+!knowledge-base/skill-source/
+!knowledge-base/skill-source/**
