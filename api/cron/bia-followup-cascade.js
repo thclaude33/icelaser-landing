@@ -64,6 +64,7 @@ export default async function handler(req, res) {
     migrated_to_f2: 0,
     finished: 0,
     errors: 0,
+    cleaned_orphans: 0,
     details: [],
   };
 
@@ -91,9 +92,11 @@ export default async function handler(req, res) {
         // 3a. Read state
         const stateR = await kvGet(stateKey(convId));
         if (!stateR.ok || !stateR.value) {
-          // Orfão no index — limpa
+          // Orfão no index — limpa (cenário race: crm-webhook fez DEL state mas ZREM index falhou OR não-atomic)
           await kvZrem(KV_INDEX, convId);
-          stats.details.push({ conv: convId, action: 'state_orphan_zrem' });
+          stats.cleaned_orphans += 1;
+          stats.details.push({ conv: convId, action: 'cleanup_orphan', reason: 'state_null' });
+          console.log(`[FU-ORPHAN-CLEANUP] conv=${convId} reason=state_null`);
           continue;
         }
         let state;
@@ -163,8 +166,24 @@ export default async function handler(req, res) {
         try {
           posted = await postChatwoot(convId, rendered);
         } catch (postErr) {
+          const errMsg = String(postErr?.message || postErr);
+          // BUG cleanup (15/05/2026 ~23h45): distinguir 404 explícito (conv deletada permanentemente)
+          // vs 5xx/timeout/rate-limit (transitório — Chatwoot down recupera, mantém scheduled retry next cron).
+          // Cenário: smoke conv deletada OU race condition crm-webhook clearActive+disarmCascade não-atômico.
+          // Antes: loop infinito até TTL 30d. Agora: ZREM auto em 404 + DEL state pra cleanup full.
+          const is404 = errMsg.includes('Chatwoot 404') || errMsg.includes('Resource could not be found');
+          if (is404) {
+            await kvZrem(KV_INDEX, convId);
+            await kvDel(stateKey(convId));
+            stats.cleaned_orphans += 1;
+            stats.details.push({ conv: convId, action: 'cleanup_orphan', reason: 'chatwoot_404' });
+            console.log(`[FU-ORPHAN-CLEANUP] conv=${convId} reason=chatwoot_404`);
+            continue;
+          }
+          // 5xx, timeout, rate limit etc → NÃO ZREM (transitório, retry next cron)
           stats.errors += 1;
-          stats.details.push({ conv: convId, action: 'post_failed', err: String(postErr?.message || postErr).slice(0, 100) });
+          stats.details.push({ conv: convId, action: 'post_failed_transient', err: errMsg.slice(0, 100) });
+          console.warn(`[FU-POST-ERROR] conv=${convId} transient err=${errMsg.slice(0, 100)}`);
           continue;
         }
 
