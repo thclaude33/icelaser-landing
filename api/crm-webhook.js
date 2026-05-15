@@ -27,6 +27,7 @@ import { sendWAMEvent } from './_lib/capi-wam.js';
 import { computeCompraRealizadaGuards } from './_lib/funnel-guards.js';
 import { normalizeChangedAttributes, hasLabelChange, extractPreviousLabels, extractCurrentLabels } from './_lib/label-change.js';
 import { decideTargetDataset, parsePurchaseValue, isRoutingEnabled, DATASET_PIXEL_LP, DATASET_WAM } from './_lib/purchase-routing.js';
+import { disarmCascade, isOutgoingFromBia } from './_lib/cascade.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -347,6 +348,24 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, event: 'message_created', processed: true });
   }
 
+  // PROMPT 2 — DISARM cascade quando atendente humana posta msg outgoing.
+  // Diferencia humana × Bia via timestamp KV: se NOW - last_bia_outgoing > 60s → humana.
+  // Bia recém-postou → last_bia_outgoing < 60s → ignora (própria msg via webhook echo).
+  if (event === 'message_created' && (body.message_type === 1 || body.message_type === 'outgoing')) {
+    const convOutId = body.conversation?.id ?? body.conversation_id;
+    if (convOutId && process.env.FOLLOWUP_ENABLED === '1') {
+      try {
+        const fromBia = await isOutgoingFromBia(convOutId);
+        if (!fromBia) {
+          await disarmCascade(convOutId, 'human_manual_reply');
+        }
+      } catch (e) {
+        console.error(`[FU-DISARM-OUTGOING] conv=${convOutId} ${e?.message || e}`);
+      }
+    }
+    return res.status(200).json({ ok: true, event: 'message_created_outgoing', processed: true });
+  }
+
   // Processa conversation_created e conversation_updated
   if (event !== 'conversation_updated' && event !== 'contact_updated' && event !== 'conversation_created') {
     return res.status(200).json({ ok: true, skipped: true, event });
@@ -406,6 +425,21 @@ export default async function handler(req, res) {
   const labels = previousLabels.length > 0
     ? allLabels.filter(l => !previousLabels.includes(l))
     : allLabels;
+
+  // PROMPT 2 — DISARM cascade em labels terminais
+  // compra_realizada = lead fechou → não tem porque seguir follow-up
+  // desqualificado = lead morto → não persegue
+  // lead_quente = gerente vai atender manual → cascade duplicaria esforço
+  const DISARM_LABELS = ['compra_realizada', 'desqualificado', 'lead_quente'];
+  const convIdForFU = conversation?.id ?? body.conversation_id;
+  if (convIdForFU && process.env.FOLLOWUP_ENABLED === '1' &&
+      labels.some((l) => DISARM_LABELS.includes(String(l).toLowerCase()))) {
+    try {
+      await disarmCascade(convIdForFU, 'label_terminal');
+    } catch (e) {
+      console.error(`[FU-DISARM-LABEL] conv=${convIdForFU} ${e?.message || e}`);
+    }
+  }
   // Mescla atributos de CONTATO e de CONVERSA — purchase_value pode estar em qualquer um
   const customAttrs = {
     ...(contact.custom_attributes || {}),

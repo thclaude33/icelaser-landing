@@ -153,3 +153,73 @@ export async function kvPing() {
   const r = await kvFetch(['ping']);
   return { ok: r.ok, configured: true, pong: r.body?.result, error: r.error };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// PROMPT 2 — Sorted set + generic SET helpers para cascade follow-up
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generic SET sem NX — atualiza valor + opcionalmente TTL.
+ * Usado pra state JSON da cascade que precisa ser overwritten em cada advance.
+ */
+export async function kvSet(key, value, ttlSec) {
+  if (!kvAvailable()) return { ok: true, fallback: true };
+  const path = ttlSec ? ['set', key, value, 'EX', ttlSec] : ['set', key, value];
+  const r = await kvFetch(path);
+  if (!r.ok) {
+    console.error(`[KV-SET] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, error: r.error };
+  }
+  return { ok: true };
+}
+
+/**
+ * DEL key — explicit alias do kvRelease (semantic clarity em código cascade).
+ */
+export async function kvDel(key) {
+  return kvRelease(key);
+}
+
+/**
+ * ZADD — adicionar member ao sorted set com score.
+ * Usado pra index global `fu:idx:scheduled` (score=epoch_seconds, member=conv_id).
+ */
+export async function kvZadd(key, score, member) {
+  if (!kvAvailable()) return { ok: true, fallback: true };
+  const r = await kvFetch(['zadd', key, score, member]);
+  if (!r.ok) {
+    console.error(`[KV-ZADD] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, error: r.error };
+  }
+  return { ok: true, added: r.body?.result || 0 };
+}
+
+/**
+ * ZREM — remover member do sorted set.
+ */
+export async function kvZrem(key, member) {
+  if (!kvAvailable()) return { ok: true, fallback: true };
+  const r = await kvFetch(['zrem', key, member]);
+  if (!r.ok) {
+    console.error(`[KV-ZREM] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, error: r.error };
+  }
+  return { ok: true, removed: r.body?.result || 0 };
+}
+
+/**
+ * ZRANGEBYSCORE — listar members com score em range [min, max].
+ * Retorna array de members (strings).
+ * Usado pelo cron pra pegar conv_ids com scheduled_at no passado.
+ */
+export async function kvZrangebyscore(key, min, max, limit = 50) {
+  if (!kvAvailable()) return { ok: true, fallback: true, members: [] };
+  const r = await kvFetch(['zrangebyscore', key, min, max, 'LIMIT', 0, limit]);
+  if (!r.ok) {
+    console.error(`[KV-ZRANGE] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, members: [], error: r.error };
+  }
+  const result = r.body?.result;
+  const members = Array.isArray(result) ? result : [];
+  return { ok: true, members };
+}

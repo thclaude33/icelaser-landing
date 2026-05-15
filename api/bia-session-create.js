@@ -28,6 +28,7 @@ import { list, put, del } from '@vercel/blob';
 import { sanitizeHeader } from './_lib/security.js';
 import { shouldSendNow } from './_lib/send-window.js';
 import { kvClaim, kvRelease } from './_lib/kv-rate-limit.js';
+import { armCascade, disarmCascade, markBiaOutgoing, buildSnapshotFromContext } from './_lib/cascade.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -484,6 +485,14 @@ export default async function handler(req, res) {
   const t_start = Date.now();
   const headers = buildAnthropicHeaders();
 
+  // PROMPT 2 — DISARM cascade: cliente respondeu (incoming msg recebida).
+  // Roda ANTES do KV claim pra garantir desarme imediato mesmo se claim falhar.
+  // Fail-open: erro KV log mas não bloqueia handler.
+  if (chatwoot_thread_id && source === 'chatwoot_webhook') {
+    try { await disarmCascade(chatwoot_thread_id, 'client_replied'); }
+    catch (e) { console.error(`[FU-DISARM-ERR] conv=${chatwoot_thread_id} ${e?.message || e}`); }
+  }
+
   // FASE 3.3 (BUG #31 fix) — KV atomic claim substitui Blob pre_msg_X marker.
   // Vercel KV SETNX é ATÔMICO (zero TOCTOU). Blob list+put tinha race window ~50ms.
   // Resultado: handler 100% impede 2 sessions Anthropic em parallel webhooks.
@@ -656,6 +665,18 @@ export default async function handler(req, res) {
                 posted_by: 'handler_inline_confirmed',
                 elapsed_ms,
               });
+              // PROMPT 2 — markBiaOutgoing (anti-collision com webhook humana detect)
+              try { await markBiaOutgoing(chatwoot_thread_id); }
+              catch (e) { console.error(`[FU-MARK-BIA] conv=${chatwoot_thread_id} ${e?.message || e}`); }
+              // PROMPT 2 — ARMA cascade follow-up (4min próxima msg F1 step 0)
+              if (process.env.FOLLOWUP_ENABLED === '1') {
+                try {
+                  const snapshot = buildSnapshotFromContext(extra.sender_name, clean);
+                  await armCascade(chatwoot_thread_id, session.id, snapshot);
+                } catch (e) {
+                  console.error(`[FU-ARM-ERR] conv=${chatwoot_thread_id} ${e?.message || e}`);
+                }
+              }
               return res.status(200).json({
                 success: true,
                 source,

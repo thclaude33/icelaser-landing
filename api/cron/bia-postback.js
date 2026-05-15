@@ -16,6 +16,7 @@
 
 import { list, put, del } from '@vercel/blob';
 import { shouldSendNow } from '../_lib/send-window.js';
+import { markBiaOutgoing, armCascade, buildSnapshotFromContext } from '../_lib/cascade.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
@@ -241,6 +242,18 @@ export default async function handler(req, res) {
             posted_at: new Date().toISOString(),
             posted_by: 'cron_fallback_confirmed',
           });
+          // PROMPT 2 — markBiaOutgoing + ARM cascade (mesma lógica handler inline)
+          try { await markBiaOutgoing(convId); }
+          catch (e) { console.error(`[FU-MARK-BIA-CRON] conv=${convId} ${e?.message || e}`); }
+          if (process.env.FOLLOWUP_ENABLED === '1') {
+            try {
+              const senderName = s.metadata?.sender_name || null;
+              const snapshot = buildSnapshotFromContext(senderName, clean);
+              await armCascade(convId, sid, snapshot);
+            } catch (e) {
+              console.error(`[FU-ARM-CRON] conv=${convId} ${e?.message || e}`);
+            }
+          }
           stats.posted += 1;
           stats.details.push({ sid: sid.slice(-12), conv: convId, msg_id: posted.id, dedup_key: dedupKey });
         } catch (postErr) {
