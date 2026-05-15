@@ -292,34 +292,44 @@ async function fetchAnthropic(path) {
   return resp.json();
 }
 
-async function pollSessionForResponse(sessionId, deadlineMs) {
+async function pollSessionForResponse(sessionId, deadlineMs, baseline = {}) {
+  // PROMPT 4 — baseline = { eventCount, idleCount } captured ANTES de POST nossa msg.
+  // Em session REUSE, idle events anteriores existem (turns anteriores). Precisamos:
+  //   1) Aguardar idle NOVO (count > baseline.idleCount) — confirma Bia processou
+  //   2) Filtrar agent.messages com idx >= baseline.eventCount — só TURNO ATUAL
+  // Sem isso: handler retornava agent.message antiga (BUG smoke A msg 5550 dup).
+  const baselineEventCount = baseline.eventCount || 0;
+  const baselineIdleCount = baseline.idleCount || 0;
   while (Date.now() < deadlineMs) {
-    const data = await fetchAnthropic(`/sessions/${sessionId}/events?limit=100`);
+    const data = await fetchAnthropic(`/sessions/${sessionId}/events?limit=300`);
     const events = data.data || [];
-    const hasIdle = events.some((e) => e.type === 'session.status_idle');
+    const idleCount = events.filter((e) => e.type === 'session.status_idle').length;
+    const hasNewIdle = idleCount > baselineIdleCount;
     const hasError = events.some((e) => e.type === 'session.error');
     if (hasError) return { ready: false, error: 'session.error' };
-    if (hasIdle) {
-      // FASE PRÉ-3 Fix #1 + BUG #32 mitigation (v37):
-      // Estratégia 3 camadas:
+    if (hasNewIdle) {
+      // FASE PRÉ-3 Fix #1 + BUG #32 mitigation (v37) + PROMPT 4 (reuse baseline):
+      // Estratégia 4 camadas:
+      //   0) Filtrar agent.messages APÓS baselineEventCount (só turno atual em reuse)
       //   A) Coord v37 instrui Bia a NÃO emitir agent.message após tool_use profile write
-      //   B) Filtra meta-confirmações curtas (isMetaConfirmation) no boundary post-tool_use
-      //   C) Fallback: maior agent.message do turno (filtra meta) — vence se A+B falham
+      //   B) Filtra meta-confirmações curtas (isMetaConfirmation)
+      //   C) Fallback: maior agent.message do turno (filtra meta)
       const agentMsgs = events
         .filter((e) => e.type === 'agent.message')
         .map((e) => {
           const c = (e.content || []).find((x) => x.type === 'text' && x.text);
           return { text: c?.text || '', idx: events.indexOf(e) };
         })
-        .filter((m) => m.text && m.text.length > 0 && !isMetaConfirmation(m.text));
+        .filter((m) => m.text && m.text.length > 0 && !isMetaConfirmation(m.text))
+        .filter((m) => m.idx >= baselineEventCount);  // PROMPT 4: só turno atual
 
       if (agentMsgs.length === 0) {
         return { ready: false, error: 'no_text_found_but_idle' };
       }
 
-      // Boundary primário: última agent.message não-meta APÓS último tool_use
+      // Boundary primário: última agent.message não-meta APÓS último tool_use do TURNO ATUAL
       let lastToolUseIdx = -1;
-      for (let i = events.length - 1; i >= 0; i--) {
+      for (let i = events.length - 1; i >= baselineEventCount; i--) {
         if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
       }
       const postTool = agentMsgs.filter((m) => m.idx > lastToolUseIdx);
@@ -607,7 +617,23 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3. Enviar msg cliente prefixada com telefone + histórico (se houver)
+    // 3. PROMPT 4 — capturar baseline events ANTES de POST nova user.message
+    //    (em reuse, idle/agent.message anteriores existem — precisamos distinguir turno)
+    let baseline = { eventCount: 0, idleCount: 0 };
+    if (sessionReused) {
+      try {
+        const preEvents = await fetchAnthropic(`/sessions/${session.id}/events?limit=300`);
+        const prev = preEvents.data || [];
+        baseline = {
+          eventCount: prev.length,
+          idleCount: prev.filter((e) => e.type === 'session.status_idle').length,
+        };
+      } catch (e) {
+        console.warn(`[SESSION-REUSE] baseline fetch err: ${e?.message || e} — assumindo 0`);
+      }
+    }
+
+    // Enviar msg cliente prefixada com telefone + histórico (se houver)
     const mensagemComPrefixo = `${historico}(TELEFONE_CLIENTE: +${telefone}) ${mensagem_cliente}`;
     const eventPayload = {
       events: [{ type: 'user.message', content: [{ type: 'text', text: mensagemComPrefixo }] }],
@@ -622,10 +648,10 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'event_send_failed', session_id: session.id, status: evResp.status, detail: evText.slice(0, 500), source });
     }
 
-    // 3. SE Chatwoot webhook → polling inline síncrono + posta resposta
+    // 4. SE Chatwoot webhook → polling inline síncrono + posta resposta
     if (source === 'chatwoot_webhook' && chatwoot_thread_id) {
       const deadline = t_start + POLLING_TIMEOUT_MS;
-      const result = await pollSessionForResponse(session.id, deadline);
+      const result = await pollSessionForResponse(session.id, deadline, baseline);
       const elapsed_ms = Date.now() - t_start;
 
       if (result.ready && result.text) {
