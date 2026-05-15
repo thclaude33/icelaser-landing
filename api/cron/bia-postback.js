@@ -48,6 +48,17 @@ function extractClientResponse(text) {
   return text.trim();
 }
 
+// BUG #32 mitigation (15/05/2026) — consistente com handler bia-session-create.js.
+// Filtra meta-confirmações "Profile criado ✅" que Coord v36 PROFILE STUB MANDATORY
+// induziu Bia a emitir após tool_use de write profile. Coord v37 PATCH instrui pra
+// parar, mas filtro defensivo aqui também (defense in depth).
+function isMetaConfirmation(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim();
+  if (t.length >= 80) return false;
+  return /^(profile|perfil)[^\n]{0,40}(criad|salv|confirm|atualiz|registrad|anotad|escrit)/i.test(t);
+}
+
 async function fetchAnthropic(path) {
   const resp = await fetch(`${ANTHROPIC_BASE}${path}`, {
     headers: {
@@ -158,30 +169,34 @@ export default async function handler(req, res) {
           stats.skipped_processing += 1;
           continue;
         }
-        // FASE PRÉ-3 Fix #1 + #2/#4: pegar agent.message FINAL (após último tool_use)
-        // Consistente com handler pollSessionForResponse. NÃO usar regex pra escolher
-        // bloco — pegar full text APÓS último tool_use.
-        let lastToolUseIdx = -1;
-        for (let i = events.length - 1; i >= 0; i--) {
-          if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
-        }
-        let finalMsg = null;
-        for (let i = events.length - 1; i > lastToolUseIdx; i--) {
-          if (events[i].type === 'agent.message') { finalMsg = events[i]; break; }
-        }
-        if (!finalMsg) {
-          const agentMsgs = events.filter((e) => e.type === 'agent.message');
-          finalMsg = agentMsgs[agentMsgs.length - 1] || null;
-        }
+        // FASE PRÉ-3 Fix #1 + BUG #32 mitigation (v37): defense-in-depth 3 camadas
+        // A) Coord v37 instrui Bia a parar após tool_use profile write
+        // B) isMetaConfirmation filtra "Profile criado ✅" curtos (~38 chars)
+        // C) Fallback: maior msg do turno se A+B falham
+        const agentMsgs = events
+          .filter((e) => e.type === 'agent.message')
+          .map((e) => {
+            const c = (e.content || []).find((x) => x.type === 'text' && x.text);
+            return { text: c?.text || '', idx: events.indexOf(e) };
+          })
+          .filter((m) => m.text && m.text.length > 0 && !isMetaConfirmation(m.text));
+
         let bestText = null;
-        if (finalMsg) {
-          for (const c of (finalMsg.content || [])) {
-            if (c.type === 'text' && c.text && c.text.length > 0) {
-              bestText = c.text;
-              break;
-            }
+        if (agentMsgs.length > 0) {
+          let lastToolUseIdx = -1;
+          for (let i = events.length - 1; i >= 0; i--) {
+            if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
+          }
+          const postTool = agentMsgs.filter((m) => m.idx > lastToolUseIdx);
+          if (postTool.length > 0) {
+            bestText = postTool[postTool.length - 1].text;
+          } else {
+            // Fallback C: maior msg filtrada
+            const largest = agentMsgs.slice().sort((a, b) => b.text.length - a.text.length)[0];
+            bestText = largest.text;
           }
         }
+
         if (!bestText) {
           stats.skipped_no_content += 1;
           continue;

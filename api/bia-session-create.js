@@ -270,6 +270,19 @@ function extractClientResponse(text) {
   return text.trim();
 }
 
+// BUG #32 mitigation (15/05/2026) — Coord v36 PROFILE WRITE STUB MANDATORY induziu
+// regressão: Bia emitia "Profile criado ✅" como agent.message DEPOIS do tool_use de
+// write profile. Handler post-tool_use boundary pegava essa meta-confirmação ao invés
+// da resposta cliente real. Coord v37 PATCH instrui Bia a parar após tool_use, mas
+// defense-in-depth: handler também filtra essas meta-confirmações curtas.
+function isMetaConfirmation(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim();
+  if (t.length >= 80) return false;
+  // Padrão: "Profile/Perfil ... criado/salvo/confirmado/atualizado/registrado/anotado"
+  return /^(profile|perfil)[^\n]{0,40}(criad|salv|confirm|atualiz|registrad|anotad|escrit)/i.test(t);
+}
+
 async function fetchAnthropic(path) {
   const resp = await fetch(`${ANTHROPIC_BASE}${path}`, { headers: buildAnthropicHeaders() });
   if (!resp.ok) throw new Error(`Anthropic ${path} HTTP ${resp.status}`);
@@ -284,31 +297,36 @@ async function pollSessionForResponse(sessionId, deadlineMs) {
     const hasError = events.some((e) => e.type === 'session.error');
     if (hasError) return { ready: false, error: 'session.error' };
     if (hasIdle) {
-      // FASE PRÉ-3 Fix #1: pegar agent.message FINAL (após último tool_use).
-      // Garante "post-thinking response", evita pegar mensagem intermediária
-      // que pode conter raciocínio meta-thinking ou texto pré-tool resolution.
+      // FASE PRÉ-3 Fix #1 + BUG #32 mitigation (v37):
+      // Estratégia 3 camadas:
+      //   A) Coord v37 instrui Bia a NÃO emitir agent.message após tool_use profile write
+      //   B) Filtra meta-confirmações curtas (isMetaConfirmation) no boundary post-tool_use
+      //   C) Fallback: maior agent.message do turno (filtra meta) — vence se A+B falham
+      const agentMsgs = events
+        .filter((e) => e.type === 'agent.message')
+        .map((e) => {
+          const c = (e.content || []).find((x) => x.type === 'text' && x.text);
+          return { text: c?.text || '', idx: events.indexOf(e) };
+        })
+        .filter((m) => m.text && m.text.length > 0 && !isMetaConfirmation(m.text));
+
+      if (agentMsgs.length === 0) {
+        return { ready: false, error: 'no_text_found_but_idle' };
+      }
+
+      // Boundary primário: última agent.message não-meta APÓS último tool_use
       let lastToolUseIdx = -1;
       for (let i = events.length - 1; i >= 0; i--) {
         if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
       }
-      // Última agent.message com índice > lastToolUseIdx (ou primeira encontrada se sem tool_use)
-      let finalMsg = null;
-      for (let i = events.length - 1; i > lastToolUseIdx; i--) {
-        if (events[i].type === 'agent.message') { finalMsg = events[i]; break; }
+      const postTool = agentMsgs.filter((m) => m.idx > lastToolUseIdx);
+      if (postTool.length > 0) {
+        return { ready: true, text: postTool[postTool.length - 1].text };
       }
-      if (!finalMsg) {
-        // Fallback: última agent.message qualquer (caso tool_use seja o último event)
-        const agentMsgs = events.filter((e) => e.type === 'agent.message');
-        finalMsg = agentMsgs[agentMsgs.length - 1] || null;
-      }
-      if (finalMsg) {
-        for (const c of (finalMsg.content || [])) {
-          if (c.type === 'text' && c.text && c.text.length > 0) {
-            return { ready: true, text: c.text };
-          }
-        }
-      }
-      return { ready: false, error: 'no_text_found_but_idle' };
+
+      // Fallback C: maior msg do turno (resposta real 639 chars vence meta 38 chars)
+      const largest = agentMsgs.slice().sort((a, b) => b.text.length - a.text.length)[0];
+      return { ready: true, text: largest.text };
     }
     // Não terminou ainda — sleep tick
     await new Promise((r) => setTimeout(r, POLLING_TICK_MS));
