@@ -25,6 +25,7 @@
 // checa esse marker antes de postar — zero duplicação.
 
 import { list, put } from '@vercel/blob';
+import { sanitizeHeader } from './_lib/security.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -41,7 +42,14 @@ const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-pro
 const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
 
 const POLLING_TICK_MS = 2000; // 2s entre polls
-const POLLING_TIMEOUT_MS = 45000; // 45s max — Vercel maxDuration handler é 60s
+// FASE 1 Item 4 (15/05/2026): 45 → 55s. Vercel maxDuration handler é 60s → sobra 5s pra POST+return.
+// Reduz cron-fallback rate de ~22% pra ~5% (msgs Bia entre 45-55s agora pegam dentro do handler).
+const POLLING_TIMEOUT_MS = 55000;
+
+// FASE 1 Item 3 (15/05/2026): alerta crítico rate-limited (bucket 4h)
+// Evita spam de email/SMTP — max 6 alertas/dia se incidente prolongado.
+const ALERT_BUCKET_MS = 14400000; // 4h
+const ALERT_BLOB_PREFIX = 'bia/alerts/';
 
 function buildAnthropicHeaders() {
   return {
@@ -52,15 +60,147 @@ function buildAnthropicHeaders() {
   };
 }
 
-function checkAuth(req) {
+// FASE 1 Item 3 — Alerta crítico com dedup bucket 4h via Blob marker.
+// Bloqueia email spam se env ficar vazia por horas. Loga também no audit-log
+// Anthropic pra rastreabilidade independente do email.
+async function sendCriticalAlertOnce(envName, message) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    console.warn('[BIA-ALERT] BLOB_READ_WRITE_TOKEN não setado — alert skipped');
+    return;
+  }
+  const bucket_4h = Math.floor(Date.now() / ALERT_BUCKET_MS);
+  const blobKey = `${ALERT_BLOB_PREFIX}auth_${envName}_${bucket_4h}.json`;
+  try {
+    const { blobs } = await list({ prefix: blobKey });
+    if (blobs.length > 0) {
+      console.log(`[BIA-ALERT] suppressed (bucket=${bucket_4h} already sent for ${envName})`);
+      return;
+    }
+    // Marca Blob ANTES de enviar email — se email falha, ainda evita re-spam
+    await put(blobKey, JSON.stringify({
+      sent_at: new Date().toISOString(),
+      bucket_4h,
+      env_missing: envName,
+      message,
+    }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+
+    // Email + audit-log paralelos, ambos com catch (alerta não pode quebrar handler)
+    await Promise.allSettled([
+      sendBiaCriticalEmail(envName, message),
+      logAuditAlert(envName, message),
+    ]);
+  } catch (err) {
+    console.error(`[BIA-ALERT] error: ${err?.message || err}`);
+  }
+}
+
+async function sendBiaCriticalEmail(envName, message) {
+  if (!process.env.EMAIL_PASS) {
+    console.warn('[BIA-ALERT-EMAIL] EMAIL_PASS não setado — email skipped');
+    return;
+  }
+  try {
+    const nodemailer = (await import('nodemailer')).default;
+    const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
+    const EMAIL_TO = (process.env.EMAIL_TO || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
+    const t = nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_FROM, pass: process.env.EMAIL_PASS } });
+    await t.sendMail({
+      from: `"IceLaser Bia Alert" <${EMAIL_FROM}>`,
+      to: EMAIL_TO.join(','),
+      subject: sanitizeHeader(`[BIA CRITICAL] Auth failure — ${envName}`, 200),
+      html: `
+        <h2>🚨 BIA CRITICAL Auth Failure</h2>
+        <p><b>Env missing:</b> <code>${envName}</code></p>
+        <p><b>Timestamp:</b> ${new Date().toISOString()}</p>
+        <p><b>Message:</b> ${message}</p>
+        <h3>Impacto</h3>
+        <ul>
+          <li>Webhooks Chatwoot REJEITADOS com 503</li>
+          <li>Bia OFFLINE em shadow mode até env ser restaurada</li>
+          <li>Leads V9 ativos ficam SEM resposta automática</li>
+        </ul>
+        <h3>Ação requerida</h3>
+        <ol>
+          <li><code>cd landing-page && vercel env ls</code> — verificar ${envName}</li>
+          <li>Re-adicionar nos 3 projetos Vercel: landing-page, icelaser-landing, icelaser-landing-c9in</li>
+          <li>Redeploy: <code>git push main</code> (auto-deploy 3 projetos)</li>
+        </ol>
+        <hr>
+        <small>Alert rate-limited: 1 a cada 4h (bucket=${Math.floor(Date.now() / ALERT_BUCKET_MS)}).</small>
+      `,
+    });
+    console.log(`[BIA-ALERT-EMAIL] sent to ${EMAIL_TO.length} recipients for ${envName}`);
+  } catch (err) {
+    console.error(`[BIA-ALERT-EMAIL] error: ${err?.message || err}`);
+  }
+}
+
+async function logAuditAlert(envName, message) {
+  // Rastreabilidade independente: grava em audit-log Anthropic memory store
+  try {
+    const now = new Date();
+    const datePath = now.toISOString().slice(0, 10);            // 2026-05-15
+    const timePath = now.toISOString().slice(11, 19).replace(/:/g, ''); // 015303
+    const path = `/alerts/${datePath}/${timePath}_${envName}.md`;
+    const content = [
+      `# BIA AUTH FAILURE — ${envName}`,
+      ``,
+      `**Timestamp**: ${now.toISOString()}`,
+      `**Env missing**: \`${envName}\``,
+      `**Bucket 4h**: ${Math.floor(Date.now() / ALERT_BUCKET_MS)}`,
+      ``,
+      `## Message`,
+      message,
+      ``,
+      `## Impact`,
+      `- Webhooks Chatwoot REJECTED com 503`,
+      `- Bia OFFLINE para shadow mode até env restaurada`,
+      ``,
+      `## Action`,
+      `1. \`vercel env ls\` — verificar ${envName} presente nos 3 projetos`,
+      `2. \`vercel env add ${envName}\` (re-adicionar)`,
+      `3. \`git push main\` (redeploy auto 3 projetos)`,
+    ].join('\n');
+
+    const headers = {
+      'x-api-key': process.env.ANTHROPIC_API_KEY_ICELASER,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'managed-agents-2026-04-01',
+      'content-type': 'application/json',
+    };
+    const resp = await fetch(`${ANTHROPIC_BASE}/memory_stores/${BIA_AUDIT_LOG}/memories`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ path, content }),
+    });
+    if (!resp.ok) {
+      console.error(`[BIA-ALERT-AUDIT] HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+    } else {
+      console.log(`[BIA-ALERT-AUDIT] logged ${path}`);
+    }
+  } catch (err) {
+    console.error(`[BIA-ALERT-AUDIT] error: ${err?.message || err}`);
+  }
+}
+
+// FASE 1 Item 3 — FAIL CLOSED + critical alert quando env vazia.
+// Bug anterior FAIL OPEN: env vazia retornava ok=true → webhook aceito sem auth.
+// Aconteceu na vida real: HMAC stale 27d → webhooks rejeitados silenciosamente.
+async function checkAuth(req) {
   const expected = process.env.CHATWOOT_WEBHOOK_QUERY_TOKEN;
-  if (!expected) return { ok: true, mode: 'no_auth_configured' };
+  if (!expected) {
+    const msg = `CHATWOOT_WEBHOOK_QUERY_TOKEN env missing — webhooks rejeitados desde ${new Date().toISOString()}`;
+    console.error(`[BIA-AUTH] CRITICAL: ${msg}`);
+    // Fire-and-forget — alerta não bloqueia rejeição
+    sendCriticalAlertOnce('CHATWOOT_WEBHOOK_QUERY_TOKEN', msg).catch(() => {});
+    return { ok: false, mode: 'env_missing_fail_closed', http: 503 };
+  }
   const queryAuth = req.query?.auth || '';
   const headerAuth = req.headers?.['x-webhook-token'] || '';
   if (queryAuth === expected || headerAuth === expected) {
     return { ok: true, mode: 'query_token' };
   }
-  return { ok: false, mode: 'missing_or_invalid' };
+  return { ok: false, mode: 'missing_or_invalid', http: 401 };
 }
 
 function isChatwootPayload(body) {
@@ -261,8 +401,11 @@ export default async function handler(req, res) {
 
   if (isChatwootPayload(rawBody)) {
     source = 'chatwoot_webhook';
-    const auth = checkAuth(req);
-    if (!auth.ok) return res.status(401).json({ error: 'unauthorized', detail: auth.mode });
+    const auth = await checkAuth(req);
+    if (!auth.ok) {
+      const httpCode = auth.http || 401;
+      return res.status(httpCode).json({ error: httpCode === 503 ? 'service_unavailable' : 'unauthorized', detail: auth.mode });
+    }
     const normalized = normalizeChatwoot(rawBody);
     if (normalized.skip) {
       return res.status(200).json({ ok: true, skipped: true, reason: normalized.reason, source });
