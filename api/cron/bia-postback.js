@@ -84,6 +84,7 @@ async function markPosted(dedupKey, payload) {
     await put(`${BLOB_PREFIX}${dedupKey}.json`, JSON.stringify(payload), {
       access: 'public',
       addRandomSuffix: false,
+      allowOverwrite: true, // claim→confirmed transition needs overwrite
       contentType: 'application/json',
     });
   } catch (err) {

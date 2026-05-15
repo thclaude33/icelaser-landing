@@ -82,7 +82,7 @@ async function sendCriticalAlertOnce(envName, message) {
       bucket_4h,
       env_missing: envName,
       message,
-    }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+    }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
 
     // Email + audit-log paralelos, ambos com catch (alerta não pode quebrar handler)
     await Promise.allSettled([
@@ -377,6 +377,7 @@ async function markPosted(dedupKey, payload) {
     await put(`${BLOB_PREFIX}${dedupKey}.json`, JSON.stringify(payload), {
       access: 'public',
       addRandomSuffix: false,
+      allowOverwrite: true, // claim→confirmed transition needs overwrite
       contentType: 'application/json',
     });
   } catch (err) {
