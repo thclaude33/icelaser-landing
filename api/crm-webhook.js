@@ -28,6 +28,7 @@ import { computeCompraRealizadaGuards } from './_lib/funnel-guards.js';
 import { normalizeChangedAttributes, hasLabelChange, extractPreviousLabels, extractCurrentLabels } from './_lib/label-change.js';
 import { decideTargetDataset, parsePurchaseValue, isRoutingEnabled, DATASET_PIXEL_LP, DATASET_WAM } from './_lib/purchase-routing.js';
 import { disarmCascade, isOutgoingFromBia } from './_lib/cascade.js';
+import { clearActiveSession } from './_lib/session-reuse.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -353,14 +354,20 @@ export default async function handler(req, res) {
   // Bia recém-postou → last_bia_outgoing < 60s → ignora (própria msg via webhook echo).
   if (event === 'message_created' && (body.message_type === 1 || body.message_type === 'outgoing')) {
     const convOutId = body.conversation?.id ?? body.conversation_id;
-    if (convOutId && process.env.FOLLOWUP_ENABLED === '1') {
+    if (convOutId) {
       try {
         const fromBia = await isOutgoingFromBia(convOutId);
         if (!fromBia) {
-          await disarmCascade(convOutId, 'human_manual_reply');
+          // PROMPT 2: desarma cascade
+          if (process.env.FOLLOWUP_ENABLED === '1') {
+            await disarmCascade(convOutId, 'human_manual_reply');
+          }
+          // PROMPT 4: humana posta = invalida session reuse (próxima msg cliente = session fresh
+          // pra Bia retomar contexto baseado no que humana já respondeu)
+          await clearActiveSession(convOutId, 'human_manual_reply');
         }
       } catch (e) {
-        console.error(`[FU-DISARM-OUTGOING] conv=${convOutId} ${e?.message || e}`);
+        console.error(`[CRM-DISARM-OUTGOING] conv=${convOutId} ${e?.message || e}`);
       }
     }
     return res.status(200).json({ ok: true, event: 'message_created_outgoing', processed: true });
@@ -432,12 +439,17 @@ export default async function handler(req, res) {
   // lead_quente = gerente vai atender manual → cascade duplicaria esforço
   const DISARM_LABELS = ['compra_realizada', 'desqualificado', 'lead_quente'];
   const convIdForFU = conversation?.id ?? body.conversation_id;
-  if (convIdForFU && process.env.FOLLOWUP_ENABLED === '1' &&
-      labels.some((l) => DISARM_LABELS.includes(String(l).toLowerCase()))) {
+  if (convIdForFU && labels.some((l) => DISARM_LABELS.includes(String(l).toLowerCase()))) {
     try {
-      await disarmCascade(convIdForFU, 'label_terminal');
+      // PROMPT 2: cascade DEL
+      if (process.env.FOLLOWUP_ENABLED === '1') {
+        await disarmCascade(convIdForFU, 'label_terminal');
+      }
+      // PROMPT 4: invalida session reuse — lead terminal (fechado/desqualificado/quente
+      // pra atendente humana) não deve ter contexto reusado se cliente voltar depois
+      await clearActiveSession(convIdForFU, 'label_terminal');
     } catch (e) {
-      console.error(`[FU-DISARM-LABEL] conv=${convIdForFU} ${e?.message || e}`);
+      console.error(`[CRM-DISARM-LABEL] conv=${convIdForFU} ${e?.message || e}`);
     }
   }
   // Mescla atributos de CONTATO e de CONVERSA — purchase_value pode estar em qualquer um

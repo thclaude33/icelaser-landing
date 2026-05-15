@@ -29,6 +29,7 @@ import { sanitizeHeader } from './_lib/security.js';
 import { shouldSendNow } from './_lib/send-window.js';
 import { kvClaim, kvRelease } from './_lib/kv-rate-limit.js';
 import { armCascade, disarmCascade, markBiaOutgoing, buildSnapshotFromContext } from './_lib/cascade.js';
+import { resolveSessionForThread, setActiveSession } from './_lib/session-reuse.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -531,47 +532,70 @@ export default async function handler(req, res) {
   const preSessionDedupKey = null; // legacy — não usado mais (substituído por KV claim)
 
   try {
-    // 1. Criar session
-    const sessionPayload = {
-      agent: COORDINATOR_AGENT_ID,
-      environment_id: ENV_ID,
-      title: `Bia atende ${telefone}`,
-      metadata: {
-        telefone,
-        inicio: new Date().toISOString(),
-        source,
-        session_type: 'reactive_reply', // FASE PRÉ-3 ITEM C: prepara gate janela horária
-        ...(chatwoot_thread_id ? { chatwoot_thread_id: String(chatwoot_thread_id) } : {}),
-        ...(extra.sender_name ? { sender_name: extra.sender_name } : {}),
-        ...(extra.chatwoot_message_id ? { chatwoot_message_id: String(extra.chatwoot_message_id) } : {}),
-      },
-      resources: [
-        { type: 'memory_store', memory_store_id: KB_MASTER },
-        { type: 'memory_store', memory_store_id: BIA_LEARNINGS },
-        { type: 'memory_store', memory_store_id: BIA_LEAD_PROFILES },
-        { type: 'memory_store', memory_store_id: BIA_AUDIT_LOG },
-      ],
-    };
-
-    const sessResp = await fetch(`${ANTHROPIC_BASE}/sessions`, {
-      method: 'POST', headers, body: JSON.stringify(sessionPayload),
-    });
-    const sessText = await sessResp.text();
-    if (!sessResp.ok) {
-      // FASE PRÉ-3 ITEM B: session create falhou — DELETA marker pré-claim pra cron retry
-      if (preSessionDedupKey) await deleteMarker(preSessionDedupKey);
-      return res.status(502).json({ error: 'session_create_failed', status: sessResp.status, detail: sessText.slice(0, 500), source });
-    }
-    const session = JSON.parse(sessText);
-    if (!session.id) {
-      if (preSessionDedupKey) await deleteMarker(preSessionDedupKey);
-      return res.status(502).json({ error: 'session_no_id', detail: sessText.slice(0, 500), source });
+    // PROMPT 4 (Item 8 backlog) — SESSION REUSE LIVE
+    // Antes: criava session NOVA a cada incoming = 7 sessions/lead/11min = $0.91 wasted
+    // Agora: reusa session existente por chatwoot_thread_id (KV TTL 30min, threshold 100 events)
+    // Probe LIVE 15/05 confirmou: turn 2 reuse latency -76% (46s → 11s), cache_read 95%
+    let session = null;
+    let sessionReused = false;
+    let reuseReason = null;
+    if (chatwoot_thread_id) {
+      const reuseCheck = await resolveSessionForThread(chatwoot_thread_id);
+      reuseReason = reuseCheck.reason;
+      if (reuseCheck.reused && reuseCheck.sessionId) {
+        session = { id: reuseCheck.sessionId };
+        sessionReused = true;
+        console.log(`[SESSION-REUSE] HIT conv=${chatwoot_thread_id} sid=${reuseCheck.sessionId} events=${reuseCheck.existingEventCount}`);
+      }
     }
 
-    // 2. Buscar histórico Chatwoot (se webhook path) pra Bia ver continuidade da conv
+    // 1. Se não reusou, cria session NOVA
+    if (!session) {
+      const sessionPayload = {
+        agent: COORDINATOR_AGENT_ID,
+        environment_id: ENV_ID,
+        title: `Bia atende ${telefone}`,
+        metadata: {
+          telefone,
+          inicio: new Date().toISOString(),
+          source,
+          session_type: 'reactive_reply', // FASE PRÉ-3 ITEM C: prepara gate janela horária
+          ...(chatwoot_thread_id ? { chatwoot_thread_id: String(chatwoot_thread_id) } : {}),
+          ...(extra.sender_name ? { sender_name: extra.sender_name } : {}),
+          ...(extra.chatwoot_message_id ? { chatwoot_message_id: String(extra.chatwoot_message_id) } : {}),
+        },
+        resources: [
+          { type: 'memory_store', memory_store_id: KB_MASTER },
+          { type: 'memory_store', memory_store_id: BIA_LEARNINGS },
+          { type: 'memory_store', memory_store_id: BIA_LEAD_PROFILES },
+          { type: 'memory_store', memory_store_id: BIA_AUDIT_LOG },
+        ],
+      };
+      const sessResp = await fetch(`${ANTHROPIC_BASE}/sessions`, {
+        method: 'POST', headers, body: JSON.stringify(sessionPayload),
+      });
+      const sessText = await sessResp.text();
+      if (!sessResp.ok) {
+        if (preSessionDedupKey) await deleteMarker(preSessionDedupKey);
+        return res.status(502).json({ error: 'session_create_failed', status: sessResp.status, detail: sessText.slice(0, 500), source });
+      }
+      session = JSON.parse(sessText);
+      if (!session.id) {
+        if (preSessionDedupKey) await deleteMarker(preSessionDedupKey);
+        return res.status(502).json({ error: 'session_no_id', detail: sessText.slice(0, 500), source });
+      }
+      // Salva session ativa no KV (TTL 30min)
+      if (chatwoot_thread_id) {
+        await setActiveSession(chatwoot_thread_id, session.id);
+      }
+      console.log(`[SESSION-REUSE] MISS conv=${chatwoot_thread_id || '?'} new_sid=${session.id} reason=${reuseReason || 'no_thread'}`);
+    }
+
+    // 2. Buscar histórico Chatwoot APENAS se NOVA session (reusada já tem events anteriores)
     //    Resolve Bug #3 — Bia detecta "já me apresentei" e aplica Cenário D
+    //    PROMPT 4: skip histórico em reuse — Anthropic session já mantém contexto integral
     let historico = '';
-    if (source === 'chatwoot_webhook' && chatwoot_thread_id) {
+    if (!sessionReused && source === 'chatwoot_webhook' && chatwoot_thread_id) {
       const histLines = await fetchChatwootHistory(chatwoot_thread_id, 20);
       if (histLines && histLines.length > 1) {
         // Remove a última linha (mensagem atual já está no `mensagem_cliente`)
@@ -668,6 +692,9 @@ export default async function handler(req, res) {
               // PROMPT 2 — markBiaOutgoing (anti-collision com webhook humana detect)
               try { await markBiaOutgoing(chatwoot_thread_id); }
               catch (e) { console.error(`[FU-MARK-BIA] conv=${chatwoot_thread_id} ${e?.message || e}`); }
+              // PROMPT 4 — refresh TTL session ativa (renova 30min após cada msg Bia postada)
+              try { await setActiveSession(chatwoot_thread_id, session.id); }
+              catch (e) { console.error(`[SESSION-REUSE-REFRESH] conv=${chatwoot_thread_id} ${e?.message || e}`); }
               // PROMPT 2 — ARMA cascade follow-up (4min próxima msg F1 step 0)
               if (process.env.FOLLOWUP_ENABLED === '1') {
                 try {
