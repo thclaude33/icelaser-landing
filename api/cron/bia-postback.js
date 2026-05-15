@@ -73,9 +73,16 @@ async function fetchAnthropic(path) {
   return resp.json();
 }
 
-// FASE 2 Item 5: dedup_key prefere chatwoot_message_id sobre session.id
-function getDedupKey(sessionId, chatwootMessageId) {
-  return chatwootMessageId ? `msg_${chatwootMessageId}` : `sess_${sessionId}`;
+// PROMPT 4 FIX dedup BUG (16/05/2026): dedup_key usa agent.message event idx (único por turno).
+// Em session REUSE, session.metadata.chatwoot_message_id é STALE (turno 1 imutável).
+// Antes: cron-postback alreadyPosted('msg_<turno1>')=true em turno N → skip → resposta nunca
+// postada Chatwoot (perdida na conv Damiane 538 turno 3 "Qual tempo do tratamento?").
+// Agora: agent_<sid>_<idx> único por turno cold + reuse. Mesma fórmula handler usa.
+function getDedupKey(sessionId, agentMsgEventIdx) {
+  if (agentMsgEventIdx !== null && agentMsgEventIdx !== undefined && agentMsgEventIdx >= 0) {
+    return `agent_${sessionId}_${agentMsgEventIdx}`;
+  }
+  return `sess_${sessionId}`; // fallback raro
 }
 
 async function alreadyPosted(dedupKey) {
@@ -154,16 +161,11 @@ export default async function handler(req, res) {
     for (const s of sessions) {
       const sid = s.id;
       const convId = s.metadata?.chatwoot_thread_id;
-      // FASE 2 Item 5: dedup_key prefere chatwoot_message_id do metadata da session.
-      // Handler salva no metadata quando cria session com source=chatwoot_webhook.
-      const incomingMsgId = s.metadata?.chatwoot_message_id;
-      const dedupKey = getDedupKey(sid, incomingMsgId);
+      const incomingMsgId = s.metadata?.chatwoot_message_id; // mantido pra audit log (não usado em dedup novo)
       try {
-        // DEDUP: handler já postou? (verifica marker pré ou pós claim)
-        if (await alreadyPosted(dedupKey)) {
-          stats.skipped_already += 1;
-          continue;
-        }
+        // PROMPT 4 FIX (16/05): dedup PRECISA conhecer agent.message event idx ANTES de checar.
+        // Antes: dedup via metadata.chatwoot_message_id STALE em reuse → skipped_already em turno N.
+        // Agora: fetch events PRIMEIRO, identifica last agent.message não-meta, deriva dedup_key.
         const ev = await fetchAnthropic(`/sessions/${sid}/events?limit=100`);
         const events = ev.data || [];
         const hasIdle = events.some((e) => e.type === 'session.status_idle');
@@ -184,6 +186,7 @@ export default async function handler(req, res) {
           .filter((m) => m.text && m.text.length > 0 && !isMetaConfirmation(m.text));
 
         let bestText = null;
+        let bestIdx = -1;
         if (agentMsgs.length > 0) {
           let lastToolUseIdx = -1;
           for (let i = events.length - 1; i >= 0; i--) {
@@ -191,11 +194,14 @@ export default async function handler(req, res) {
           }
           const postTool = agentMsgs.filter((m) => m.idx > lastToolUseIdx);
           if (postTool.length > 0) {
-            bestText = postTool[postTool.length - 1].text;
+            const chosen = postTool[postTool.length - 1];
+            bestText = chosen.text;
+            bestIdx = chosen.idx;
           } else {
             // Fallback C: maior msg filtrada
             const largest = agentMsgs.slice().sort((a, b) => b.text.length - a.text.length)[0];
             bestText = largest.text;
+            bestIdx = largest.idx;
           }
         }
 
@@ -208,6 +214,13 @@ export default async function handler(req, res) {
           stats.skipped_no_content += 1;
           continue;
         }
+        // PROMPT 4 FIX (16/05): dedup_key agora baseado em agent.message event idx (único por turno)
+        // ao invés de metadata.chatwoot_message_id (STALE em session reuse). Resolve bug Damiane 538.
+        const dedupKey = getDedupKey(sid, bestIdx);
+        if (await alreadyPosted(dedupKey)) {
+          stats.skipped_already += 1;
+          continue;
+        }
         // FASE PRÉ-3 ITEM C — Gate janela horária (08:00-20:30 BRT).
         // Lê session_type do metadata. reactive_reply sempre passa.
         const sessionType = s.metadata?.session_type || 'reactive_reply'; // legacy default
@@ -217,16 +230,13 @@ export default async function handler(req, res) {
           continue;
         }
         // FASE 2 Item 1: CLAIM-AND-ACT — marca marker ANTES de postar
-        // Re-check dedup uma última vez (race window minimal)
-        if (await alreadyPosted(dedupKey)) {
-          stats.skipped_already += 1;
-          continue;
-        }
         await markPosted(dedupKey, {
           session_id: sid,
           conv_id: convId,
           chatwoot_msg_id: null, // será atualizado pós-POST
           chatwoot_message_id_incoming: incomingMsgId || null,
+          agent_msg_idx: bestIdx,
+          agent_msg_preview: bestText.slice(0, 200),
           dedup_key: dedupKey,
           posted_at: new Date().toISOString(),
           posted_by: 'cron_fallback_claiming',
@@ -239,6 +249,8 @@ export default async function handler(req, res) {
             conv_id: convId,
             chatwoot_msg_id: posted.id,
             chatwoot_message_id_incoming: incomingMsgId || null,
+            agent_msg_idx: bestIdx,
+            agent_msg_preview: bestText.slice(0, 200),
             dedup_key: dedupKey,
             posted_at: new Date().toISOString(),
             posted_by: 'cron_fallback_confirmed',

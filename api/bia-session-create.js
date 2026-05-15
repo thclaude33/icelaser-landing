@@ -334,12 +334,13 @@ async function pollSessionForResponse(sessionId, deadlineMs, baseline = {}) {
       }
       const postTool = agentMsgs.filter((m) => m.idx > lastToolUseIdx);
       if (postTool.length > 0) {
-        return { ready: true, text: postTool[postTool.length - 1].text };
+        const chosen = postTool[postTool.length - 1];
+        return { ready: true, text: chosen.text, agentMsgIdx: chosen.idx };
       }
 
       // Fallback C: maior msg do turno (resposta real 639 chars vence meta 38 chars)
       const largest = agentMsgs.slice().sort((a, b) => b.text.length - a.text.length)[0];
-      return { ready: true, text: largest.text };
+      return { ready: true, text: largest.text, agentMsgIdx: largest.idx };
     }
     // Não terminou ainda — sleep tick
     await new Promise((r) => setTimeout(r, POLLING_TICK_MS));
@@ -406,8 +407,19 @@ const BLOB_PREFIX = 'bia/postback/posted/';
 // FASE 2 Item 5 (15/05/2026): dedup_key prefere chatwoot_message_id (único por msg)
 // sobre session.id. Chatwoot retry duplicado abre 2 sessions diferentes — antes
 // dedup falhava (key session.id era diferente). Agora msg_id é único por mensagem.
-function getDedupKey(sessionId, chatwootMessageId) {
-  return chatwootMessageId ? `msg_${chatwootMessageId}` : `sess_${sessionId}`;
+//
+// PROMPT 4 FIX dedup BUG (16/05/2026): em session REUSE, session.metadata.chatwoot_message_id
+// é STALE (cravado no turno 1 de criação, imutável). Cron-postback usava metadata e
+// causava skipped_already em turnos 2+ (resposta nunca postada Chatwoot).
+// FIX: dedup_key = `agent_${sessionId}_${agentMsgEventIdx}` — event idx é único por turno
+// na mesma session (cada agent.message tem idx distinto). Funciona tanto cold quanto reuse.
+//
+// Markers antigos (msg_X / sess_X) ficam coexistindo 30 dias TTL Blob — não migra retroativo.
+function getDedupKey(sessionId, agentMsgEventIdx) {
+  if (agentMsgEventIdx !== null && agentMsgEventIdx !== undefined && agentMsgEventIdx >= 0) {
+    return `agent_${sessionId}_${agentMsgEventIdx}`;
+  }
+  return `sess_${sessionId}`; // fallback raro: pollSessionForResponse não retornou idx
 }
 
 async function markPosted(dedupKey, payload) {
@@ -658,9 +670,11 @@ export default async function handler(req, res) {
         const clientResp = extractClientResponse(result.text);
         const clean = stripWhatsAppMarkdown(clientResp);
         if (clean && clean.length >= 10) {
-          // FASE 2 Item 5: dedup_key prefere chatwoot_message_id (único por msg).
-          // Chatwoot retry pode abrir 2 sessions → mesmo msg_id → dedup pega.
-          const dedupKey = getDedupKey(session.id, extra.chatwoot_message_id);
+          // PROMPT 4 FIX (16/05): dedup_key usa agent.message event idx (único por turno).
+          // Em session REUSE, chatwoot_message_id da metadata é STALE (turno 1 imutável).
+          // Antes: cron-postback alreadyPosted('msg_<turno1>')=true em turno N → skip → resposta perdida.
+          // Agora: agent_<sid>_<idx> único por turno cold + reuse.
+          const dedupKey = getDedupKey(session.id, result.agentMsgIdx);
           try {
             // RE-CHECK dedup right before posting
             if (await alreadyPosted(dedupKey)) {
@@ -697,6 +711,8 @@ export default async function handler(req, res) {
               conv_id: chatwoot_thread_id,
               chatwoot_msg_id: null, // será atualizado pós-POST
               chatwoot_message_id_incoming: extra.chatwoot_message_id || null,
+              agent_msg_idx: result.agentMsgIdx,
+              agent_msg_preview: (result.text || '').slice(0, 200),
               dedup_key: dedupKey,
               posted_at: new Date().toISOString(),
               posted_by: 'handler_inline_claiming',
@@ -710,6 +726,8 @@ export default async function handler(req, res) {
                 conv_id: chatwoot_thread_id,
                 chatwoot_msg_id: posted.id,
                 chatwoot_message_id_incoming: extra.chatwoot_message_id || null,
+                agent_msg_idx: result.agentMsgIdx,
+                agent_msg_preview: (result.text || '').slice(0, 200),
                 dedup_key: dedupKey,
                 posted_at: new Date().toISOString(),
                 posted_by: 'handler_inline_confirmed',
