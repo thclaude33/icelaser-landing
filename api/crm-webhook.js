@@ -268,6 +268,15 @@ export default async function handler(req, res) {
         const fn = event === 'conversation_created' ? handleNewConversation : handleIncomingMessage;
         const botResult = await fn(body);
         console.log(`[CRM-BOT] event=${event} conv=${body.id || body.conversation?.id || '?'} result=${JSON.stringify(botResult).slice(0, 200)}`);
+        // FIX P1-D (Codex 17/05/2026): se bot reportou erro retryable (Chatwoot get conv 5xx,
+        // setCustomAttributes falhou), retornar 502 ANTES de CAPI. Chatwoot retenta webhook —
+        // bot tenta de novo, CAPI roda no retry bem-sucedido (idempotente via event_id).
+        // Antes: log só, sem retry — bot ficava travado sem estado.
+        if (botResult?.retryable === true) {
+          const convId = body.id || body.conversation?.id || '?';
+          console.error(`[CRM-BOT] 🚨 retryable error conv=${convId} reason=${botResult?.error || 'unknown'} — returning 502 for Chatwoot retry`);
+          return res.status(502).json({ error: 'bot_retryable', detail: botResult?.error || 'unknown' });
+        }
       } catch (e) {
         // Bot pode falhar — log mas NÃO afeta processamento CAPI normal abaixo
         console.error(`[CRM-BOT] error (non-blocking): ${e?.message || e}`);
