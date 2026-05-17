@@ -863,10 +863,11 @@ export default async function handler(req, res) {
     catch { return res.status(400).json({ error: 'invalid json' }); }
 
     // ── BACKUP NO BLOB (salva ANTES de qualquer processamento — nunca perde msg) ─
+    // FIX BUG P0-3 (Codex 17/05/2026): retorna bool pra handler poder decidir status code final.
     const backupBlob = async () => {
       const hasToken = !!process.env.BLOB_READ_WRITE_TOKEN;
       console.log(`[BACKUP] start: object=${body.object} hasToken=${hasToken}`);
-      if (!hasToken) { console.error('[BACKUP] ❌ BLOB_READ_WRITE_TOKEN ausente em runtime'); return; }
+      if (!hasToken) { console.error('[BACKUP] ❌ BLOB_READ_WRITE_TOKEN ausente em runtime'); return false; }
       try {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const firstMsg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
@@ -884,8 +885,43 @@ export default async function handler(req, res) {
           addRandomSuffix: true,
         });
         console.log(`[BACKUP] ✅ OK: ${filename} url=${result?.url?.slice(0,60)}`);
+        return true;
       } catch (e) {
         console.error(`[BACKUP] ❌ put() threw: name=${e.name} msg=${e.message} code=${e.code} stack=${e.stack?.slice(0,200)}`);
+        return false;
+      }
+    };
+
+    // ── DLQ: salvar payload completo em wa/pending/ pra replay via cron ──
+    // FIX BUG P0-3 (Codex 17/05/2026): quando Chatwoot forward falha, salva no DLQ
+    // pra cron process-wa-pending reenviar. Garantia: lead nunca perde sem retry.
+    const saveToWaPending = async () => {
+      const hasToken = !!process.env.BLOB_READ_WRITE_TOKEN;
+      if (!hasToken) return false;
+      try {
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const firstMsg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        const wamid = firstMsg?.id || `nowamid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const safeWamid = String(wamid).replace(/[^0-9a-z]/gi, '').slice(0, 40);
+        const filename = `wa/pending/${ts}_${safeWamid}.json`;
+        const dlqPayload = {
+          ...body,
+          _dlq_meta: {
+            saved_at: new Date().toISOString(),
+            reason: 'chatwoot_forward_failed',
+            retry_count: 0,
+          },
+        };
+        const result = await put(filename, JSON.stringify(dlqPayload), {
+          access: 'public',
+          contentType: 'application/json',
+          addRandomSuffix: false,
+        });
+        console.log(`[DLQ-WA] ✅ saved ${filename} for retry`);
+        return true;
+      } catch (e) {
+        console.error(`[DLQ-WA] ❌ failed: ${e.message}`);
+        return false;
       }
     };
     // Fix 21/04/2026 v2 (AI Gateway Opus 4): backupBlob MOVIDO pro FINAL do
@@ -1256,6 +1292,42 @@ export default async function handler(req, res) {
                         { method: 'POST', headers: cwHeaders, body: JSON.stringify({ inbox_id: Number(CHATWOOT_LEADS_INBOX_ID) }) },
                         5000
                       ).catch(() => {});
+
+                      // FIX BUG P0-5 (Codex 17/05/2026): merge custom_attributes do leadgen no contato existente.
+                      // Antes: contato existente não recebia leadgen_id/form_id/ad_id/page_id atualizados → routing CRM
+                      // perdia info de qual ad/form/page originou esse retorno do lead. Agora: PUT merge preservando antigos.
+                      try {
+                        const newAttrs = {
+                          leadgen_id: String(leadId),
+                          leadgen_form_id: String(formId || ''),
+                          leadgen_ad_id: String(adId || ''),
+                          lead_source: 'Meta Lead Ad',
+                          last_leadgen_at: new Date().toISOString(),
+                          ...(value?.page_id ? { page_id: String(value.page_id) } : {}),
+                          ...extraFields,
+                        };
+                        // Buscar attrs atuais
+                        const getResp = await fetchCw(
+                          `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}`,
+                          { headers: cwHeaders }, 5000
+                        );
+                        if (getResp.ok) {
+                          const getJson = await getResp.json().catch(() => ({}));
+                          const currentAttrs = getJson?.payload?.custom_attributes || {};
+                          const merged = { ...currentAttrs, ...newAttrs };
+                          // PUT merge
+                          const putResp = await fetchCw(
+                            `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}`,
+                            { method: 'PUT', headers: cwHeaders, body: JSON.stringify({ custom_attributes: merged }) },
+                            5000
+                          );
+                          if (!putResp.ok) {
+                            console.warn(`[LEADGEN→CHATWOOT] ⚠️ merge custom_attributes failed status=${putResp.status} contact=${contactId} — non-fatal`);
+                          }
+                        }
+                      } catch (mergeErr) {
+                        console.warn(`[LEADGEN→CHATWOOT] ⚠️ merge custom_attributes exception: ${mergeErr.message} — non-fatal`);
+                      }
                     }
 
                     // 3. Criar CONVERSA pra o lead aparecer no inbox
@@ -1300,6 +1372,9 @@ export default async function handler(req, res) {
                         `Origem: Meta Lead Ad`,
                         `Recebido: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })}`,
                       ].filter(Boolean).join('\n');
+                      // FIX BUG P0-1 (Codex 17/05/2026): antes marcava processed mesmo se msgResp.ok=false.
+                      // Resultado: Chatwoot 401/500 ao append → lead vira processado + pending blob deletado → lead some.
+                      // Agora: appended=true SÓ se Chatwoot confirmou. Caso contrário, throw → catch externo preserva pending.
                       let convJson = null;
                       if (existingConvId) {
                         // Append mensagem na conversa existente (idempotent via retry — Meta manda msg duplicada
@@ -1308,8 +1383,12 @@ export default async function handler(req, res) {
                           `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${existingConvId}/messages`,
                           { method: 'POST', headers: cwHeaders, body: JSON.stringify({ content: msg, message_type: 'incoming' }) }
                         );
-                        convJson = { id: existingConvId, appended: msgResp.ok };
-                        console.log(`[LEADGEN→CHATWOOT] ✅ Msg append em conversa existente id=${existingConvId}`);
+                        if (!msgResp.ok) {
+                          const errBody = await msgResp.text().catch(() => '?');
+                          throw new Error(`Chatwoot append-msg failed status=${msgResp.status} conv=${existingConvId} body=${errBody.slice(0, 150)}`);
+                        }
+                        convJson = { id: existingConvId, appended: true };
+                        console.log(`[LEADGEN→CHATWOOT] ✅ Msg append OK conv=${existingConvId}`);
                       } else {
                         const convBody = {
                           source_id: identifier,
@@ -1322,7 +1401,16 @@ export default async function handler(req, res) {
                           `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations`,
                           { method: 'POST', headers: cwHeaders, body: JSON.stringify(convBody) }
                         );
-                        convJson = await convResp.json();
+                        if (!convResp.ok) {
+                          const errBody = await convResp.text().catch(() => '?');
+                          throw new Error(`Chatwoot create-conv failed status=${convResp.status} body=${errBody.slice(0, 150)}`);
+                        }
+                        const convText = await convResp.text();
+                        try { convJson = JSON.parse(convText); }
+                        catch { throw new Error(`Chatwoot create-conv invalid JSON: ${convText.slice(0, 150)}`); }
+                        if (!convJson?.id) {
+                          throw new Error(`Chatwoot create-conv resp.ok mas sem id: ${convText.slice(0, 150)}`);
+                        }
                       }
                       if (convJson?.id) {
                         console.log(`[LEADGEN→CHATWOOT] ✅ Conversa OK id=${convJson.id} contact=${contactId}`);
@@ -1691,13 +1779,35 @@ export default async function handler(req, res) {
     // FLUXO: Chatwoot direto (com conversão de mídia) — Evolution API desabilitada temporariamente
     const chatOk = await fallbackToChatwoot();
     if (!chatOk) {
-      console.error('[PROXY] ❌ Chatwoot falhou — msg salva no Blob backup');
+      console.error('[PROXY] ❌ Chatwoot falhou — tentando salvar em DLQ wa/pending');
     }
 
-    // Fix 21/04/2026 v2 (AI Gateway review): backupBlob MOVIDO pra cá.
-    // dedupMark salva OK dentro do loop; backupBlob no início ficava órfão.
-    // Agora executa junto com outras async ops, imediatamente antes do res.
-    await backupBlob();
+    // Backup blob "audit log" — todas mensagens salvas (sucesso ou falha)
+    // FIX BUG P0-3 (Codex 17/05/2026): retorna bool agora
+    const backupOk = await backupBlob();
+
+    // FIX BUG P0-3 (Codex 17/05/2026): se Chatwoot falhou, salva DLQ wa/pending pra cron replay.
+    // Antes: retornava 200 cego — Meta não retrya — lead some.
+    // Agora:
+    //   - chatOk=true                  → 200 (msg entregue)
+    //   - chatOk=false + dlq saved     → 200 (cron replay vai reenviar)
+    //   - chatOk=false + dlq=false + backup=true → 200 mas WARN (manual replay)
+    //   - chatOk=false + dlq=false + backup=false → 502 (Meta retrya webhook)
+    if (!chatOk) {
+      const dlqOk = await saveToWaPending();
+      if (dlqOk) {
+        console.log('[PROXY] ⚠️ Chatwoot falhou mas DLQ wa/pending salvou — cron replay reenvia');
+        return res.status(200).json({ ok: true, dlq: 'saved' });
+      }
+      // DLQ falhou também. Última esperança = backup blob (audit log).
+      if (backupOk) {
+        console.error('[PROXY] 🚨 Chatwoot=false + DLQ=false + backup=true — replay manual necessário');
+        return res.status(200).json({ ok: true, dlq: 'backup_only' });
+      }
+      // Falha TOTAL — Meta deve retryar
+      console.error('[PROXY] 🚨 LOSS DETECTED: chatwoot=false + dlq=false + backup=false');
+      return res.status(502).json({ error: 'forward_and_backup_failed' });
+    }
 
     return res.status(200).json({ ok: true });
   }
