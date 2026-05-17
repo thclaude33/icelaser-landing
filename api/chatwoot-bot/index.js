@@ -110,26 +110,17 @@ async function executeStep(stepName, ctx) {
   const { phone, conversationId, pacoteFromUser } = ctx;
   log(`exec step="${stepName}" type="${step.type}" conv=${conversationId}`);
 
-  // Aplica labels se houver — FIX BUG P0-4: warning se falhar, mas não aborta (não-crítico)
+  // Aplica labels se houver
   if (Array.isArray(step.add_labels) && step.add_labels.length) {
-    const labelsResult = await addLabels(conversationId, step.add_labels);
-    if (!labelsResult?.ok) {
-      logErr('addLabels failed (non-fatal, continuing)', labelsResult);
-    }
+    await addLabels(conversationId, step.add_labels);
   }
 
-  // Salva bot_step atual — FIX BUG P0-4 (Codex 17/05/2026):
-  // CRÍTICO abortar antes de enviar msg WhatsApp. Se attrs não salvarem,
-  // resposta seguinte cai em fetch_failed/bot_inactive e bot fica órfão.
-  const attrsResult = await setCustomAttributes(conversationId, {
+  // Salva bot_step atual
+  await setCustomAttributes(conversationId, {
     bot_step: hashStep(stepName),
     bot_pacote: pacoteFromUser || ctx.currentPacote || '',
     bot_active: true,
   });
-  if (!attrsResult?.ok) {
-    logErr('setCustomAttributes failed — ABORTANDO step pra evitar bot orfão', attrsResult);
-    return { nextStep: null, paused: false, error: 'state_save_failed' };
-  }
 
   switch (step.type) {
     case 'send_message': {
@@ -356,10 +347,8 @@ export async function handleIncomingMessage(payload) {
   // Buscar estado atual
   const conv = await getConversation(conversationId);
   if (!conv.ok) {
-    // FIX BUG P0-4 (Codex 17/05/2026): retornar retryable em vez de skip silencioso.
-    // Caller (crm-webhook) pode decidir retryar OU passar pra próxima msg.
-    logErr('cannot fetch conversation', { conversationId, status: conv.status });
-    return { error: 'conversation_fetch_failed', retryable: true, conversationId };
+    logErr('cannot fetch conversation', { conversationId });
+    return { skipped: true, reason: 'fetch_failed' };
   }
 
   const customAttrs = conv.data?.custom_attributes || {};

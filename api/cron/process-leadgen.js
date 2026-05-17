@@ -189,17 +189,8 @@ export default async function handler(req, res) {
             `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts`,
             { method: 'POST', headers: cwHeaders, body: JSON.stringify(contactBody) }
           );
-          // FIX BUG P0-2 (Codex 17/05/2026): validar createContact resp.ok antes de usar contactId.
-          // Antes: ignorava resp.ok → contactId podia ser undefined sem erro → fluxo continuava.
-          if (!createResp.ok) {
-            const errBody = await createResp.text().catch(() => '?');
-            throw new Error(`Chatwoot createContact failed status=${createResp.status} body=${errBody.slice(0, 150)}`);
-          }
           const createJson = await createResp.json();
           contactId = createJson?.payload?.contact?.id;
-          if (!contactId) {
-            throw new Error(`Chatwoot createContact resp.ok mas sem contactId: ${JSON.stringify(createJson).slice(0, 150)}`);
-          }
         }
 
         if (contactId) {
@@ -217,9 +208,7 @@ export default async function handler(req, res) {
             payload.ad_id ? `Ad ID: ${payload.ad_id}` : null,
             `Origem: Meta Lead Ad (reprocessed via DLQ cron)`,
           ].filter(Boolean).join('\n');
-          // FIX BUG P0-2 (Codex 17/05/2026): validar Chatwoot createConv resp.ok + JSON antes de marcar processed.
-          // Antes: cron fazia POST cegamente → marcava processed mesmo se Chatwoot 401/500 → lead some.
-          const cwResp = await fetchCw(
+          await fetchCw(
             `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations`,
             {
               method: 'POST',
@@ -233,19 +222,6 @@ export default async function handler(req, res) {
               }),
             }
           );
-          if (!cwResp.ok) {
-            const errBody = await cwResp.text().catch(() => '?');
-            throw new Error(`Chatwoot createConv DLQ failed status=${cwResp.status} body=${errBody.slice(0, 150)}`);
-          }
-          const cwText = await cwResp.text();
-          let cwJson;
-          try { cwJson = JSON.parse(cwText); }
-          catch { throw new Error(`Chatwoot createConv DLQ invalid JSON: ${cwText.slice(0, 150)}`); }
-          if (!cwJson?.id) {
-            throw new Error(`Chatwoot createConv DLQ resp.ok mas sem id: ${cwText.slice(0, 150)}`);
-          }
-          const conversationId = cwJson.id;
-          console.log(`[DLQ-CRON CHATWOOT] ✅ conv=${conversationId} lead_id=${leadId}`);
 
           // 5. CAPI Lead event (mesmo formato do handler original)
           if (CAPI_TOKEN) {
@@ -355,11 +331,10 @@ export default async function handler(req, res) {
             } catch (capiErr) { console.error(`[DLQ-CRON CAPI] exception: ${capiErr.message} lead_id=${leadId}`); }
           }
 
-          // Mark processed + delete pending (fix MEDIUM #5 + P0-2: incluir conversation_id)
+          // Mark processed + delete pending (fix MEDIUM #5)
           await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
             leadgen_id: leadId,
             contact_id: contactId,
-            conversation_id: conversationId,
             processed_at: new Date().toISOString(),
             processed_by: 'dlq_cron',
             retry_count: retryCount,
