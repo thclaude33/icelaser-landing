@@ -15,7 +15,15 @@
 
 const CW_URL = 'https://chatwoot-production-af5f.up.railway.app';
 const CW_ACCOUNT = '1';
-const CW_TOKEN = process.env.CHATWOOT_API_TOKEN || 'xcEaME3WLizkocorjScunW7D';
+// FIX BUG 6 (Codex 17/05/2026): removed hardcoded fallback token.
+// Era fallback literal que mascarava env ausente em runtime — agora retorna erro claro.
+const CW_TOKEN = process.env.CHATWOOT_API_TOKEN;
+
+function assertToken() {
+  if (!CW_TOKEN) {
+    throw new Error('CHATWOOT_API_TOKEN env not set');
+  }
+}
 
 function isDryRun() {
   return process.env.CHATWOOT_BOT_DRY_RUN === '1';
@@ -26,6 +34,7 @@ function isDryRun() {
  */
 export async function getConversation(conversationId) {
   if (!conversationId) return { ok: false, error: 'no_conversation_id' };
+  if (!CW_TOKEN) { console.error('[CW-BOT] CHATWOOT_API_TOKEN env not set'); return { ok: false, error: 'missing_env_chatwoot_token' }; }
   const url = `${CW_URL}/api/v1/accounts/${CW_ACCOUNT}/conversations/${conversationId}`;
   try {
     const res = await fetch(url, { headers: { 'api_access_token': CW_TOKEN } });
@@ -52,6 +61,7 @@ export async function getConversation(conversationId) {
  */
 export async function addLabels(conversationId, labels) {
   if (!conversationId) return { ok: false, error: 'no_conversation_id' };
+  if (!CW_TOKEN) { console.error('[CW-BOT] CHATWOOT_API_TOKEN env not set'); return { ok: false, error: 'missing_env_chatwoot_token' }; }
   if (!Array.isArray(labels) || !labels.length) return { ok: true, skipped: true };
 
   if (isDryRun()) {
@@ -95,6 +105,7 @@ export async function addLabels(conversationId, labels) {
  */
 export async function setCustomAttributes(conversationId, attrs) {
   if (!conversationId) return { ok: false, error: 'no_conversation_id' };
+  if (!CW_TOKEN) { console.error('[CW-BOT] CHATWOOT_API_TOKEN env not set'); return { ok: false, error: 'missing_env_chatwoot_token' }; }
   if (!attrs || typeof attrs !== 'object') return { ok: true, skipped: true };
 
   if (isDryRun()) {
@@ -127,6 +138,7 @@ export async function setCustomAttributes(conversationId, attrs) {
  */
 export async function getContact(contactId) {
   if (!contactId) return { ok: false, error: 'no_contact_id' };
+  if (!CW_TOKEN) { console.error('[CW-BOT] CHATWOOT_API_TOKEN env not set'); return { ok: false, error: 'missing_env_chatwoot_token' }; }
   const url = `${CW_URL}/api/v1/accounts/${CW_ACCOUNT}/contacts/${contactId}`;
   try {
     const res = await fetch(url, { headers: { 'api_access_token': CW_TOKEN } });
@@ -150,6 +162,7 @@ export async function getContact(contactId) {
  */
 export async function updateContactCustomAttributes(contactId, attrs) {
   if (!contactId) return { ok: false, error: 'no_contact_id' };
+  if (!CW_TOKEN) { console.error('[CW-BOT] CHATWOOT_API_TOKEN env not set'); return { ok: false, error: 'missing_env_chatwoot_token' }; }
   if (!attrs || typeof attrs !== 'object') return { ok: true, skipped: true };
 
   if (isDryRun()) {

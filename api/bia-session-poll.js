@@ -1,12 +1,40 @@
 // api/bia-session-poll.js
 // P9.7 — Polling de eventos da session Bia. Retorna última resposta agent.message + status.
+//
+// FIX BUG 4 (Codex 17/05/2026): endpoint estava aceitando session_id sem auth.
+// Qualquer atacante podia descobrir sessions ativas (formato sesn_*) e ler
+// respostas privadas Bia ↔ cliente. Agora exige Authorization: Bearer <token>.
+// Token aceito (ordem): BIA_POLL_API_KEY, BIA_DIRECT_API_KEY, CRON_SECRET.
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
+
+function isAuthorized(req) {
+  // Aceita qualquer um dos 3 tokens (fail-closed se nenhum configurado em prod)
+  const accepted = [
+    process.env.BIA_POLL_API_KEY,
+    process.env.BIA_DIRECT_API_KEY,
+    process.env.CRON_SECRET,
+  ].filter(Boolean);
+  if (accepted.length === 0) return { ok: false, reason: 'no_auth_configured' };
+  const header = req.headers?.authorization || req.headers?.Authorization || '';
+  if (!header.startsWith('Bearer ')) return { ok: false, reason: 'missing_bearer' };
+  const token = header.slice(7);
+  return { ok: accepted.includes(token), reason: 'invalid_token' };
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ error: 'method_not_allowed' });
+  }
+
+  // Auth check ANTES de qualquer leitura de query/state
+  const auth = isAuthorized(req);
+  if (!auth.ok) {
+    if (auth.reason === 'no_auth_configured') {
+      return res.status(503).json({ error: 'auth_not_configured' });
+    }
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY_ICELASER;

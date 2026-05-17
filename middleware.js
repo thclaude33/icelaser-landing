@@ -223,12 +223,35 @@ export default function middleware(request) {
   }
 
   // Helper pra construir response final — aplica rewrite jpa.* → /index-jpa.html
-  // OU next() pra Recife (sem rewrite). Cookies fbp/fbc são anexados aos 2 casos.
+  // OU /v2/* → /v2-jpa/* OU next() pra Recife (sem rewrite). Cookies fbp/fbc são anexados.
+  //
+  // FIX BUG 1 (Codex 17/05/2026): JP /v2/ servia conteúdo Recife em produção.
+  // Antes: middleware só fazia rewrite JP em '/' e '/index.html'. Path /v2 caía em
+  // vercel.json (line 202) redirect global /v2 → /v2/ que servia /v2/index.html Recife.
+  // Agora: JP host + /v2[/...] → reescreve pra /v2-jpa/... incluindo assets.
   const buildResponse = () => {
-    if (isJpHost && (url.pathname === '/' || url.pathname === '/index.html')) {
+    if (isJpHost) {
       const rewriteUrl = new URL(request.url);
-      rewriteUrl.pathname = '/index-jpa.html';
-      return rewrite(rewriteUrl);
+      // Home
+      if (url.pathname === '/' || url.pathname === '/index.html') {
+        rewriteUrl.pathname = '/index-jpa.html';
+        return rewrite(rewriteUrl);
+      }
+      // /v2 ou /v2/ ou /v2/index.html → /v2-jpa/index.html
+      if (url.pathname === '/v2' || url.pathname === '/v2/' || url.pathname === '/v2/index.html') {
+        rewriteUrl.pathname = '/v2-jpa/index.html';
+        return rewrite(rewriteUrl);
+      }
+      // /v2/assets/* → /v2-jpa/assets/* (preserva tracking.js/imagens JP)
+      if (url.pathname.startsWith('/v2/assets/')) {
+        rewriteUrl.pathname = url.pathname.replace('/v2/assets/', '/v2-jpa/assets/');
+        return rewrite(rewriteUrl);
+      }
+      // /v2/<outros sub-paths> → /v2-jpa/<sub-path>
+      if (url.pathname.startsWith('/v2/')) {
+        rewriteUrl.pathname = url.pathname.replace('/v2/', '/v2-jpa/');
+        return rewrite(rewriteUrl);
+      }
     }
     return next();
   };

@@ -33,7 +33,7 @@ import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const CW_URL = 'https://chatwoot-production-af5f.up.railway.app';
 const CW_ACCOUNT = '1';
-const CW_TOKEN = process.env.CHATWOOT_API_TOKEN || 'xcEaME3WLizkocorjScunW7D';
+const CW_TOKEN = process.env.CHATWOOT_API_TOKEN;
 const RECIFE_INBOX_ID = 7;
 
 const STUCK_THRESHOLD_MIN = 30; // 30min sem clique = considerar stuck
@@ -169,8 +169,13 @@ export default async function handler(req, res) {
   }
 
   // Multi-project guard: só roda no primary project (icelaser-landing)
-  if (skipIfNotPrimary()) {
-    return res.status(200).json({ ok: true, skipped: 'non_primary_project' });
+  // FIX BUG 5 (Codex 17/05/2026): skipIfNotPrimary precisa de (res, cronName) — sem args
+  // quebrava em projetos não-primary porque internamente faz res.status(200) — TypeError.
+  if (skipIfNotPrimary(res, 'bot-stuck-check')) return;
+
+  // FIX BUG 6: CHATWOOT_API_TOKEN agora é obrigatório (fallback hardcoded removido linha 36)
+  if (!CW_TOKEN) {
+    return res.status(500).json({ error: 'missing_env', detail: 'CHATWOOT_API_TOKEN not set' });
   }
 
   const startTs = Date.now();
