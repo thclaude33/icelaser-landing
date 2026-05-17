@@ -2,6 +2,8 @@
 // P9.7 — Cron diário (Vercel) que pede pro Bia Learning Mode processar conversas das últimas 24h
 // e gerar relatório em bia-learnings/daily_review/{YYYY-MM-DD}.md.
 
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
+
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const BIA_LEARNING_AGENT_ID = 'agent_01FjS6Unkb4y8RjnwfuBbAsW'; // v5
 const ENV_ID = 'env_01ANo8eEPnZ3P51da4TQz2HR';
@@ -29,6 +31,10 @@ export default async function handler(req, res) {
   if (!isAuthorized(req)) {
     return res.status(401).json({ error: 'unauthorized' });
   }
+
+  // Multi-projeto race guard (16/05/2026 — 3 projetos gerariam 3 reports/dia = spam Vitória + 3× custo Agent).
+  if (skipIfNotPrimary(res, 'bia-daily-review')) return;
+
   const apiKey = process.env.ANTHROPIC_API_KEY_ICELASER;
   if (!apiKey) {
     return res.status(500).json({ error: 'missing_env', detail: 'ANTHROPIC_API_KEY_ICELASER not set' });

@@ -23,9 +23,11 @@ import {
   getNextStep, migrateToPhase2, getTemplate, renderTemplate,
   incrDailyCount, getDailyCount, DAILY_MAX_SENDS,
   markBiaOutgoing,
+  computeScheduledAt,
 } from '../_lib/cascade.js';
 import { kvGet, kvSet, kvDel, kvZadd, kvZrem, kvZrangebyscore } from '../_lib/kv-rate-limit.js';
 import { shouldSendNow, nextWindowStart, isWithinSendWindow } from '../_lib/send-window.js';
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
 const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
@@ -55,6 +57,10 @@ async function postChatwoot(convId, content) {
 export default async function handler(req, res) {
   if (!isAuthorized(req)) return res.status(401).json({ error: 'unauthorized' });
 
+  // Multi-projeto race guard (incidente conv 510 16/05/2026 — 3 projetos disparavam
+  // mesma conv em paralelo causando rajada de 6 msgs). Apenas primary project executa.
+  if (skipIfNotPrimary(res, 'bia-followup-cascade')) return;
+
   const stats = {
     enabled: process.env.FOLLOWUP_ENABLED === '1',
     candidates: 0,
@@ -62,6 +68,7 @@ export default async function handler(req, res) {
     skipped_daily_limit: 0,
     skipped_window: 0,
     migrated_to_f2: 0,
+    f1_backlog_reset_to_f2: 0,
     finished: 0,
     errors: 0,
     cleaned_orphans: 0,
@@ -106,6 +113,40 @@ export default async function handler(req, res) {
           await kvDel(stateKey(convId));
           stats.details.push({ conv: convId, action: 'state_corrupt_purge' });
           continue;
+        }
+
+        // 3a-bis. F1 BACKLOG DETECTOR (cravado 16/05/2026 após incidente conv 510)
+        // Se cliente entrou tarde da noite (started_at < ontem), cron acorda na janela
+        // 08:00 BRT com scheduled_at antigo. Sem este guard, cron queima F1[0..N] em
+        // rajada (1 step por tick) até bater daily_limit=6. Solução: se F1 com started>8h
+        // OU scheduled_lag>1h → migrar direto pra F2 step 0 com NOVO started_at=NOW.
+        // F2[0]=D+1 10:00 BRT (1 msg), F2[1]=D+1 14:30, F2[2]=D+1 19:00 (espaçado natural).
+        if (state.phase === 1) {
+          const startedAgeMs = Date.now() - Date.parse(state.started_at);
+          const scheduledLagMs = Date.now() - Date.parse(state.scheduled_at);
+          const F1_BACKLOG_STARTED_THRESHOLD_MS = 8 * 3600 * 1000;  // 8h
+          const F1_BACKLOG_SCHEDULED_THRESHOLD_MS = 1 * 3600 * 1000; // 1h
+
+          if (startedAgeMs > F1_BACKLOG_STARTED_THRESHOLD_MS ||
+              scheduledLagMs > F1_BACKLOG_SCHEDULED_THRESHOLD_MS) {
+            const nowMs = Date.now();
+            state.started_at = new Date(nowMs).toISOString();
+            state.phase = 2;
+            state.step = 0;
+            const migratedDate = computeScheduledAt(2, 0, nowMs);
+            state.scheduled_at = migratedDate.toISOString();
+            await kvSet(stateKey(convId), JSON.stringify(state), 30 * 24 * 3600);
+            await kvZadd(KV_INDEX, Math.floor(migratedDate.getTime() / 1000), convId);
+            stats.f1_backlog_reset_to_f2 += 1;
+            stats.details.push({
+              conv: convId,
+              action: 'f1_backlog_reset_to_f2',
+              started_age_h: (startedAgeMs / 3600000).toFixed(1),
+              scheduled_lag_h: (scheduledLagMs / 3600000).toFixed(1),
+              new_scheduled: state.scheduled_at,
+            });
+            continue;
+          }
         }
 
         // 3b. Daily limit

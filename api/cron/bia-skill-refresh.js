@@ -25,6 +25,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const BIA_SKILL_ID = 'skill_01VmKCpBmg717nKmCAWgnUYS';
@@ -122,6 +123,10 @@ Bucket dedup ${ALERT_BUCKET_HOURS}h. Próximo alerta só após esse intervalo.
 
 export default async function handler(req, res) {
   if (!isAuthorized(req)) return res.status(401).json({ error: 'unauthorized' });
+
+  // Multi-projeto race guard (16/05/2026 — 3 projetos = 3× drift check + 3× emails alerta).
+  if (skipIfNotPrimary(res, 'bia-skill-refresh')) return;
+
   if (!process.env.ANTHROPIC_API_KEY_ICELASER) {
     return res.status(500).json({ error: 'missing_env_anthropic' });
   }

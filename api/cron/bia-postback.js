@@ -18,6 +18,7 @@ import { list, put, del } from '@vercel/blob';
 import { shouldSendNow } from '../_lib/send-window.js';
 import { markBiaOutgoing, armCascade, buildSnapshotFromContext } from '../_lib/cascade.js';
 import { setActiveSession } from '../_lib/session-reuse.js';
+import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
@@ -140,6 +141,12 @@ async function postChatwoot(convId, content) {
 
 export default async function handler(req, res) {
   if (!isAuthorized(req)) return res.status(401).json({ error: 'unauthorized' });
+
+  // Multi-projeto race guard (16/05/2026 — cron roda 1×/min × 3 projetos = 4320 invocações/dia.
+  // Claim-and-act blob protege contra POST duplicado, mas Anthropic list+filter ANTES do claim
+  // queimava custo $$$ recorrente. Apenas primary project executa.).
+  if (skipIfNotPrimary(res, 'bia-postback')) return;
+
   if (!process.env.ANTHROPIC_API_KEY_ICELASER) return res.status(500).json({ error: 'missing_env' });
   if (!process.env.CHATWOOT_API_TOKEN) return res.status(500).json({ error: 'missing_env_chatwoot' });
 
