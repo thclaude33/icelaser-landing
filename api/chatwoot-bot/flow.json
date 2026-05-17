@@ -7,7 +7,7 @@
   "phone_number_id": "1140709345781659",
   "waba_id": "920807647253970",
   "chatwoot_inbox_id": 7,
-  "address": "R. Amélia, 896 - Graças - Galeria Top Center, Recife - PE",
+  "address": "R. Amélia, 896 - Sala 106, Galeria Top Center, Graças, Recife/PE - CEP 52011-050",
   "start_step": "welcome",
   "steps": {
     "welcome": {
@@ -175,7 +175,7 @@
     "lead_quente_handoff": {
       "type": "send_message",
       "add_labels": ["lead_quente"],
-      "text": "Pronto! 💜\n\nUma de nossas atendentes vai te chamar nos próximos minutos pra confirmar dia e horário da sua avaliação 🗓\n\n📍 *Graças* — R. Amélia, 896 - Galeria Top Center, Recife/PE\n\nAguarda só um momentinho 😊",
+      "text": "Pronto! 💜\n\nUma de nossas atendentes vai te chamar nos próximos minutos pra confirmar dia e horário da sua avaliação 🗓\n\n📍 *Graças* — R. Amélia, 896 - Sala 106, Galeria Top Center, Recife/PE - CEP 52011-050\n\nAguarda só um momentinho 😊",
       "next": "finish"
     },
     "duvidas_handoff": {
