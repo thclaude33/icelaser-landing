@@ -142,10 +142,6 @@
     "api/bia-direct.js": {
       "maxDuration": 60,
       "regions": ["gru1"]
-    },
-    "api/cron/process-wa-pending.js": {
-      "maxDuration": 30,
-      "regions": ["gru1"]
     }
   },
 

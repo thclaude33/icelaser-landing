@@ -128,9 +128,7 @@ async function executeStep(stepName, ctx) {
   });
   if (!attrsResult?.ok) {
     logErr('setCustomAttributes failed — ABORTANDO step pra evitar bot orfão', attrsResult);
-    // FIX P1-D (Codex 17/05/2026): retryable=true → runFlow propaga → handler retorna →
-    // crm-webhook retorna 502 → Chatwoot retenta. Estado nunca salvo merece retry.
-    return { nextStep: null, paused: false, error: 'state_save_failed', retryable: true };
+    return { nextStep: null, paused: false, error: 'state_save_failed' };
   }
 
   switch (step.type) {
@@ -235,11 +233,10 @@ async function runFlow(startStep, ctx) {
   let current = startStep;
   let count = 0;
   while (current && count < MAX_STEPS_PER_RUN) {
-    const { nextStep, paused, error, retryable } = await executeStep(current, ctx);
+    const { nextStep, paused, error } = await executeStep(current, ctx);
     if (error) {
       logErr(`flow halted at "${current}" due to ${error}`);
-      // FIX P1-D: propaga retryable do executeStep (state_save_failed) pro caller
-      return retryable ? { halted: true, error, retryable: true } : { halted: true, error };
+      return { halted: true, error };
     }
     if (paused) {
       log(`flow paused at "${current}" — awaiting user input`);

@@ -1788,20 +1788,25 @@ export default async function handler(req, res) {
 
     // FIX BUG P0-3 (Codex 17/05/2026): se Chatwoot falhou, salva DLQ wa/pending pra cron replay.
     // Antes: retornava 200 cego — Meta não retrya — lead some.
-    // FIX P1-A (Codex 17/05/2026): backup_only não tem replay automático (só wa/pending tem cron).
     // Agora:
     //   - chatOk=true                  → 200 (msg entregue)
     //   - chatOk=false + dlq saved     → 200 (cron replay vai reenviar)
-    //   - chatOk=false + dlq=false     → 502 (Meta retrya webhook — backup audit ≠ replay)
+    //   - chatOk=false + dlq=false + backup=true → 200 mas WARN (manual replay)
+    //   - chatOk=false + dlq=false + backup=false → 502 (Meta retrya webhook)
     if (!chatOk) {
       const dlqOk = await saveToWaPending();
       if (dlqOk) {
         console.log('[PROXY] ⚠️ Chatwoot falhou mas DLQ wa/pending salvou — cron replay reenvia');
         return res.status(200).json({ ok: true, dlq: 'saved' });
       }
-      // DLQ falhou. Backup blob existe? logamos mas NÃO ACK — Meta precisa retryar pra não perder.
-      console.error(`[PROXY] 🚨 LOSS RISK: chatwoot=false + dlq=false + backup=${backupOk} — Meta deve retryar`);
-      return res.status(502).json({ error: 'forward_and_dlq_failed', backup_only: backupOk });
+      // DLQ falhou também. Última esperança = backup blob (audit log).
+      if (backupOk) {
+        console.error('[PROXY] 🚨 Chatwoot=false + DLQ=false + backup=true — replay manual necessário');
+        return res.status(200).json({ ok: true, dlq: 'backup_only' });
+      }
+      // Falha TOTAL — Meta deve retryar
+      console.error('[PROXY] 🚨 LOSS DETECTED: chatwoot=false + dlq=false + backup=false');
+      return res.status(502).json({ error: 'forward_and_backup_failed' });
     }
 
     return res.status(200).json({ ok: true });

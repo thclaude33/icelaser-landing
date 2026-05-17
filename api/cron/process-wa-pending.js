@@ -10,7 +10,6 @@
 // Move: pending → processed (sucesso) | pending atualizado retry_count+1 (falha).
 
 import { list, put, del } from '@vercel/blob';
-import crypto from 'node:crypto';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const MAX_PER_RUN = 50;
@@ -29,21 +28,13 @@ async function forwardToChatwoot(rawPayload) {
   if (!CHATWOOT_WEBHOOK_URL) {
     return { ok: false, status: 0, error: 'no_chatwoot_webhook_url' };
   }
-  // FIX P1-B (Codex 17/05/2026): replicar HMAC X-Hub-Signature-256 igual ao forward original
-  // em api/whatsapp.js linha 1684. Sem isso o Chatwoot rejeita o replay quando valida assinatura.
-  const APP_SECRET = process.env.META_APP_SECRET;
-  const body = JSON.stringify(rawPayload);
-  const headers = { 'Content-Type': 'application/json' };
-  if (APP_SECRET) {
-    headers['X-Hub-Signature-256'] = 'sha256=' + crypto.createHmac('sha256', APP_SECRET).update(body).digest('hex');
-  }
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), 10_000);
   try {
     const resp = await fetch(CHATWOOT_WEBHOOK_URL, {
       method: 'POST',
-      headers,
-      body,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rawPayload),
       signal: controller.signal,
     });
     clearTimeout(tid);
