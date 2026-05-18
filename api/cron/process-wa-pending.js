@@ -11,11 +11,66 @@
 
 import { list, put, del } from '@vercel/blob';
 import crypto from 'node:crypto';
+import nodemailer from 'nodemailer';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const MAX_PER_RUN = 50;
 const MAX_RETRIES = 10;
 const FN_TIMEOUT_MS = 25_000;
+
+// FIX F4 V4.2 (Codex): alert real cooldown 1h via Blob (var local resetava cold start serverless)
+const COOLDOWN_HOURS = 1;
+const ALERT_BLOB_KEY = 'alerts/wa-pending-last.json';
+const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
+const EMAIL_TO = (process.env.EMAIL_TO || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
+
+async function readLastAlert() {
+  try {
+    const r = await list({ prefix: ALERT_BLOB_KEY, limit: 1 });
+    if (!r.blobs.length) return null;
+    const resp = await fetch(r.blobs[0].url);
+    return await resp.json();
+  } catch { return null; }
+}
+
+async function saveLastAlert(payload) {
+  try {
+    await put(ALERT_BLOB_KEY, JSON.stringify(payload), {
+      access: 'public',
+      addRandomSuffix: false,
+      allowOverwrite: true,  // V4.2 Codex: 2º alert pós-cooldown precisa sobrescrever
+      contentType: 'application/json',
+    });
+  } catch (e) {
+    console.warn(`[WA-PENDING] saveLastAlert: ${e.message}`);
+  }
+}
+
+async function sendAlertEmail({ subject, html }) {
+  if (!process.env.EMAIL_PASS) return { skipped: 'no_pass' };
+  // Cooldown via Blob (Codex: var local resetava cold start)
+  const last = await readLastAlert();
+  if (last && (Date.now() - (last.ts || 0)) < COOLDOWN_HOURS * 3600 * 1000) {
+    return { skipped: 'cooldown' };
+  }
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: EMAIL_FROM, pass: process.env.EMAIL_PASS },
+    });
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: EMAIL_TO,
+      subject,
+      html,
+    });
+    await saveLastAlert({ ts: Date.now(), subject });
+    return { sent: true };
+  } catch (e) {
+    console.warn(`[WA-PENDING] alert failed: ${e.message}`);
+    return { error: e.message };
+  }
+}
 
 function isAuthorized(req) {
   const expected = process.env.CRON_SECRET;
@@ -145,6 +200,20 @@ export default async function handler(req, res) {
 
     const duration_ms = Date.now() - startMs;
     console.log(`[WA-PENDING-CRON] duration=${duration_ms}ms ${JSON.stringify(stats)}`);
+
+    // FIX F4 V4.2 (Codex C6): MAX_PER_RUN=50 limita stats.listed → '>50' nunca dispararia.
+    // Threshold >= MAX_PER_RUN sinaliza cap atingido (provavelmente mais aguardando no Blob).
+    if (stats.listed >= MAX_PER_RUN) {
+      const alertResult = await sendAlertEmail({
+        subject: `[ALERT] DLQ wa/pending atingiu cap (${stats.listed} items)`,
+        html: `<p>DLQ wa/pending atingiu o limite por run: <b>${stats.listed}</b> items.</p>
+               <p>Replayed: ${stats.replayed}, Failed: ${stats.failed}, MaxRetries: ${stats.max_retries}</p>
+               <p>Pode haver mais que ${MAX_PER_RUN} aguardando — checar Blob.</p>
+               <p>Duration: ${duration_ms}ms</p>`,
+      });
+      console.log(`[WA-PENDING-CRON] alert: ${JSON.stringify(alertResult)}`);
+    }
+
     return res.status(200).json({ ok: true, duration_ms, stats });
   } catch (err) {
     return res.status(500).json({ error: 'list_failed', detail: String(err?.message || err) });
