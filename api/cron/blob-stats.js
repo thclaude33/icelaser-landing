@@ -31,6 +31,14 @@ const KNOWN_PREFIXES = [
   'media/',
   'dedup/wa/',
   'alerts/',
+  // FIX V4.1 (Codex C2): leadgen/* esquecido — dashboard não via DLQ leadgen
+  'leadgen/pending/',
+  'leadgen/processed/',
+  'leadgen/failed/',
+  // FIX V4 (Codex P0-3 DLQ): wa/* novas filas pós-fix
+  'wa/pending/',
+  'wa/processed/',
+  'wa/dead/',
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
