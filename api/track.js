@@ -13,6 +13,26 @@ const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com'
 const EMAIL_PASS  = process.env.EMAIL_PASS;
 const EMAIL_TO    = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
 
+/**
+ * FIX V4.1 (Codex+VSCode 17/05): detecta requests JP por sinais HTTP/payload.
+ * IMPORTANTE: NÃO usar nome 'isJpRoute' — já é let local no handler linha ~510 (TDZ bug).
+ * Olha múltiplos sinais: Origin/Referer/host/event_source_url/landing_url.
+ */
+function detectJpRequest(req, body) {
+  const sigs = [
+    req?.headers?.origin,
+    req?.headers?.referer,
+    req?.headers?.['x-forwarded-host'],
+    req?.headers?.host,
+    body?.event_source_url,
+    body?.landing_url,
+  ].filter(Boolean).map((s) => String(s).toLowerCase());
+  return sigs.some((s) =>
+    s.includes('jpa.icelasers') ||
+    /jpa|jp-routing|bancarios/i.test(s)
+  );
+}
+
 function parseDevice(ua) {
   if (!ua) return { modelo: '—', os: '—', navegador: '—' };
   let modelo = '—', os = '—', navegador = '—';
@@ -370,14 +390,17 @@ export default async function handler(req, res) {
   // Fix HIGH AI audit 20/04/2026 (consistência M12): remover gender:'f' hardcoded.
   // Meta penaliza mismatch (leads masculinos ~1-5%) mais que ausência. city/state/zip
   // mantidos (99%+ leads são de Recife — Meta usa IP fallback se errado é suave).
+  // FIX V4.1 (Codex+VSCode): city/state/zip dinâmicos por sinais JP
+  // Passa req.body direto (Codex C1: 'body' var não existe nesse escopo)
+  const __isJpReq = detectJpRequest(req, req.body);
   const userData = await buildUserData({
     email: normalizedEmail || undefined,
     phone: normalizedPhone || undefined,
     first_name: firstName || undefined,
     last_name: lastName || undefined,
-    city: 'recife',
-    state: 'pe',
-    zip_code: '50000',
+    city: __isJpReq ? 'joao pessoa' : 'recife',
+    state: __isJpReq ? 'pb' : 'pe',
+    zip_code: __isJpReq ? '58000' : '50000',
     country: 'br',
     external_id: externalIdRaw || undefined,
   });
@@ -549,13 +572,18 @@ export default async function handler(req, res) {
         const ts = new Date().toISOString();
         const safeFirstName = nome.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'anon';
         const fileName = `leads/pending/${ts.replace(/[:.]/g, '-')}_${safeFirstName}.json`;
+        // FIX V4.1 (Codex+VSCode): Blob lead também dinâmico JP/Recife
+        const __isJpReqBlob = detectJpRequest(req, req.body);
         put(fileName, JSON.stringify({
           nome, telefone, email: email || undefined, timestamp: ts, event_id,
           event_source_url: event_source_url || 'https://icelasers.com.br/',
           client_user_agent: client_user_agent || req.headers['user-agent'],
           client_ip_address,
           fbp: fbp || undefined, fbc: fbc || undefined,
-          city: 'recife', state: 'pe', zip_code: '50000', country: 'br',
+          city: __isJpReqBlob ? 'joao pessoa' : 'recife',
+          state: __isJpReqBlob ? 'pb' : 'pe',
+          zip_code: __isJpReqBlob ? '58000' : '50000',
+          country: 'br',
           external_id: externalIdRaw || undefined,
           utm_source, utm_medium, utm_campaign, utm_content, utm_term,
           ad_id, ad_name, adset_id, adset_name, campaign_id, campaign_name,
