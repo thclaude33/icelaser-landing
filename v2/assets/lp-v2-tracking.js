@@ -20,7 +20,7 @@
   // CONFIG
   // ════════════════════════════════════════════════════════════════
   window._PIXEL_ID = '2774496306216737'; // IceLaser Recife
-  const WA_PHONE = '5581995749947';
+  const WA_PHONE = '558195749947';
   const FORM_TAG = '[LP3-FORM]';
   const FORM_MSG = 'Olá, vi o anúncio e acabei de preencher o formulário pra avaliação.';
   let submitting = false;
@@ -63,6 +63,11 @@
     return 'direto';
   }
 
+  function getScrollDepth() {
+    const bodyHeight = Math.max(1, document.body.scrollHeight);
+    return Math.min(100, Math.round(((window.scrollY + window.innerHeight) / bodyHeight) * 100));
+  }
+
   // FIX 03/05 v7 (A3): wa.me link já roteia nativamente pro app no mobile.
   // Antes: 2 redirects (whatsapp://+wa.me) causavam race condition iOS Safari/in-app.
   // Agora: 1 navigation pra wa.me — Meta/WhatsApp resolvem deep-link automaticamente.
@@ -73,10 +78,14 @@
   // FIX 03/05 v7 (A4+A5): sendBeacon retorna false quando payload >64KB ou
   // tab fechando race. Antes: ignorávamos return — events perdidos silent.
   // Agora: warn em console pra observability + outer catch logando.
-  function sendCapi(payload) {
+  function sendCapi(payload, opts) {
     try {
       const url = '/api/track';
       const body = JSON.stringify(payload);
+      if (opts && opts.beaconFirst && navigator.sendBeacon) {
+        const sent = navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+        if (sent) return;
+      }
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -210,7 +219,6 @@
       referrer: document.referrer || undefined,
     };
 
-    const bodyHeight = Math.max(1, document.body.scrollHeight);
     const qualData = {
       screen_width: screen.width,
       screen_height: screen.height,
@@ -218,7 +226,7 @@
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       referrer: document.referrer || undefined,
       time_on_page: Math.round(performance.now() / 1000),
-      scroll_depth: Math.min(100, Math.round(((window.scrollY + window.innerHeight) / bodyHeight) * 100)),
+      scroll_depth: getScrollDepth(),
       area_interesse: area || undefined,
       lp_version: 'v2-conversion',
     };
@@ -484,14 +492,31 @@
       event_name: 'Contact',
       event_id: eventId,
       event_source_url: location.href,
+      landing_url: location.href,
       client_user_agent: navigator.userAgent,
       fbp,
       fbc,
       utm_source: getAdData('utm_source') || origemFB,
+      utm_medium: getAdData('utm_medium') || (origemFB !== 'direto' ? 'cpc' : undefined),
+      utm_campaign: getAdData('utm_campaign') || undefined,
+      utm_content: getAdData('utm_content') || undefined,
+      utm_term: getAdData('utm_term') || undefined,
+      ad_id: getAdData('ad_id') || undefined,
+      ad_name: getAdData('ad_name') || undefined,
+      adset_id: getAdData('adset_id') || undefined,
+      adset_name: getAdData('adset_name') || undefined,
+      campaign_id: getAdData('campaign_id') || undefined,
+      campaign_name: getAdData('campaign_name') || undefined,
+      placement: getAdData('placement') || undefined,
+      site_source_name: getAdData('site_source_name') || undefined,
+      platform: getAdData('platform') || undefined,
+      referrer: document.referrer || undefined,
+      time_on_page: Math.round(performance.now() / 1000),
+      scroll_depth: getScrollDepth(),
       cta_tag: tag,
       cta_text: (a.innerText || '').trim().slice(0, 60),
       lp_version: 'v2-conversion',
-    });
+    }, { beaconFirst: true });
 
     trackEvent('WA Click ' + tag, { tag, lp: 'v2-conversion' });
   }, true);

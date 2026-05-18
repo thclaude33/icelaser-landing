@@ -2,7 +2,7 @@
  * WhatsApp Cloud API helpers (Recife)
  *
  * Envia mensagens nativas via WABA Recife (920807647253970) pra phone_number_id
- * 1140709345781659 (+55 81 99574-9947). Suporta text, interactive buttons (max 3)
+ * 1140709345781659 (+55 81 9574-9947). Suporta text, interactive buttons (max 3)
  * e interactive list_message (até 10 rows).
  *
  * REGRA DE OURO: sempre logar [WA-BOT] com status code + Meta messages.id.
@@ -16,7 +16,7 @@ const PHONE_NUMBER_ID = '1140709345781659';
 const GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 
 /**
- * Sanitiza phone pra formato Meta E.164 sem '+' (ex: '5581995749947')
+ * Sanitiza phone pra formato Meta E.164 sem '+' (ex: '558195749947')
  */
 function sanitizePhone(raw) {
   return String(raw || '').replace(/\D/g, '');

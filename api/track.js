@@ -456,6 +456,7 @@ export default async function handler(req, res) {
   // Base comum (value:0, currency:BRL, customer_segmentation:new) aplicada uniformemente.
   // PageView intencionalmente AUSENTE — só user_data pro matching.
   const CUSTOM_DATA_MAP = {
+    Contact:              { content_name: 'WhatsApp CTA Click LP', content_category: 'whatsapp_cta', lead_event_source: 'landing_page_whatsapp_click' },
     CompleteRegistration: { status: 'submitted', content_name: 'Avaliacao Gratuita LP' },
     InitiateCheckout:     { content_name: 'Form Avaliacao Gratuita' },
     Lead:                 { content_name: 'Avaliacao Gratuita LP', content_category: 'depilacao_laser', lead_event_source: 'landing_page' },
