@@ -147,10 +147,11 @@ export default async function handler(req, res) {
         // Check max retries
         if (retryCount >= MAX_RETRIES) {
           // Move pra dead-letter terminal (não-replayable)
+          // FIX F4.1 (Codex): allowOverwrite caso já exista no path (replay idempotente)
           await put(blob.pathname.replace('wa/pending/', 'wa/dead/'), JSON.stringify({
             ...payload,
             _dlq_meta: { ...payload._dlq_meta, dead_at: new Date().toISOString() },
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
           try { await del(blob.url); } catch { /* swallow */ }
           stats.max_retries += 1;
           continue;
@@ -164,6 +165,7 @@ export default async function handler(req, res) {
         const result = await forwardToChatwoot(cleanPayload);
         if (result.ok) {
           // Move pra processed
+          // FIX F4.1 (Codex): allowOverwrite caso re-run da mesma pathname
           await put(blob.pathname.replace('wa/pending/', 'wa/processed/'), JSON.stringify({
             ...payload,
             _dlq_meta: {
@@ -171,7 +173,7 @@ export default async function handler(req, res) {
               processed_at: new Date().toISOString(),
               total_retries: retryCount,
             },
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
           try { await del(blob.url); } catch { /* swallow */ }
           stats.replayed += 1;
         } else {
@@ -186,9 +188,12 @@ export default async function handler(req, res) {
               last_error: result.error || `http_${result.status}`,
             },
           };
+          // FIX F4.1 (Codex): CRÍTICO — sobrescreve wa/pending/{path} com retry_count++.
+          // Sem allowOverwrite, retry de blob existente falha silenciosamente.
           await put(blob.pathname, JSON.stringify(updated), {
             access: 'public',
             addRandomSuffix: false,
+            allowOverwrite: true,
             contentType: 'application/json',
           });
           stats.failed += 1;
