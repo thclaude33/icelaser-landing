@@ -1438,8 +1438,17 @@ export default async function handler(req, res) {
   }
 
   // Funnel events: respeita routing decision normal
-  if (shouldSendPixelLP) {
+  // FIX V4.2 hotfix (Codex): se _isJpLead E routing decidiu WAM, WAM seria pulado
+  // (gate JP) MAS Pixel LP também seria pulado → evento JP some.
+  // Solução: forçar Pixel JP (effectiveShouldSendPixelLP=true) quando JP + routing→WAM.
+  // WAM JP só pode existir quando WAM_DATASET_ID_JP/WAM_ACCESS_TOKEN_JP forem criados.
+  const effectiveShouldSendPixelLP = shouldSendPixelLP || _isJpLead;
+  const effectiveShouldSendWAM = shouldSendWAM && !_isJpLead;
+  if (effectiveShouldSendPixelLP) {
     result = await sendCAPI(funnelEvents, targetToken, 0, targetPixelId);
+    if (_isJpLead && !shouldSendPixelLP) {
+      console.log(`[CRM-WEBHOOK] JP override → Pixel JP (routing wanted WAM, mas WAM_DATASET_ID_JP ausente)`);
+    }
   } else {
     console.log(`[CRM-WEBHOOK] Pixel LP SKIPPED for funnel events (routing → WAM)`);
   }
@@ -1473,14 +1482,15 @@ export default async function handler(req, res) {
   // Fix 27/04/2026 v2 (ultrareview Bug 1): usar funnelEvents (não validEvents) — audience
   // events (LeadFrio/LeadDesqualificado) já foram pra Pixel LP, não enviar pro WAM.
   // FIX V4.2 (Codex N2): gate JP — WAM Recife não recebe events JP (sem dataset dedicado).
-  // WAM_DATASET_ID_JP env não existe; até criar, JP NÃO envia pro WAM Recife.
-  const wamCompatibleEvents = shouldSendWAM && !_isJpLead
+  // FIX V4.2 hotfix (Codex): usar effectiveShouldSendWAM (gate combinado com _isJpLead).
+  // JP é redirecionado pra Pixel JP no bloco acima.
+  const wamCompatibleEvents = effectiveShouldSendWAM
     ? funnelEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name))
     : [];
-  if (!shouldSendWAM) {
+  if (_isJpLead && shouldSendWAM) {
+    console.log(`[CRM-WEBHOOK] WAM→Pixel JP override: JP sem WAM dataset dedicado (events fired via Pixel JP acima)`);
+  } else if (!shouldSendWAM) {
     console.log(`[CRM-WEBHOOK] WAM SKIPPED (routing → Pixel LP)`);
-  } else if (_isJpLead) {
-    console.log(`[CRM-WEBHOOK] WAM SKIPPED — JP sem WAM dataset dedicado (FIX V4.2)`);
   }
   for (const evt of wamCompatibleEvents) {
     // Fix 23/04/2026 (double counting fix): action_source do WAM vem do
