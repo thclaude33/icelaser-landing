@@ -84,31 +84,38 @@ export default async function handler(req, res) {
         continue;
       }
 
+      // FIX F4.2 (VSCode): payload/retryCount declarados FORA do try.
+      // Catch (linha 387) usa ambos — se erro acontecer antes da fetch/parse,
+      // ReferenceError mascarava erro original em runtime.
+      let payload = null;
+      let retryCount = 0;
       try {
         // 2. Fetch payload saved
         const payloadResp = await fetch(blob.url);
-        const payload = await payloadResp.json();
+        payload = await payloadResp.json();
 
         // Fix MEDIUM #4 AI review 20/04: retry_count + failed/ bucket pra evitar
         // retry infinito em leads com erro permanente (malformed, etc).
         // Blob original salvo em whatsapp.js leadgen handler não tem retry_count —
         // primeiro cron run inicia em 1. Após 10 tentativas → mover pra failed/.
-        const retryCount = (payload.retry_count || 0) + 1;
+        retryCount = (payload.retry_count || 0) + 1;
         const MAX_RETRIES = 10;
         if (retryCount > MAX_RETRIES) {
           console.error(`[DLQ-CRON] lead ${leadId} excedeu ${MAX_RETRIES} retries — movendo pra failed/`);
+          // FIX F4.2 (VSCode): allowOverwrite — re-run idempotente
           await put(`leadgen/failed/${leadId}.json`, JSON.stringify({
             ...payload,
             moved_at: new Date().toISOString(),
             final_retry_count: retryCount,
             reason: 'max_retries_exceeded',
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
           // Também marca processed pra não reprocessar
+          // FIX F4.2 (VSCode): allowOverwrite — re-run idempotente
           await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
             leadgen_id: leadId,
             note: 'moved_to_failed',
             processed_at: new Date().toISOString(),
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
           report.failed++;
           report.items.push({ leadId, error: 'max_retries_exceeded' });
           continue;
@@ -126,11 +133,12 @@ export default async function handler(req, res) {
         if (!leadResp.ok) {
           // Meta can archive test leads, 404 is OK — mark as processed pra não re-tentar
           if (leadResp.status === 400 || leadResp.status === 404) {
+            // FIX F4.2 (VSCode): allowOverwrite — re-run idempotente
             await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
               leadgen_id: leadId,
               note: 'meta_graph_404_skipped',
               processed_at: new Date().toISOString(),
-            }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+            }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
             report.skipped++;
             continue;
           }
@@ -370,6 +378,7 @@ export default async function handler(req, res) {
           }
 
           // Mark processed + delete pending (fix MEDIUM #5 + P0-2: incluir conversation_id)
+          // FIX F4.2 (VSCode): allowOverwrite — re-run idempotente
           await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
             leadgen_id: leadId,
             contact_id: contactId,
@@ -377,7 +386,7 @@ export default async function handler(req, res) {
             processed_at: new Date().toISOString(),
             processed_by: 'dlq_cron',
             retry_count: retryCount,
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
           try { await del(blob.url); } catch { /* swallow */ }
           report.processed++;
           report.items.push({ leadId, contactId, status: 'ok', retries: retryCount });
@@ -386,13 +395,15 @@ export default async function handler(req, res) {
         }
       } catch (itemErr) {
         // Fix MEDIUM #4 AI review: persist retry_count no blob pending pra próxima iteração
+        // FIX F4.2 (VSCode): payload pode ser null se fetch/parse falhou. Spread {...null}={}.
+        // Adiciona allowOverwrite: true — re-run sobrescreve pathname existente.
         try {
           await put(blob.pathname, JSON.stringify({
-            ...payload,
+            ...(payload || {}),
             retry_count: retryCount,
             last_error: itemErr.message,
             last_attempt_at: new Date().toISOString(),
-          }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
         } catch { /* swallow */ }
         report.failed++;
         report.items.push({ leadId, error: itemErr.message, retries: retryCount });

@@ -1102,6 +1102,7 @@ export default async function handler(req, res) {
                 }), {
                   access: 'public',
                   addRandomSuffix: false,  // idempotente — mesma leadgen_id reescreve
+                  allowOverwrite: true,    // FIX F4.2 (VSCode): comentário dizia idempotente mas faltava flag
                   contentType: 'application/json',
                 });
                 console.log(`[LEADGEN DLQ] ✅ Payload salvo em ${dlqBlobPath}`);
@@ -1420,12 +1421,13 @@ export default async function handler(req, res) {
                         // Fix MEDIUM #5 AI review: delete pending blob pra prevenir list overflow.
                         if (process.env.BLOB_READ_WRITE_TOKEN) {
                           try {
+                            // FIX F4.2 (VSCode): allowOverwrite — re-run idempotente
                             await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
                               leadgen_id: String(leadId),
                               contact_id: contactId,
                               conversation_id: convJson.id,
                               processed_at: new Date().toISOString(),
-                            }), { access: 'public', addRandomSuffix: false, contentType: 'application/json' });
+                            }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
                             // Delete pending blob — cleanup (evita list overflow)
                             try {
                               const pendingBlobs = await list({ prefix: `leadgen/pending/${leadId}.json`, limit: 1 });
