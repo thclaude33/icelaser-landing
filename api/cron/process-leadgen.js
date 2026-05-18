@@ -24,6 +24,8 @@ import { buildUserData } from '../_lib/piiBuilder.js';
 import { brtISO, isVercelCron } from '../_lib/time.js';
 import { sendWAMEvent } from '../_lib/capi-wam.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
+// FIX V4.2 (Codex): rotear clínica por payload.page_id
+import { resolveClinicFromPageId } from '../_lib/clinic-routing.js';
 
 const META_TOKEN = process.env.META_ACCESS_TOKEN;
 const CAPI_TOKEN = process.env.CAPI_DATASET_TOKEN || META_TOKEN;
@@ -248,7 +250,10 @@ export default async function handler(req, res) {
           console.log(`[DLQ-CRON CHATWOOT] ✅ conv=${conversationId} lead_id=${leadId}`);
 
           // 5. CAPI Lead event (mesmo formato do handler original)
-          if (CAPI_TOKEN) {
+          // FIX V4.2 (Codex C5): rotear clínica COMPLETA por payload.page_id.
+          // Antes Recife hardcoded. Agora clinic.{city,state,pageId,pixelId,capiToken}.
+          const clinic = resolveClinicFromPageId(payload.page_id || process.env.META_PAGE_ID);
+          if (clinic.capiToken) {
             try {
               const telDigits = String(tel || '').replace(/\D/g, '');
               let firstName = null, lastName = null;
@@ -262,11 +267,12 @@ export default async function handler(req, res) {
                 phone: telDigits || undefined,
                 first_name: firstName || undefined,
                 last_name: lastName || undefined,
-                city: 'recife', state: 'pe', country: 'br',
+                city: clinic.city, state: clinic.state, country: 'br',
                 external_id: email || telDigits || undefined,
               });
               if (/^\d{15,17}$/.test(String(leadId))) userData.lead_id = String(leadId);
-              if (process.env.META_PAGE_ID) userData.page_id = process.env.META_PAGE_ID;
+              // FIX V4.2: page_id da clínica resolvida
+              userData.page_id = clinic.pageId;
               const eventTime = Math.floor(Date.now() / 1000);
               const customData = {
                 event_source: 'crm',
@@ -286,9 +292,10 @@ export default async function handler(req, res) {
               // de response, impossível diagnosticar se Meta estava dropping.
               // Agora: parse response, loga subcode/messages, persist em Blob alerts/
               // pra cron capi-alerts enviar email se acumular erros.
-              const leadCapiResp = await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
+              // FIX V4.2: Pixel + CAPI token da clínica (JP ou Recife)
+              const leadCapiResp = await fetch(`${GRAPH_BASE}/${clinic.pixelId}/events`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CAPI_TOKEN}` },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clinic.capiToken}` },
                 body: JSON.stringify({
                   data: [{
                     event_name: 'Lead',
@@ -310,7 +317,8 @@ export default async function handler(req, res) {
                   await put(alertKey, JSON.stringify({
                     at: new Date().toISOString(),
                     source: 'pixel_lp_dlq_leadgen',
-                    pixel_id: PIXEL_ID,
+                    pixel_id: clinic.pixelId,
+                    clinic: clinic.clinic,
                     event_name: 'Lead',
                     event_id: `leadgen_${leadId}`,
                     lead_id: String(leadId),
@@ -336,22 +344,28 @@ export default async function handler(req, res) {
                 console.log(`[DLQ-CRON CAPI] ✅ Lead fired lead_id=${leadId} received=${received}`);
               }
               // Fix 21/04/2026: FAN-OUT WAM dataset. Helper decide skipar se sem ctwa_clid+page_id.
-              try {
-                const wamResp = await sendWAMEvent({
-                  event_name: 'Lead',
-                  event_id: `leadgen_${leadId}`,
-                  event_time: eventTime,
-                  user_data: { ...userData },
-                  custom_data: customData,
-                });
-                if (wamResp?.skipped) {
-                  console.log(`[DLQ-CRON WAM] skipped: ${wamResp.skipped} lead_id=${leadId}`);
-                } else if (wamResp?.error) {
-                  console.warn(`[DLQ-CRON WAM] error: ${wamResp.error.message} lead_id=${leadId}`);
-                } else {
-                  console.log(`[DLQ-CRON WAM] ✅ received=${wamResp?.events_received} lead_id=${leadId}`);
-                }
-              } catch (wamErr) { console.error(`[DLQ-CRON WAM] exception: ${wamErr.message} lead_id=${leadId}`); }
+              // FIX V4.2 (Codex N2): JP NÃO envia WAM (WAM_DATASET_ID_JP ausente). Sem gate,
+              // events JP iam pro dataset Recife = contaminação cross-clinic.
+              if (clinic.isJp) {
+                console.log(`[DLQ-CRON WAM] skipped: JP sem WAM dataset dedicado (FIX V4.2) lead_id=${leadId}`);
+              } else {
+                try {
+                  const wamResp = await sendWAMEvent({
+                    event_name: 'Lead',
+                    event_id: `leadgen_${leadId}`,
+                    event_time: eventTime,
+                    user_data: { ...userData },
+                    custom_data: customData,
+                  });
+                  if (wamResp?.skipped) {
+                    console.log(`[DLQ-CRON WAM] skipped: ${wamResp.skipped} lead_id=${leadId}`);
+                  } else if (wamResp?.error) {
+                    console.warn(`[DLQ-CRON WAM] error: ${wamResp.error.message} lead_id=${leadId}`);
+                  } else {
+                    console.log(`[DLQ-CRON WAM] ✅ received=${wamResp?.events_received} lead_id=${leadId}`);
+                  }
+                } catch (wamErr) { console.error(`[DLQ-CRON WAM] exception: ${wamErr.message} lead_id=${leadId}`); }
+              }
             } catch (capiErr) { console.error(`[DLQ-CRON CAPI] exception: ${capiErr.message} lead_id=${leadId}`); }
           }
 

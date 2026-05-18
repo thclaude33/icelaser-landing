@@ -14,6 +14,8 @@ import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHt
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 import { sendWAMEvent } from './_lib/capi-wam.js';
+// FIX V4.2 (Codex): rotear clínica por page_id no LeadGen block
+import { resolveClinicFromPageId } from './_lib/clinic-routing.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
@@ -1451,7 +1453,10 @@ export default async function handler(req, res) {
                 //
                 // Fix AI review 20/04 CRITICAL #5: skip CAPI quando sem dados de contato
                 // (phone/email) — EMQ despenca pra 0, Meta degrada match rate.
-                if (CAPI_TOKEN && leadId && hasContactData) {
+                // FIX V4.2 (Codex C4): rotear clínica COMPLETA por value.page_id.
+                // Antes: Recife hardcoded. Agora: clinic.{city,state,pageId,pixelId,capiToken}.
+                const clinic = resolveClinicFromPageId(value?.page_id || process.env.META_PAGE_ID);
+                if (clinic.capiToken && leadId && hasContactData) {
                   try {
                     const telDigits = String(tel || '').replace(/\D/g, '');
                     let leadFirstName = null, leadLastName = null;
@@ -1465,8 +1470,8 @@ export default async function handler(req, res) {
                       phone: telDigits || undefined,
                       first_name: leadFirstName || undefined,
                       last_name: leadLastName || undefined,
-                      city: 'recife',
-                      state: 'pe',
+                      city: clinic.city,
+                      state: clinic.state,
                       country: 'br',
                       external_id: email || telDigits || undefined,
                     });
@@ -1474,7 +1479,8 @@ export default async function handler(req, res) {
                     if (/^\d{15,17}$/.test(String(leadId))) {
                       leadUserData.lead_id = String(leadId);
                     }
-                    if (process.env.META_PAGE_ID) leadUserData.page_id = process.env.META_PAGE_ID;
+                    // FIX V4.2: page_id da clínica resolvida (não env global)
+                    leadUserData.page_id = clinic.pageId;
                     const leadPayload = {
                       data: [{
                         event_name: 'Lead',
@@ -1496,11 +1502,12 @@ export default async function handler(req, res) {
                       }],
                       partner_agent: PARTNER_AGENT,
                     };
-                    const leadResp = await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
+                    // FIX V4.2: Pixel + CAPI token da clínica (JP ou Recife)
+                    const leadResp = await fetch(`${GRAPH_BASE}/${clinic.pixelId}/events`, {
                       method: 'POST',
                       headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${CAPI_TOKEN}`,
+                        'Authorization': `Bearer ${clinic.capiToken}`,
                       },
                       body: JSON.stringify(leadPayload),
                     });
@@ -1515,7 +1522,8 @@ export default async function handler(req, res) {
                           await put(alertKey, JSON.stringify({
                             at: new Date().toISOString(),
                             source: 'pixel_lp_leadgen_handler',
-                            pixel_id: PIXEL_ID,
+                            pixel_id: clinic.pixelId,
+                            clinic: clinic.clinic,
                             event_name: 'Lead',
                             event_id: `leadgen_${leadId}`,
                             lead_id: String(leadId),
@@ -1545,29 +1553,35 @@ export default async function handler(req, res) {
                     // Fix 21/04/2026: FAN-OUT WAM dataset. Antes só Pixel principal.
                     // sendWAMEvent helper decide skipar se não tem ctwa_clid+page_id
                     // (WAM requer business_messaging action_source).
-                    try {
-                      const wamResp = await sendWAMEvent({
-                        event_name: 'Lead',
-                        event_id: `leadgen_${leadId}`,
-                        event_time: Math.floor(Date.now() / 1000),
-                        user_data: { ...leadUserData },
-                        custom_data: {
-                          event_source: 'crm',
-                          lead_event_source: 'Chatwoot',
-                          leadgen_form_id: String(formId || ''),
-                          ...(adId ? { ad_id: String(adId) } : {}),
-                          content_name: 'Meta Lead Ad Form Submission',
-                          content_category: 'depilacao_laser',
-                          currency: 'BRL',
-                          value: 0,
-                          customer_segmentation: 'new_customer_to_business',
-                        },
-                      });
-                      if (wamResp?.skipped) console.log(`[WAM LEADGEN] skipped: ${wamResp.skipped}`);
-                      else if (wamResp?.error) console.warn(`[WAM LEADGEN] error: ${wamResp.error.message}`);
-                      else console.log(`[WAM LEADGEN] ✅ received=${wamResp?.events_received}`);
-                    } catch (wamErr) {
-                      console.error('[WAM LEADGEN] exception:', wamErr.message);
+                    // FIX V4.2 (Codex N2): JP NÃO envia WAM (WAM_DATASET_ID_JP ausente).
+                    // Se rodar JP LeadGen, WAM Recife receberia events JP = contaminação.
+                    if (clinic.isJp) {
+                      console.log(`[WAM LEADGEN] skipped: JP sem WAM dataset dedicado (FIX V4.2) lead_id=${leadId}`);
+                    } else {
+                      try {
+                        const wamResp = await sendWAMEvent({
+                          event_name: 'Lead',
+                          event_id: `leadgen_${leadId}`,
+                          event_time: Math.floor(Date.now() / 1000),
+                          user_data: { ...leadUserData },
+                          custom_data: {
+                            event_source: 'crm',
+                            lead_event_source: 'Chatwoot',
+                            leadgen_form_id: String(formId || ''),
+                            ...(adId ? { ad_id: String(adId) } : {}),
+                            content_name: 'Meta Lead Ad Form Submission',
+                            content_category: 'depilacao_laser',
+                            currency: 'BRL',
+                            value: 0,
+                            customer_segmentation: 'new_customer_to_business',
+                          },
+                        });
+                        if (wamResp?.skipped) console.log(`[WAM LEADGEN] skipped: ${wamResp.skipped}`);
+                        else if (wamResp?.error) console.warn(`[WAM LEADGEN] error: ${wamResp.error.message}`);
+                        else console.log(`[WAM LEADGEN] ✅ received=${wamResp?.events_received}`);
+                      } catch (wamErr) {
+                        console.error('[WAM LEADGEN] exception:', wamErr.message);
+                      }
                     }
                   } catch (capiErr) {
                     console.error('[LEADGEN CAPI] exception:', capiErr.message);

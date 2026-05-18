@@ -525,9 +525,11 @@ export default async function handler(req, res) {
     phone: telefone ? normalizePhone(telefone) : undefined,
     first_name: firstName || undefined,
     last_name: lastName || undefined,
-    city: 'recife',
-    state: 'pe',
-    zip_code: '50000',
+    // FIX V4.2 (Codex N1): reusa _isJpLead já existente linha 476.
+    // Antes hardcoded Recife — contaminava EMQ JP no CAPI.
+    city: _isJpLead ? 'joao pessoa' : 'recife',
+    state: _isJpLead ? 'pb' : 'pe',
+    zip_code: _isJpLead ? '58000' : '50000',
     country: 'br',
     external_id: externalIdRaw || undefined,
     // FIX EMQ 26/04/2026 — adicionar page_id da clínica correta.
@@ -1470,11 +1472,15 @@ export default async function handler(req, res) {
   // Fix 23/04/2026: só enviar pro WAM se routing decidir ou se routing desabilitado (fallback).
   // Fix 27/04/2026 v2 (ultrareview Bug 1): usar funnelEvents (não validEvents) — audience
   // events (LeadFrio/LeadDesqualificado) já foram pra Pixel LP, não enviar pro WAM.
-  const wamCompatibleEvents = shouldSendWAM
+  // FIX V4.2 (Codex N2): gate JP — WAM Recife não recebe events JP (sem dataset dedicado).
+  // WAM_DATASET_ID_JP env não existe; até criar, JP NÃO envia pro WAM Recife.
+  const wamCompatibleEvents = shouldSendWAM && !_isJpLead
     ? funnelEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name))
     : [];
   if (!shouldSendWAM) {
     console.log(`[CRM-WEBHOOK] WAM SKIPPED (routing → Pixel LP)`);
+  } else if (_isJpLead) {
+    console.log(`[CRM-WEBHOOK] WAM SKIPPED — JP sem WAM dataset dedicado (FIX V4.2)`);
   }
   for (const evt of wamCompatibleEvents) {
     // Fix 23/04/2026 (double counting fix): action_source do WAM vem do
