@@ -52,6 +52,10 @@ const RETENTION_DAYS = {
   'webhooks/':             60,   // vercel webhook events (deploys, firewall, alerts)
   'media/':                 7,   // media WA baixada da Meta pro Chatwoot
   'dedup/wa/':              7,   // dedup keys persistentes (alinha com Meta webhook retry window)
+  // FIX V4 (Codex P0-3 DLQ): wa/processed = sucesso replay (30d), wa/dead = terminal max_retries (90d)
+  // wa/pending/ NÃO entra no GC (DLQ ativa, replay constante via cron process-wa-pending)
+  'wa/processed/':         30,
+  'wa/dead/':              90,
 };
 
 // Ordem de processamento: mais específico primeiro (webhooks/wa/ antes de webhooks/).
@@ -69,6 +73,9 @@ const ORDERED_PREFIXES = [
   'webhooks/',
   'media/',
   'dedup/wa/',
+  // FIX V4: novas filas DLQ wa/
+  'wa/processed/',
+  'wa/dead/',
 ];
 
 const BATCH_SIZE = 64;
