@@ -65,7 +65,8 @@ const KOMMO_SUBDOMAIN = 'thiagosml';
 
 // Domain canônico LP JP (verificado no Meta). event_source_url usa este pra que
 // Meta linke evento ao domain correto e não reduza EMQ por mismatch.
-const LP_DOMAIN_JP = 'https://icelaser-landing.vercel.app';
+// FIX V4.1: domain production jpa.icelasers.com.br (era preview vercel.app que reduzia EMQ).
+const LP_DOMAIN_JP = 'https://jpa.icelasers.com.br';
 
 // Custom field IDs JP — VERSÃO ATUAL (03/05/2026).
 // Os IDs antigos (3815860/3815862/3815864/3815866/3815868/3815870) foram deletados
@@ -303,7 +304,8 @@ function buildLeadEvent({ leadId, eventName, dedupKey, lead, userData, pii, cust
     event_id: `kommo_jp_${leadId}_${eventName}_${dedupKey}`,
     action_source: actionSource,
     // FIX #6: domain LP verificado (não Kommo CRM)
-    event_source_url: pii?.sourceUrl || `${LP_DOMAIN_JP}/jp`,
+    // FIX V4.1: /v2/ (path real LP production), era /jp (path preview)
+    event_source_url: pii?.sourceUrl || `${LP_DOMAIN_JP}/v2/`,
     user_data: enrichedUserData,
     custom_data: enrichedCustomData,
   };
