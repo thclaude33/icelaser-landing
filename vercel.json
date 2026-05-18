@@ -139,6 +139,10 @@
       "maxDuration": 60,
       "regions": ["gru1"]
     },
+    "api/cron/bot-stuck-check.js": {
+      "maxDuration": 60,
+      "regions": ["gru1"]
+    },
     "api/bia-direct.js": {
       "maxDuration": 60,
       "regions": ["gru1"]

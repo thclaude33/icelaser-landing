@@ -164,7 +164,10 @@ async function sendAlertEmail(stuckList, totalOpen) {
 
 export default async function handler(req, res) {
   // Cron auth — só Vercel cron OU CRON_SECRET válido
-  if (!isVercelCron(req)) {
+  // FIX V4.1 (Codex): comentário falava "OU CRON_SECRET" mas só checava isVercelCron.
+  // Agora dual auth: Vercel cron header OU Bearer manual test.
+  const isBearerAuth = req.headers?.authorization === `Bearer ${process.env.CRON_SECRET}`;
+  if (!isVercelCron(req) && !isBearerAuth) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
