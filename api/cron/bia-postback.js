@@ -25,7 +25,10 @@ const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-pro
 const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
 
 const BLOB_PREFIX = 'bia/postback/posted/';
-const LOOKBACK_MIN = 10;
+// FIX V4.1 (Codex C3): 35min = TTL session 30min (session-reuse.js:25) + 5min margem
+// latência cron/processamento. Antes 10min perdia respostas Bia quando cliente
+// respondia 11-30min depois (gap session-reuse vs postback lookback).
+const LOOKBACK_MIN = 35;
 const MAX_PER_RUN = 15;
 
 function isAuthorized(req) {
