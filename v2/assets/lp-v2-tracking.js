@@ -128,17 +128,17 @@
     const form = event.target;
     const elNome = form.elements.nome;
     const elWa = form.elements.wa;
-    const elEmail = form.elements.email;
+    const elEmail = form.elements.email || null;
     const elArea = form.elements.area;
 
     const nome = (elNome.value || '').trim();
     const tel = (elWa.value || '').trim();
-    const email = (elEmail.value || '').trim().toLowerCase();
+    const email = elEmail ? (elEmail.value || '').trim().toLowerCase() : '';
     const area = (elArea && elArea.value) || '';
 
     let valid = true;
     const nomeParts = nome.split(/\s+/).filter((p) => p.length > 0);
-    if (!nome || nomeParts.length < 2) {
+    if (!nome || nome.length < 2) {
       elNome.classList.add('invalid');
       elNome.setAttribute('aria-invalid', 'true');
       valid = false;
@@ -154,12 +154,12 @@
       elWa.classList.remove('invalid');
       elWa.removeAttribute('aria-invalid');
     }
-    const emailValid = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    if (!emailValid) {
+    const emailValid = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (elEmail && !emailValid) {
       elEmail.classList.add('invalid');
       elEmail.setAttribute('aria-invalid', 'true');
       valid = false;
-    } else {
+    } else if (elEmail) {
       elEmail.classList.remove('invalid');
       elEmail.removeAttribute('aria-invalid');
     }
@@ -168,7 +168,7 @@
       const firstInvalid = elNome.getAttribute('aria-invalid') === 'true' ? elNome
         : elWa.getAttribute('aria-invalid') === 'true' ? elWa
         : elEmail;
-      firstInvalid.focus();
+      if (firstInvalid) firstInvalid.focus();
       return false;
     }
 
