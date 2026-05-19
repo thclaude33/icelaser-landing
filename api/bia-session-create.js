@@ -19,6 +19,7 @@
 //   - conversation.labels contém SHADOW_LABEL (default 'bia_teste')
 //
 // Auth Chatwoot: ?auth=<CHATWOOT_WEBHOOK_QUERY_TOKEN>
+// Auth direct path: Authorization: Bearer <BIA_DIRECT_API_KEY> ou x-api-key.
 //
 // DEDUP CRON FALLBACK: quando handler posta com sucesso inline, marca
 // `bia/postback/posted/{session_id}.json` no Vercel Blob. Cron bia-postback
@@ -205,6 +206,32 @@ async function checkAuth(req) {
     return { ok: true, mode: 'query_token' };
   }
   return { ok: false, mode: 'missing_or_invalid', http: 401 };
+}
+
+export function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+export function checkDirectAuth(req) {
+  const expected = process.env.BIA_DIRECT_API_KEY;
+  if (!expected) return { ok: false, mode: 'env_missing_fail_closed', http: 503 };
+
+  const bearerHeader = String(req.headers?.authorization || req.headers?.Authorization || '').trim();
+  const bearerMatch = /^Bearer\s+(.+)$/i.exec(bearerHeader);
+  const bearerToken = bearerMatch?.[1] || '';
+  const apiKeyHeader = String(req.headers?.['x-api-key'] || req.headers?.['X-API-Key'] || '').trim();
+
+  if (bearerToken && safeCompare(bearerToken, expected)) {
+    return { ok: true, mode: 'bearer' };
+  }
+  if (apiKeyHeader && safeCompare(apiKeyHeader, expected)) {
+    return { ok: true, mode: 'x_api_key' };
+  }
+  return { ok: false, mode: 'missing_or_invalid_direct_auth', http: 401 };
 }
 
 function isChatwootPayload(body) {
@@ -494,6 +521,18 @@ export default async function handler(req, res) {
       chatwoot_message_id: normalized.chatwoot_message_id,
     };
   } else {
+    const auth = checkDirectAuth(req);
+    if (!auth.ok) {
+      if (auth.http === 503) {
+        const msg = `BIA_DIRECT_API_KEY env missing — direct path rejeitado desde ${new Date().toISOString()}`;
+        console.error(`[BIA-DIRECT-AUTH] CRITICAL: ${msg}`);
+        sendCriticalAlertOnce('BIA_DIRECT_API_KEY', msg).catch(() => {});
+      }
+      return res.status(auth.http || 401).json({
+        error: auth.http === 503 ? 'service_unavailable' : 'unauthorized',
+        detail: auth.mode,
+      });
+    }
     telefone = String(rawBody.telefone || '').trim();
     mensagem_cliente = String(rawBody.mensagem_cliente || '').trim();
     chatwoot_thread_id = rawBody.chatwoot_thread_id ?? null;
