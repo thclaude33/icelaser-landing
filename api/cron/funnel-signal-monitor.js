@@ -2,7 +2,7 @@
 //
 // V5: monitora o sintoma que derrubou performance em abril:
 // cliques/LPVs seguem fortes, mas conversas iniciadas por clique despencam.
-// Não envia email por enquanto; grava alerta em Blob para auditoria read-only.
+// Não envia email por enquanto; red grava alerta em Blob, yellow só aparece em JSON/log.
 
 import { list, put } from '@vercel/blob';
 import { brtISO, isVercelCron } from '../_lib/time.js';
@@ -12,9 +12,14 @@ const GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 const LOOKBACK_DAYS = 14;
 const RECENT_DAYS = 3;
 const BASELINE_DAYS = 7;
-const MIN_CLICKS = 30;
+const MIN_CLICKS = 100;
 const MIN_BASELINE_MSG_RATE = 0.005;
-const DEGRADATION_THRESHOLD = 0.5;
+const MSG_PER_100_RED = 3.0;
+const LEAD_PER_100_RED = 2.0;
+const LEAD_INFLATION_RED = 1.0;
+const MSG_DEGRADATION_RED = 0.5;
+const MSG_DEGRADATION_YELLOW = 0.4;
+const LEAD_PER_100_YELLOW = 1.5;
 const COOLDOWN_MS = 12 * 60 * 60 * 1000;
 
 function isAuthorized(req) {
@@ -65,11 +70,9 @@ function normalizeDay(row) {
     'onsite_conversion.messaging_conversation_started',
     'messaging_conversation_started_7d',
   ]);
-  const leads = actionCount(actions, [
-    'lead',
-    'onsite_conversion.lead_grouped',
-    'offsite_conversion.fb_pixel_lead',
-  ]);
+  // Usar `lead` canônico. `lead_grouped` e `fb_pixel_lead` podem duplicar o
+  // mesmo evento e mascarar o termômetro msg/100 vs lead/100.
+  const leads = actionCount(actions, ['lead']);
   return {
     date: row.date_start,
     spend: numeric(row.spend),
@@ -96,6 +99,10 @@ function weightedRates(days) {
     msg_per_click: clicks > 0 ? msgStarted / clicks : 0,
     lead_per_click: clicks > 0 ? leads / clicks : 0,
   };
+}
+
+function per100(rate) {
+  return rate * 100;
 }
 
 async function fetchInsights({ accountId, accessToken, since, until }) {
@@ -160,9 +167,32 @@ async function analyzeClinic(clinic) {
     : 0;
 
   const enoughVolume = recentStats.clicks >= MIN_CLICKS && baselineStats.clicks >= MIN_CLICKS;
-  const alert = enoughVolume
-    && baselineStats.msg_per_click >= MIN_BASELINE_MSG_RATE
-    && degradation >= DEGRADATION_THRESHOLD;
+  const baselineOk = baselineStats.msg_per_click >= MIN_BASELINE_MSG_RATE;
+  const recentMsgPer100 = per100(recentStats.msg_per_click);
+  const recentLeadPer100 = per100(recentStats.lead_per_click);
+  const redReasons = [];
+  const yellowReasons = [];
+
+  if (recentMsgPer100 < MSG_PER_100_RED && recentLeadPer100 > LEAD_PER_100_RED) {
+    redReasons.push(`red_absolute:msg_per_100=${recentMsgPer100.toFixed(2)}<${MSG_PER_100_RED}`);
+    redReasons.push(`red_absolute:lead_per_100=${recentLeadPer100.toFixed(2)}>${LEAD_PER_100_RED}`);
+  }
+  if (degradation >= MSG_DEGRADATION_RED && leadInflation >= LEAD_INFLATION_RED) {
+    redReasons.push(`red_relative:msg_degradation=${degradation.toFixed(2)}>=${MSG_DEGRADATION_RED}`);
+    redReasons.push(`red_relative:lead_inflation=${leadInflation.toFixed(2)}>=${LEAD_INFLATION_RED}`);
+  }
+  if (degradation >= MSG_DEGRADATION_YELLOW) {
+    yellowReasons.push(`yellow_msg_degradation:${degradation.toFixed(2)}>=${MSG_DEGRADATION_YELLOW}`);
+  }
+  if (recentLeadPer100 > LEAD_PER_100_YELLOW) {
+    yellowReasons.push(`yellow_lead_per_100:${recentLeadPer100.toFixed(2)}>${LEAD_PER_100_YELLOW}`);
+  }
+
+  const isRed = enoughVolume && baselineOk && redReasons.length > 0;
+  const isYellow = enoughVolume && !isRed && yellowReasons.length > 0;
+  const severity = isRed ? 'red' : (isYellow ? 'yellow' : 'none');
+  const reasons = isRed ? redReasons : (isYellow ? yellowReasons : []);
+  const alert = severity === 'red';
 
   const result = {
     clinic: clinic.slug,
@@ -171,14 +201,21 @@ async function analyzeClinic(clinic) {
     since,
     until,
     alert,
+    severity,
+    reasons,
     degradation,
     lead_inflation: leadInflation,
     enough_volume: enoughVolume,
+    baseline_ok: baselineOk,
     recent: recentStats,
     baseline: baselineStats,
     days,
   };
 
+  if (severity === 'yellow') {
+    console.warn(`[FUNNEL-SIGNAL] ${clinic.label}: yellow ${reasons.join(' | ')}`);
+    return { ...result, alert_persist: { skipped: 'yellow_no_persist' } };
+  }
   if (!alert) return { ...result, alert_persist: { skipped: 'no_alert' } };
 
   const key = `alerts/funnel-signal-last-${clinic.slug}.json`;
@@ -193,7 +230,7 @@ async function analyzeClinic(clinic) {
     ...result,
   };
   const persist = await saveAlert(key, alertPayload);
-  console.error(`[FUNNEL-SIGNAL] ${clinic.label}: queda ${(degradation * 100).toFixed(0)}% em msg/click recent=${recentStats.msg_per_click.toFixed(4)} baseline=${baselineStats.msg_per_click.toFixed(4)}`);
+  console.error(`[FUNNEL-SIGNAL] ${clinic.label}: red ${reasons.join(' | ')} recent_msg_per_100=${recentMsgPer100.toFixed(2)} recent_lead_per_100=${recentLeadPer100.toFixed(2)}`);
   return { ...result, alert_persist: persist };
 }
 
