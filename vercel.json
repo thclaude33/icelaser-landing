@@ -20,7 +20,8 @@
     { "path": "/api/cron/bia-skill-refresh", "schedule": "30 2 * * *" },
     { "path": "/api/cron/bia-postback",      "schedule": "* * * * *" },
     { "path": "/api/cron/bia-followup-cascade", "schedule": "*/2 * * * *" },
-    { "path": "/api/cron/process-wa-pending",   "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/process-wa-pending",   "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/funnel-signal-monitor", "schedule": "0 */6 * * *" }
   ],
 
   "rewrites": [
@@ -76,6 +77,10 @@
       "regions": ["gru1"]
     },
     "api/cron/capi-alerts.js": {
+      "maxDuration": 30,
+      "regions": ["gru1"]
+    },
+    "api/cron/funnel-signal-monitor.js": {
       "maxDuration": 30,
       "regions": ["gru1"]
     },
