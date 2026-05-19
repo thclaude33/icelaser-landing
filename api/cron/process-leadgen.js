@@ -22,7 +22,6 @@ import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
 import { PARTNER_AGENT } from '../_lib/capi.js';
 import { buildUserData } from '../_lib/piiBuilder.js';
 import { brtISO, isVercelCron } from '../_lib/time.js';
-import { sendWAMEvent } from '../_lib/capi-wam.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
 // FIX V4.2 (Codex): rotear clínica por payload.page_id
 import { resolveClinicFromPageId } from '../_lib/clinic-routing.js';
@@ -350,29 +349,6 @@ export default async function handler(req, res) {
                   console.error(`[DLQ-CRON CAPI SILENT_DROP] received=0 fbtrace=${leadCapiJson.fbtrace_id || 'n/a'} lead_id=${leadId}`);
                 }
                 console.log(`[DLQ-CRON CAPI] ✅ Lead fired lead_id=${leadId} received=${received}`);
-              }
-              // Fix 21/04/2026: FAN-OUT WAM dataset. Helper decide skipar se sem ctwa_clid+page_id.
-              // FIX V4.2 (Codex N2): JP NÃO envia WAM (WAM_DATASET_ID_JP ausente). Sem gate,
-              // events JP iam pro dataset Recife = contaminação cross-clinic.
-              if (clinic.isJp) {
-                console.log(`[DLQ-CRON WAM] skipped: JP sem WAM dataset dedicado (FIX V4.2) lead_id=${leadId}`);
-              } else {
-                try {
-                  const wamResp = await sendWAMEvent({
-                    event_name: 'Lead',
-                    event_id: `leadgen_${leadId}`,
-                    event_time: eventTime,
-                    user_data: { ...userData },
-                    custom_data: customData,
-                  });
-                  if (wamResp?.skipped) {
-                    console.log(`[DLQ-CRON WAM] skipped: ${wamResp.skipped} lead_id=${leadId}`);
-                  } else if (wamResp?.error) {
-                    console.warn(`[DLQ-CRON WAM] error: ${wamResp.error.message} lead_id=${leadId}`);
-                  } else {
-                    console.log(`[DLQ-CRON WAM] ✅ received=${wamResp?.events_received} lead_id=${leadId}`);
-                  }
-                } catch (wamErr) { console.error(`[DLQ-CRON WAM] exception: ${wamErr.message} lead_id=${leadId}`); }
               }
             } catch (capiErr) { console.error(`[DLQ-CRON CAPI] exception: ${capiErr.message} lead_id=${leadId}`); }
           }

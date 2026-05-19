@@ -50,28 +50,3 @@ export function resolveClinicFromPageId(pageId) {
     isJp: false,
   };
 }
-
-/**
- * WAM dataset routing (defensivo). Por enquanto JP NÃO tem WAM dataset
- * dedicado, então enviar evento JP pro WAM_DATASET_ID Recife contamina.
- *
- * @param {{ isJp: boolean }} clinic
- * @returns {{ datasetId: string|null, token: string|null, skipReason: string|null }}
- */
-export function resolveWamDataset(clinic) {
-  if (clinic.isJp) {
-    const datasetId = process.env.WAM_DATASET_ID_JP;
-    const token = process.env.WAM_ACCESS_TOKEN_JP;
-    if (!datasetId || !token) {
-      return { datasetId: null, token: null, skipReason: 'no_wam_jp_configured' };
-    }
-    return { datasetId, token, skipReason: null };
-  }
-  // Recife
-  const datasetId = process.env.WAM_DATASET_ID || '967048725669499';
-  const token = process.env.WAM_ACCESS_TOKEN;
-  if (!token) {
-    return { datasetId: null, token: null, skipReason: 'no_wam_recife_token' };
-  }
-  return { datasetId, token, skipReason: null };
-}
