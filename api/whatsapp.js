@@ -9,12 +9,12 @@
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { put, head, list, del } from '@vercel/blob';
-import { PIXEL_ID, GRAPH_BASE } from './_lib/config.js';
+import { GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml, sanitizeHeader } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
 // FIX V4.2 (Codex): rotear clínica por page_id no LeadGen block
-import { resolveClinicFromPageId } from './_lib/clinic-routing.js';
+import { resolveClinicFromPageId, resolveClinicFromPhoneNumberId } from './_lib/clinic-routing.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
@@ -22,7 +22,6 @@ const EMAIL_FROM      = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.
 const EMAIL_PASS      = process.env.EMAIL_PASS;
 const EMAIL_TO        = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
 const META_TOKEN      = process.env.META_ACCESS_TOKEN;       // broad scope — Graph API lookups (ad_id, profile_name, message media)
-const CAPI_TOKEN      = process.env.CAPI_DATASET_TOKEN || META_TOKEN;  // dataset-scoped — POST /events CAPI (LeadSubmitted)
 const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID;
 
 // ── AD ACCOUNT FILTER ────────────────────────────────────────────────────────
@@ -90,7 +89,7 @@ async function enviarEmail(assunto, html) {
 }
 
 // ── PROCESSA LEAD VIA FLOW ────────────────────────────────────────────────────
-async function processarLeadFlow(from, nfmReply, ctwaClid, wamid) {
+async function processarLeadFlow(from, nfmReply, ctwaClid, wamid, clinic = resolveClinicFromPhoneNumberId()) {
   let dados = {};
   try { dados = JSON.parse(nfmReply.response_json || '{}'); } catch {}
 
@@ -151,7 +150,7 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid) {
   // Sem CTWA → lead orgânico (Andromeda ainda usa pra optimization signals).
   // Com CTWA → segundo event (event_id distinto) com dados completos do form.
   // Meta v25 Conversion Leads spec: LeadSubmitted = dentro business_messaging flow.
-  if (CAPI_TOKEN && from && from !== '—') {
+  if (clinic?.capiToken && from && from !== '—') {
     try {
       const telNorm = String(telefone || from).replace(/\D/g, '');
       let firstName = null, lastName = null;
@@ -165,13 +164,13 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid) {
         phone: telNorm || from,
         first_name: firstName || undefined,
         last_name: lastName || undefined,
-        city: 'recife',
-        state: inferredState,
+        city: clinic.city,
+        state: clinic.isJp ? clinic.state : inferredState,
         country: 'br',
         external_id: from, // phone como identidade estável
       });
       if (ctwaClid) userData.ctwa_clid = ctwaClid;
-      if (process.env.META_PAGE_ID) userData.page_id = process.env.META_PAGE_ID;
+      if (clinic.pageId) userData.page_id = clinic.pageId;
 
       // Fix HIGH AI audit 20/04/2026 (whatsapp.js:169): event_id IDEMPOTENTE.
       // Antes: `flow_{phone}_{Date.now()/1000}` — Meta retenta webhook 7 dias → nova
@@ -213,9 +212,9 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid) {
         partner_agent: PARTNER_AGENT,
       };
 
-      const r = await fetch(`${GRAPH_BASE}/${PIXEL_ID}/events`, {
+      const r = await fetch(`${GRAPH_BASE}/${clinic.pixelId}/events`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CAPI_TOKEN}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clinic.capiToken}` },
         body: JSON.stringify(payload),
       });
       if (!r.ok) {
@@ -403,7 +402,7 @@ function stateFromPhone(phone) {
 }
 
 // ── PROCESSA MENSAGEM CTWA + SALVA NO BLOB ───────────────────────────────────
-async function processarCTWA(from, message, referral, profileName) {
+async function processarCTWA(from, message, referral, profileName, clinic = resolveClinicFromPhoneNumberId()) {
   const clid = referral?.ctwa_clid;
   const sourceUrl = referral?.source_url || '';
   const sourceType = referral?.source_type || '';
@@ -522,10 +521,9 @@ async function processarCTWA(from, message, referral, profileName) {
   // Também OBRIGATÓRIO: messaging_channel = "whatsapp" (sem ele, erro 2804063).
   // Este evento representa o 1º contato do lead via CTWA ad — atribuição do click.
   // (Lead qualificado real é disparado depois pelo crm-webhook via label lead_quente.)
-  // Fix HIGH AI review 19/04/2026: usar CAPI_TOKEN (dataset-scoped + fallback
-  // META_TOKEN). Antes checava só META_TOKEN — se só CAPI_DATASET_TOKEN estava
-  // setado, LeadSubmitted CTWA não disparava (lead perdia attribution Meta).
-  if (clid && from && CAPI_TOKEN) {
+  // Fix V5.2: token/pixel/page vêm da clínica resolvida por phone_number_id.
+  // Antes JP caía no CAPI/Pixels Recife quando o webhook compartilhado processava CTWA.
+  if (clid && from && clinic?.capiToken) {
     try {
       // event_time: prefere timestamp do WA webhook (message.timestamp, unix seconds).
       // Se Meta retentar o webhook, event_time ainda é consistente com 1ª entrega.
@@ -570,8 +568,8 @@ async function processarCTWA(from, message, referral, profileName) {
         phone: from,
         first_name: firstName || undefined,
         last_name: lastName || undefined,
-        city: 'recife',
-        state: inferredState,         // inferido pelo DDD (antes hardcoded 'pe')
+        city: clinic.city,
+        state: clinic.isJp ? clinic.state : inferredState, // Recife segue inferido por DDD
         country: 'br',
         external_id: from,            // phone como identidade estável do lead
       });
@@ -585,14 +583,14 @@ async function processarCTWA(from, message, referral, profileName) {
       // page_id: Meta Java SDK oficial lista como user_data key válida.
       // Para CTWA ads, page_id é o Facebook Page que hospeda o ad → melhora
       // attribution cross-device.
-      if (process.env.META_PAGE_ID) userData.page_id = process.env.META_PAGE_ID;
+      if (clinic.pageId) userData.page_id = clinic.pageId;
       const r = await fetch(
-        `${GRAPH_BASE}/${PIXEL_ID}/events`,
+        `${GRAPH_BASE}/${clinic.pixelId}/events`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${CAPI_TOKEN}`,   // dataset-scoped — só POST events
+            'Authorization': `Bearer ${clinic.capiToken}`, // dataset-scoped por clínica
           },
           body: JSON.stringify({
             data: [{
@@ -1522,6 +1520,8 @@ export default async function handler(req, res) {
         }
 
         if (field !== 'messages') continue;
+        const phoneNumberId = value?.metadata?.phone_number_id;
+        const clinic = resolveClinicFromPhoneNumberId(phoneNumberId);
 
         // Mensagens
         for (const msg of value.messages || []) {
@@ -1550,13 +1550,13 @@ export default async function handler(req, res) {
 
           // CTWA — veio de anúncio
           if (msg.referral?.ctwa_clid) {
-            ctwaClid = await processarCTWA(from, msg, msg.referral, profileName);
+            ctwaClid = await processarCTWA(from, msg, msg.referral, profileName, clinic);
           }
 
           // Lead via Flow (nfm_reply)
           if (msg.type === 'interactive' && msg.interactive?.type === 'nfm_reply') {
             // Fix HIGH AI audit 20/04/2026: passar wamid pra event_id idempotente.
-            await processarLeadFlow(from, msg.interactive.nfm_reply, ctwaClid, msg.id);
+            await processarLeadFlow(from, msg.interactive.nfm_reply, ctwaClid, msg.id, clinic);
             continue;
           }
 

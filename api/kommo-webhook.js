@@ -7,21 +7,20 @@
  *
  * Multi-tenant: Recife continua via crm-webhook.js (Chatwoot). JP usa este handler.
  *
- * ESTRATÉGIA NÃO-CONFLITO (atualizado 02/05/2026 19:40 BRT):
- *   WAM Recife (967048725669499) já dispara Lead/QualifiedLead/CompleteRegistration
- *   pra subdomain jpa.icelasers.com.br via crm-webhook Chatwoot.
- *   Kommo NATIVE CAPI (integração marketplace Kommo↔Meta) dispara Lead+Purchase
+ * ESTRATÉGIA NÃO-CONFLITO (V5.2, 19/05/2026):
+ *   WAM está em quarentena total desde V5 (WAM_WRITE_MODE=disabled).
+ *   Kommo NATIVE CAPI (configurado por equipe externa) dispara APENAS Lead+Purchase
  *   automaticamente via Meta Leads CRM infrastructure.
- *   Esta config aqui complementa SÓ events que NENHUM dos 2 cobre — zero overlap.
+ *   Esta bridge complementa SÓ estágios intermediários que o Kommo nativo não cobre.
  *
  * PIPELINE 13628687 — 9 stages atuais (equipe externa reformulou em 01/05):
  *   105176163 "Incoming leads"           → IGNORADO (system, espera transition)
- *   105176167 "primeiro contato"         → IGNORADO (WAM + Kommo native dispara Lead)
+ *   105176167 "primeiro contato"         → IGNORADO (Kommo native dispara Lead)
  *   105357711 "LEAD FRIO"                → LeadFrio (custom — exclusivo Kommo CAPI) ⭐
- *   105176171 "Lead Qualificado"         → IGNORADO (WAM já dispara QualifiedLead)
+ *   105176171 "Lead Qualificado"         → Qualified Lead (mid-funnel pós-WAM) ⭐
  *   105329767 "LINK DE PAGAMENTO"        → InitiateCheckout (exclusivo) ⭐
  *   105176175 "Avaliação Agendada"       → Schedule (exclusivo)
- *   105176179 "Avaliação Comparecida"    → IGNORADO (WAM já dispara CR)
+ *   105176179 "Avaliação Comparecida"    → CompleteRegistration (mid-funnel pós-WAM) ⭐
  *   142       "COMPRA REALIZADA"         → IGNORADO (Kommo native CAPI já dispara Purchase)
  *   143       "DESQUALIFICADO/PERDIDO"   → LeadDesqualificado (custom — exclusivo)
  *
@@ -40,7 +39,7 @@
  * Code review v3 aplicado 2026-05-02:
  *   - Mapping atualizado pra novos stages (105357711 LEAD FRIO + 105329767 LINK PAGAMENTO)
  *   - Removido stage 105176183 (não existe mais no pipeline atual)
- *   - Removido Lead/QL/CR mappings (WAM já dispara, evita inflação)
+ *   - Removido Lead/QL/CR mappings (WAM disparava estes sinais antes da quarentena)
  *   - Removido Purchase mapping (Kommo native CAPI já dispara, evita duplo-count)
  *   - Destination dataset: Bancarios-EventData (1694874711857319) — dedicado JPA CAPI
  *   - v3.2: dedup intra-payload via Set seenLeadEvents (FIX edge case
@@ -89,27 +88,31 @@ const CF_UTM_CONTENT       = 3813872;
 const CF_REFERRER          = 3813884;
 const CF_SERVICO_INTERESSE = 3815872;  // único survivor da leva 28/04
 
-// Kommo stage → Meta event mapping (v3 — não-conflito com WAM + Kommo native CAPI).
+// Kommo stage → Meta event mapping (V5.2 — não-conflito com Kommo native CAPI).
 // Pipeline JP 13628687, 9 stages (atualizado 01/05 pela equipe externa).
 //
-// Estratégia ZERO OVERLAP — 2 sources já disparando devem ser respeitadas:
-//   - WAM Recife (967048725669499) já dispara: Lead, QualifiedLead, CompleteRegistration
+// Estratégia ZERO OVERLAP:
+//   - WAM está disabled desde V5, então não cobre mais QL/CR.
 //   - Kommo native CAPI (Meta Leads CRM integration) já dispara: Lead, Purchase
 // Este handler complementa SÓ events que NENHUM dos 2 cobre.
 //
 // IGNORADOS (não disparam CAPI aqui):
 //   - 105176163 "Incoming leads" (type=1 system stage)
-//   - 105176167 "primeiro contato" (WAM + Kommo native cobrem Lead)
-//   - 105176171 "Lead Qualificado" (WAM cobre QualifiedLead)
-//   - 105176179 "Avaliação Comparecida" (WAM cobre CompleteRegistration)
+//   - 105176167 "primeiro contato" (Kommo native cobre Lead)
 //   - 142       "COMPRA REALIZADA" (Kommo native CAPI cobre Purchase)
 //   - Qualquer pipeline diferente de 13628687
-const STAGE_TO_META_EVENT = {
+export const STAGE_TO_META_EVENT = {
   '105357711': 'LeadFrio',              // LEAD FRIO (custom — exclusivo Kommo CAPI)
+  '105176171': 'Qualified Lead',        // Lead Qualificado (pós-WAM)
   '105329767': 'InitiateCheckout',      // LINK DE PAGAMENTO (exclusivo Kommo CAPI)
   '105176175': 'Schedule',              // Avaliação Agendada (exclusivo Kommo CAPI)
+  '105176179': 'CompleteRegistration',  // Avaliação Comparecida (pós-WAM)
   '143':       'LeadDesqualificado',    // DESQUALIFICADO/PERDIDO (custom — exclusivo)
 };
+
+export function mapKommoStageToMetaEvent(stageId) {
+  return STAGE_TO_META_EVENT[String(stageId || '')] || null;
+}
 
 function normalizePhone(raw) {
   if (!raw) return undefined;
@@ -253,18 +256,16 @@ async function buildUserDataKommo(contact, pii) {
  *
  * @param dedupKey  string única por evento lógico (ex: "add_105176167" ou "incoming_to_frio")
  */
-function buildLeadEvent({ leadId, eventName, dedupKey, lead, userData, pii, customData = {} }) {
+export function buildLeadEvent({ leadId, eventName, dedupKey, lead, userData, pii, customData = {} }) {
   // event_time = lead.updated_at se vier (algumas variantes Kommo populam),
   // senão now. NÃO usado pra dedup (event_id é o dedup key real).
   const eventTimeSec = Number(lead?.updated_at) || Number(lead?.modified_at) ||
                        Number(lead?.created_at) || Math.floor(Date.now() / 1000);
 
-  // action_source dinâmico (FIX #4):
-  //   - business_messaging quando lead vem de Click-to-Message ad (CTWA_CLID/META_AD_ID populados)
-  //     → Andromeda dá boost de atribuição em CTWA campaigns
-  //   - system_generated pra leads CRM-driven (manual/import/form)
-  const isCtwa = Boolean(pii?.ctwaClid || pii?.hasMetaAdId);
-  const actionSource = isCtwa ? 'business_messaging' : 'system_generated';
+  // V5.2: bridge Kommo fica system_generated enquanto CTWA recovery está fora
+  // do escopo. Reativar business_messaging só na V5.3, depois de provar
+  // ctwa_clid/page_id/messaging_channel reais para JP.
+  const actionSource = 'system_generated';
 
   // FIX 03/05 v4: enrichment user_data.fbc + custom_data.ad_id pra atribuição CAPI.
   // user_data.fbc no formato oficial Meta CAPI: fb.1.{ts_ms}.{ctwa_clid}
@@ -592,7 +593,7 @@ export default async function handler(req, res) {
     const enrich = await enrichLeadFromReferral(lead.id).catch(() => ({}));
 
     const stageId = String(lead.status_id || '');
-    const eventName = STAGE_TO_META_EVENT[stageId];
+    const eventName = mapKommoStageToMetaEvent(stageId);
     if (!eventName) continue; // incoming → espera transition
     if (alreadyFiredInPayload(lead.id, eventName)) continue; // FIX v3.2
 
@@ -636,7 +637,7 @@ export default async function handler(req, res) {
 
     const newStatusId = String(lead.status_id || '');
     const oldStatusId = String(lead.old_status_id || 'init');
-    const eventName = STAGE_TO_META_EVENT[newStatusId];
+    const eventName = mapKommoStageToMetaEvent(newStatusId);
     if (!eventName) continue; // stage irrelevante (ex: voltar pra incoming)
     if (alreadyFiredInPayload(lead.id, eventName)) continue; // FIX v3.2
 

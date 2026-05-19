@@ -50,3 +50,44 @@ export function resolveClinicFromPageId(pageId) {
     isJp: false,
   };
 }
+
+/**
+ * Decide qual clínica processa uma mensagem WhatsApp baseado no phone_number_id
+ * do webhook Cloud API (`value.metadata.phone_number_id`).
+ *
+ * @param {string|number|null|undefined} phoneNumberId
+ * @returns {{
+ *   clinic: 'recife' | 'jpa',
+ *   city: 'recife' | 'joao pessoa',
+ *   state: 'pe' | 'pb',
+ *   pageId: string,
+ *   pixelId: string,
+ *   capiToken: string,
+ *   isJp: boolean,
+ * }}
+ */
+export function resolveClinicFromPhoneNumberId(phoneNumberId) {
+  const raw = String(phoneNumberId || '');
+  const jpaPhoneId = String(process.env.WA_PHONE_NUMBER_ID_JPA || '');
+  if (raw && jpaPhoneId && raw === jpaPhoneId) {
+    return {
+      clinic: 'jpa',
+      city: 'joao pessoa',
+      state: 'pb',
+      pageId: String(PAGE_ID_JPA),
+      pixelId: String(PIXEL_ID_JPA),
+      capiToken: process.env.CAPI_DATASET_TOKEN_JP || process.env.META_ACCESS_TOKEN || '',
+      isJp: true,
+    };
+  }
+  // Default: Recife (legacy + match com WA_PHONE_NUMBER_ID Recife).
+  return {
+    clinic: 'recife',
+    city: 'recife',
+    state: 'pe',
+    pageId: String(PAGE_ID),
+    pixelId: String(PIXEL_ID),
+    capiToken: process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN || '',
+    isJp: false,
+  };
+}
