@@ -3,7 +3,7 @@
  * Quando label muda → dispara CAPI/Pixel automaticamente
  *
  * Labels → Eventos CAPI (atualizado PR #40 — 27/04/2026):
- *   (sem labels, conversation_created) → Lead (auto, value=50, ltv=200)
+ *   conversation_created sem label → sem Lead automático (V5 Pixel-only)
  *   ❌ Desqualificado   → LeadDesqualificado (custom, audience exclusion)
  *   🧊 Lead Frio        → LeadFrio (custom, audience exclusion)
  *   🔥 Lead Quente      → CompleteRegistration + Qualified Lead (downstream)
@@ -11,11 +11,8 @@
  *   💰 Compra Realizada → (CR + QL backfill cond) + InitiateCheckout + Purchase
  *   📧 Marketing Opt-In → Subscribe
  *
- * KNOWN-ISSUE: auto-Lead em conversation_created raramente dispara em prod
- * (Chatwoot envia conversation_created com labels já populadas → falha gate
- * `labels.length===0`). Cliente que vai direto pra label classificação sem
- * passar por Lead emitido NÃO recebe Lead event. Investigação em PR futuro
- * com payload real capturado via Drain (ativo desde 27/04 17:33 UTC).
+ * V5: Lead automático de chegada removido para não poluir o sinal de
+ * otimização. O backfill `_compra_lead` permanece para compras orgânicas.
  */
 
 import { put, list } from '@vercel/blob';
@@ -23,10 +20,9 @@ import { PIXEL_ID, PIXEL_ID_JPA, GRAPH_BASE, DEFAULT_PURCHASE_VALUE, DEFAULT_PRE
 import { sha256, normalizePhoneBR, verifyChatwootSignature, timingSafeStringEqual, maskPhone, maskEmail, maskName, getRawBody } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
-import { sendWAMEvent } from './_lib/capi-wam.js';
 import { computeCompraRealizadaGuards } from './_lib/funnel-guards.js';
 import { normalizeChangedAttributes, hasLabelChange, extractPreviousLabels, extractCurrentLabels } from './_lib/label-change.js';
-import { decideTargetDataset, parsePurchaseValue, isRoutingEnabled, DATASET_PIXEL_LP, DATASET_WAM } from './_lib/purchase-routing.js';
+import { decideTargetDataset, parsePurchaseValue, isRoutingEnabled, DATASET_PIXEL_LP } from './_lib/purchase-routing.js';
 import { disarmCascade, isOutgoingFromBia } from './_lib/cascade.js';
 import { clearActiveSession } from './_lib/session-reuse.js';
 
@@ -977,40 +973,10 @@ export default async function handler(req, res) {
     return labels.some(l => lowerVariants.includes(String(l).toLowerCase()));
   };
 
-  // 🆕 NOVO LEAD CHEGOU — auto-dispatch Lead event em conversation_created
-  // mesmo sem label (atendente ainda não classificou). Sem isso, leads do
-  // tráfego que chegavam ao Chatwoot ficavam invisíveis no Meta até serem
-  // manualmente classificados — perdíamos top-of-funnel signal.
-  // event_id estável por conversation pra Meta dedupar se Chatwoot retentar
-  // conversation_created (não usa timestamp). Quando atendente classificar
-  // como lead_frio/lead_quente, esses geram OUTROS Lead events com event_ids
-  // distintos (semanticamente diferentes — "novo contato" vs "frio classificado").
-  if (event === 'conversation_created' && labels.length === 0) {
-    // Per AI Gateway review: prefer conversation.id (unique per conv), fallback
-    // body.id (webhook payload id), then contactKey + now (timestamp) — pra
-    // contatos que abrem várias conversations não terem mesmo event_id e
-    // sofrerem dedup involuntário do Meta.
-    const conversationIdForArrival = conversation?.id
-      ? String(conversation.id)
-      : (body?.id ? String(body.id) : `${contactKey}_${now}`);
-    events.push({
-      ...mkBaseEvent(),
-      event_name: 'Lead',
-      event_time: now,
-      event_id: `crm_${conversationIdForArrival}_lead_arrived`,
-      ...(originalLeadData && { original_event_data: originalLeadData }),
-      custom_data: {
-        ...crmBase,
-        content_name: 'Novo Lead - Chegou no CRM',
-        lead_type: 'new_contact',
-        status: 'unclassified',
-        currency: 'BRL',
-        value: 50,                    // sinal fraco — ainda não qualificado
-        predicted_ltv: 200,
-        customer_segmentation: customerSeg,
-      },
-    });
-  }
+  // V5 Pixel-only: conversation_created sem label NÃO vira Lead automático.
+  // O antigo evento automático de chegada fabricava sinal de topo de funil
+  // e podia inflar Lead sem conversão real. O backfill `_compra_lead` abaixo
+  // permanece para não deixar compras orgânicas órfãs no funil.
 
   // ❌ DESQUALIFICADO — APENAS custom event pra audience exclusion.
   //
@@ -1377,7 +1343,6 @@ export default async function handler(req, res) {
     routingDecision = null;
   }
   const shouldSendPixelLP = !routingDecision || routingDecision.target === DATASET_PIXEL_LP;
-  const shouldSendWAM = !routingDecision || routingDecision.target === DATASET_WAM;
 
   // ═════════════════════════════════════════════════════════════════════
   // CROSS-CLINIC ROUTING (FIX 26/04/2026)
@@ -1389,8 +1354,6 @@ export default async function handler(req, res) {
   // (inbox 8) gerariam events no Pixel Recife — Conversion Leads CRM JP fica
   // zerado e cross-clinic data leak. Detected na sessão 26/04 ~19h BRT.
   // TODO when 3rd clinic added: replace string equality with a Map<page_id, {pixel,token}>.
-  // TODO when JP gets dedicated WAM dataset: gate sendWAMEvent path by isJpLead too
-  // (today JP shares Recife WAM since chip pendente — same data leak class on WAM side).
   // Reuse cross-clinic detection done up-top (line ~344) — same source of truth
   // pra user_data.page_id E pixel routing. _leadPageIdRaw / _isJpLead foram
   // computed antes do buildUserData pra propagar page_id correto no user_data.
@@ -1437,21 +1400,12 @@ export default async function handler(req, res) {
     console.log(`[CRM-WEBHOOK] Audience events forced→Pixel LP: ${audienceOnlyEvents.length} events, received=${audienceResult?.events_received ?? 0}`);
   }
 
-  // Funnel events: respeita routing decision normal
-  // FIX V4.2 hotfix (Codex): se _isJpLead E routing decidiu WAM, WAM seria pulado
-  // (gate JP) MAS Pixel LP também seria pulado → evento JP some.
-  // Solução: forçar Pixel JP (effectiveShouldSendPixelLP=true) quando JP + routing→WAM.
-  // WAM JP só pode existir quando WAM_DATASET_ID_JP/WAM_ACCESS_TOKEN_JP forem criados.
-  const effectiveShouldSendPixelLP = shouldSendPixelLP || _isJpLead;
-  const effectiveShouldSendWAM = shouldSendWAM && !_isJpLead;
-  if (effectiveShouldSendPixelLP) {
-    result = await sendCAPI(funnelEvents, targetToken, 0, targetPixelId);
-    if (_isJpLead && !shouldSendPixelLP) {
-      console.log(`[CRM-WEBHOOK] JP override → Pixel JP (routing wanted WAM, mas WAM_DATASET_ID_JP ausente)`);
-    }
-  } else {
-    console.log(`[CRM-WEBHOOK] Pixel LP SKIPPED for funnel events (routing → WAM)`);
+  // Funnel events: V5 Pixel-only. Mesmo que alguma decisão legada não seja
+  // Pixel, enviamos para o Pixel correto e não para WAM.
+  if (!shouldSendPixelLP) {
+    console.warn(`[CRM-WEBHOOK] routing target não-Pixel ignorado no V5; enviando Pixel LP`);
   }
+  result = await sendCAPI(funnelEvents, targetToken, 0, targetPixelId);
   // Fix MEDIUM AI review 20/04/2026 (M4): events_received pode ser undefined se
   // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
   // Fix 27/04/2026 v2 (Vercel Agent finding PR #41): incluir audienceResult no total
@@ -1459,71 +1413,7 @@ export default async function handler(req, res) {
   // pelo mesmo Pixel LP via path forçado.
   const eventsReceived = (result?.events_received ?? 0) + (audienceResult?.events_received ?? 0);
 
-  // WAM Dataset fan-out: enviar TODOS events compatíveis pro WhatsApp Marketing
-  // Event Sharing. Helper sendWAMEvent auto-detecta action_source:
-  //   - ctwa_clid/psid presente → business_messaging (otimização CTWA Meta)
-  //   - sem ambos → system_generated (CRM direct — Fabyanna/Viviane/etc)
-  // Dedup cross-dataset via event_id idêntico ao enviado pro pixel principal.
-  //
-  // Fix 20/04/2026: removido gate `if (ctwaClid)` que bloqueava leads CRM
-  // direct (organic WhatsApp sem ad). Dataset WAM aceita system_generated
-  // sem CTWA — Meta validou events_received=1 em Purchase de Fabyanna/Viviane.
-  const WAM_SUPPORTED_EVENTS = new Set([
-    'Purchase', 'LeadSubmitted', 'Lead', 'CompleteRegistration', 'Subscribe',
-    'InitiateCheckout', 'AddToCart', 'AddPaymentInfo', 'ViewContent',
-    'OrderCreated', 'Shipped', 'Delivered', 'Canceled', 'Returned',
-    'CartAbandoned', 'QualifiedLead', 'Qualified Lead', 'RatingProvided', 'ReviewProvided',
-  ]);
-  let wamReceived = 0;
-  let wamSkipped = 0;
-  let wamErrors = 0;
-  const wamSkipReasons = [];  // debug: capturar motivos do skip pra logar
-  // Fix 23/04/2026: só enviar pro WAM se routing decidir ou se routing desabilitado (fallback).
-  // Fix 27/04/2026 v2 (ultrareview Bug 1): usar funnelEvents (não validEvents) — audience
-  // events (LeadFrio/LeadDesqualificado) já foram pra Pixel LP, não enviar pro WAM.
-  // FIX V4.2 (Codex N2): gate JP — WAM Recife não recebe events JP (sem dataset dedicado).
-  // FIX V4.2 hotfix (Codex): usar effectiveShouldSendWAM (gate combinado com _isJpLead).
-  // JP é redirecionado pra Pixel JP no bloco acima.
-  const wamCompatibleEvents = effectiveShouldSendWAM
-    ? funnelEvents.filter(e => WAM_SUPPORTED_EVENTS.has(e.event_name))
-    : [];
-  if (_isJpLead && shouldSendWAM) {
-    console.log(`[CRM-WEBHOOK] WAM→Pixel JP override: JP sem WAM dataset dedicado (events fired via Pixel JP acima)`);
-  } else if (!shouldSendWAM) {
-    console.log(`[CRM-WEBHOOK] WAM SKIPPED (routing → Pixel LP)`);
-  }
-  for (const evt of wamCompatibleEvents) {
-    // Fix 23/04/2026 (double counting fix): action_source do WAM vem do
-    // routingDecision. Se target=WAM, usar 'business_messaging' (venda via WA link,
-    // 80% dos casos). Se routing desabilitado (fallback), manter 'system_generated'
-    // antigo pra compatibilidade. Helper capi-wam.js strip fbc/fbp/_cip/_cua
-    // automaticamente quando business_messaging (regra Meta 2804064).
-    const wamActionSource = routingDecision?.action_source || 'system_generated';
-    const wamResp = await sendWAMEvent({
-      event_name: evt.event_name,
-      event_id: evt.event_id,
-      event_time: evt.event_time,
-      action_source: wamActionSource,
-      user_data: { ...evt.user_data },
-      custom_data: evt.custom_data,
-      // Fix 22/04/2026 (diagnostic "server events not deduplicated"):
-      // Propagar link pro Lead browser original (Blob leads/) pra Meta entender
-      // que events CRM são continuação, não duplicatas.
-      original_event_data: evt.original_event_data,
-    });
-    if (wamResp?.skipped) {
-      wamSkipped++;
-      wamSkipReasons.push(`${evt.event_name}:${wamResp.skipped}`);
-    } else if (wamResp?.events_received >= 1) {
-      wamReceived++;
-    } else if (wamResp?.error) {
-      wamErrors++;
-    }
-  }
-  if (wamSkipReasons.length > 0) {
-    console.warn(`[CRM-WEBHOOK WAM] skipped reasons: ${wamSkipReasons.join(' | ')}`);
-  }
-  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM: ${wamReceived} received / ${wamSkipped} skipped / ${wamErrors} errors | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+  console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM disabled | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
   return res.status(200).json({
     ok: true,
     // Fix LOW AI review 20/04/2026 (L1): mask PII na response (pode vazar em
@@ -1532,9 +1422,7 @@ export default async function handler(req, res) {
     labels,
     events_sent: validEvents.length,
     events_received: eventsReceived,
-    wam_received: wamReceived,
-    wam_skipped: wamSkipped,
-    wam_errors: wamErrors,
+    wam_disabled: true,
     ctwa_clid: !!ctwaClid,
     customer_segmentation: customerSeg,
   });
