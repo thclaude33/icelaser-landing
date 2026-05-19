@@ -18,16 +18,16 @@
  */
 
 import { list, put, del } from '@vercel/blob';
-import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
+import { GRAPH_BASE } from '../_lib/config.js';
 import { PARTNER_AGENT } from '../_lib/capi.js';
 import { buildUserData } from '../_lib/piiBuilder.js';
 import { brtISO, isVercelCron } from '../_lib/time.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
-// FIX V4.2 (Codex): rotear clínica por payload.page_id
-import { resolveClinicFromPageId } from '../_lib/clinic-routing.js';
+// FIX V5.2.1 (Codex): page_id desconhecido não pode cair em Recife.
+import { resolveClinicFromPageIdStrict } from '../_lib/clinic-routing.js';
+import { clinicSlug, shouldUseChatwoot } from '../_lib/crm-routing.js';
 
 const META_TOKEN = process.env.META_ACCESS_TOKEN;
-const CAPI_TOKEN = process.env.CAPI_DATASET_TOKEN || META_TOKEN;
 const CHATWOOT_API_TOKEN = process.env.CHATWOOT_API_TOKEN;
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL;
 const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
@@ -144,6 +144,24 @@ export default async function handler(req, res) {
           throw new Error(`graph_api_${leadResp.status}`);
         }
         const leadData = await leadResp.json();
+        const clinic = resolveClinicFromPageIdStrict(payload.page_id);
+        if (!clinic || !shouldUseChatwoot(clinic)) {
+          const reason = clinic ? 'non_chatwoot_clinic' : 'unknown_page_id';
+          console.warn(`[DLQ-CRON] skip Chatwoot lead=${leadId} reason=${reason} clinic=${clinicSlug(clinic)} page_id=${payload.page_id || '(missing)'}`);
+          await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
+            leadgen_id: leadId,
+            skipped: reason,
+            clinic: clinicSlug(clinic),
+            page_id: payload.page_id || null,
+            processed_at: new Date().toISOString(),
+            processed_by: 'dlq_cron',
+            retry_count: retryCount,
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
+          try { await del(blob.url); } catch { /* swallow */ }
+          report.skipped++;
+          report.items.push({ leadId, status: 'skipped', reason, clinic: clinicSlug(clinic) });
+          continue;
+        }
         const fields = leadData.field_data || [];
         const nome = fields.find(f => f.name === 'full_name')?.values?.[0] || '?';
         const tel = fields.find(f => f.name === 'phone_number')?.values?.[0] || '';
@@ -259,7 +277,6 @@ export default async function handler(req, res) {
           // 5. CAPI Lead event (mesmo formato do handler original)
           // FIX V4.2 (Codex C5): rotear clínica COMPLETA por payload.page_id.
           // Antes Recife hardcoded. Agora clinic.{city,state,pageId,pixelId,capiToken}.
-          const clinic = resolveClinicFromPageId(payload.page_id || process.env.META_PAGE_ID);
           if (clinic.capiToken) {
             try {
               const telDigits = String(tel || '').replace(/\D/g, '');

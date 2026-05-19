@@ -9,6 +9,30 @@
 
 import { PAGE_ID, PAGE_ID_JPA, PIXEL_ID, PIXEL_ID_JPA } from './config.js';
 
+function recifeClinic() {
+  return {
+    clinic: 'recife',
+    city: 'recife',
+    state: 'pe',
+    pageId: String(PAGE_ID),
+    pixelId: String(PIXEL_ID),
+    capiToken: process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN || '',
+    isJp: false,
+  };
+}
+
+function jpaClinic() {
+  return {
+    clinic: 'jpa',
+    city: 'joao pessoa',
+    state: 'pb',
+    pageId: String(PAGE_ID_JPA),
+    pixelId: String(PIXEL_ID_JPA),
+    capiToken: process.env.CAPI_DATASET_TOKEN_JP || process.env.META_ACCESS_TOKEN || '',
+    isJp: true,
+  };
+}
+
 /**
  * Decide qual clínica processa o lead baseado no page_id do webhook leadgen.
  *
@@ -27,28 +51,25 @@ import { PAGE_ID, PAGE_ID_JPA, PIXEL_ID, PIXEL_ID_JPA } from './config.js';
  * }}
  */
 export function resolveClinicFromPageId(pageId) {
+  return resolveClinicFromPageIdStrict(pageId) || recifeClinic();
+}
+
+/**
+ * Versão fail-closed para fluxos novos/risco cross-clinic.
+ * Desconhecido não vira Recife por conveniência.
+ *
+ * @param {string|number|null|undefined} pageId
+ * @returns {ReturnType<typeof recifeClinic>|ReturnType<typeof jpaClinic>|null}
+ */
+export function resolveClinicFromPageIdStrict(pageId) {
   const raw = String(pageId || '');
   if (raw && raw === String(PAGE_ID_JPA)) {
-    return {
-      clinic: 'jpa',
-      city: 'joao pessoa',
-      state: 'pb',
-      pageId: String(PAGE_ID_JPA),
-      pixelId: String(PIXEL_ID_JPA),
-      capiToken: process.env.CAPI_DATASET_TOKEN_JP || process.env.META_ACCESS_TOKEN || '',
-      isJp: true,
-    };
+    return jpaClinic();
   }
-  // Default: Recife (legacy + match com PAGE_ID Recife)
-  return {
-    clinic: 'recife',
-    city: 'recife',
-    state: 'pe',
-    pageId: String(PAGE_ID),
-    pixelId: String(PIXEL_ID),
-    capiToken: process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN || '',
-    isJp: false,
-  };
+  if (raw && raw === String(PAGE_ID)) {
+    return recifeClinic();
+  }
+  return null;
 }
 
 /**
@@ -67,27 +88,25 @@ export function resolveClinicFromPageId(pageId) {
  * }}
  */
 export function resolveClinicFromPhoneNumberId(phoneNumberId) {
+  return resolveClinicFromPhoneNumberIdStrict(phoneNumberId) || recifeClinic();
+}
+
+/**
+ * Versão fail-closed para webhooks WhatsApp multi-clínica.
+ * Desconhecido não pode cair no Chatwoot Recife.
+ *
+ * @param {string|number|null|undefined} phoneNumberId
+ * @returns {ReturnType<typeof recifeClinic>|ReturnType<typeof jpaClinic>|null}
+ */
+export function resolveClinicFromPhoneNumberIdStrict(phoneNumberId) {
   const raw = String(phoneNumberId || '');
   const jpaPhoneId = String(process.env.WA_PHONE_NUMBER_ID_JPA || '');
   if (raw && jpaPhoneId && raw === jpaPhoneId) {
-    return {
-      clinic: 'jpa',
-      city: 'joao pessoa',
-      state: 'pb',
-      pageId: String(PAGE_ID_JPA),
-      pixelId: String(PIXEL_ID_JPA),
-      capiToken: process.env.CAPI_DATASET_TOKEN_JP || process.env.META_ACCESS_TOKEN || '',
-      isJp: true,
-    };
+    return jpaClinic();
   }
-  // Default: Recife (legacy + match com WA_PHONE_NUMBER_ID Recife).
-  return {
-    clinic: 'recife',
-    city: 'recife',
-    state: 'pe',
-    pageId: String(PAGE_ID),
-    pixelId: String(PIXEL_ID),
-    capiToken: process.env.CAPI_DATASET_TOKEN || process.env.META_ACCESS_TOKEN || '',
-    isJp: false,
-  };
+  const recifePhoneId = String(process.env.WA_PHONE_NUMBER_ID || '');
+  if (raw && recifePhoneId && raw === recifePhoneId) {
+    return recifeClinic();
+  }
+  return null;
 }

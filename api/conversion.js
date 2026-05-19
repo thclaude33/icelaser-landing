@@ -1,5 +1,5 @@
 /**
- * /api/conversion — Registra conversão (Purchase) no Facebook CAPI
+ * /api/conversion — Registra conversão (Purchase) no Facebook CAPI Recife-only
  *
  * Fluxo:
  *   1. Recebe nome + telefone + valor do lead que converteu
@@ -80,6 +80,16 @@ async function findLeadInBlob(nome, telefone) {
   return null;
 }
 
+function isJpLeadBlob(data) {
+  const city = String(data?.city || '').toLowerCase();
+  const state = String(data?.state || '').toLowerCase();
+  const sourceUrl = String(data?.event_source_url || data?.landing_url || '').toLowerCase();
+  return city.includes('joao')
+    || city.includes('joão')
+    || state === 'pb'
+    || sourceUrl.includes('jpa.icelasers.com.br');
+}
+
 export default async function handler(req, res) {
   // Endpoint server-to-server — sem CORS público
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -118,6 +128,12 @@ export default async function handler(req, res) {
   try {
     // 1. Busca lead original no Blob
     const lead = await findLeadInBlob(nome || '', telefone || '');
+    if (!lead?.data) {
+      console.warn('[CONVERSION] no Blob found — Recife organic/manual fallback');
+    } else if (isJpLeadBlob(lead.data)) {
+      console.warn('[CONVERSION] rejected JP lead — use Kommo native CAPI');
+      return res.status(409).json({ ok: false, error: 'jp_lead_uses_kommo_native_capi' });
+    }
 
     // 2. Monta user_data via SDK oficial Meta capi-param-builder-nodejs v1.2.1.
     // Normaliza+hasheia conforme regras Meta (RFC2822 email, e.164 phone,

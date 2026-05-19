@@ -13,8 +13,9 @@ import { GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml, sanitizeHeader } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { PARTNER_AGENT } from './_lib/capi.js';
-// FIX V4.2 (Codex): rotear clínica por page_id no LeadGen block
-import { resolveClinicFromPageId, resolveClinicFromPhoneNumberId } from './_lib/clinic-routing.js';
+// FIX V4.2/V5.2.1 (Codex): rotear clínica por page_id/phone_id sem fallback cross-clinic.
+import { resolveClinicFromPageIdStrict, resolveClinicFromPhoneNumberIdStrict } from './_lib/clinic-routing.js';
+import { clinicSlug, shouldUseChatwoot } from './_lib/crm-routing.js';
 
 const VERIFY_TOKEN    = process.env.WA_VERIFY_TOKEN;
 const APP_SECRET      = process.env.META_APP_SECRET;
@@ -89,7 +90,7 @@ async function enviarEmail(assunto, html) {
 }
 
 // ── PROCESSA LEAD VIA FLOW ────────────────────────────────────────────────────
-async function processarLeadFlow(from, nfmReply, ctwaClid, wamid, clinic = resolveClinicFromPhoneNumberId()) {
+async function processarLeadFlow(from, nfmReply, ctwaClid, wamid, clinic = null) {
   let dados = {};
   try { dados = JSON.parse(nfmReply.response_json || '{}'); } catch {}
 
@@ -139,9 +140,12 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid, clinic = resol
 
   await enviarEmail(`🔥 Lead Flow WA — ${String(nome).replace(/[\r\n]/g, ' ').slice(0, 100)} | IceLaser`, html);
 
-  // Envia template de confirmação se Cloud API ativo
-  if (META_TOKEN && from !== '—') {
+  // Template de confirmação é Recife-only. JPA usa Kommo e não deve sair pelo
+  // número WA Recife.
+  if (META_TOKEN && from !== '—' && shouldUseChatwoot(clinic)) {
     enviarTemplateConfirmacao(from, nome, servico).catch(e => console.error('[TEMPLATE]', e.message));
+  } else if (clinic?.isJp) {
+    console.log(`[TEMPLATE] skip clinic=${clinic.clinic} phone=${maskPhone(from)} reason=kommo_jp`);
   }
 
   // Fix HIGH AI deep review v2 B2 (whatsapp.js:833) — Opção B:
@@ -203,7 +207,7 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid, clinic = resol
             // Fix MEDIUM 20/04/2026: lead_event_source consistente = 'Chatwoot'
             // (CRM tool name canônico). 'WhatsApp Flow' é descritivo mas não
             // é CRM name — Meta Conversion Leads espera nome do CRM.
-            lead_event_source: 'Chatwoot',
+            lead_event_source: clinic.isJp ? 'Kommo' : 'Chatwoot',
             flow_source: 'WhatsApp Flow',  // campo custom pra debug interno
             customer_segmentation: 'new_customer_to_business',
             ...(ctwaClid ? { attribution: 'ctwa' } : { attribution: 'organic' }),
@@ -402,7 +406,7 @@ function stateFromPhone(phone) {
 }
 
 // ── PROCESSA MENSAGEM CTWA + SALVA NO BLOB ───────────────────────────────────
-async function processarCTWA(from, message, referral, profileName, clinic = resolveClinicFromPhoneNumberId()) {
+async function processarCTWA(from, message, referral, profileName, clinic = null) {
   const clid = referral?.ctwa_clid;
   const sourceUrl = referral?.source_url || '';
   const sourceType = referral?.source_type || '';
@@ -835,18 +839,19 @@ export default async function handler(req, res) {
     // ── DLQ: salvar payload completo em wa/pending/ pra replay via cron ──
     // FIX BUG P0-3 (Codex 17/05/2026): quando Chatwoot forward falha, salva no DLQ
     // pra cron process-wa-pending reenviar. Garantia: lead nunca perde sem retry.
-    const saveToWaPending = async () => {
+    const saveToWaPending = async (payloadForDlq = body) => {
       const hasToken = !!process.env.BLOB_READ_WRITE_TOKEN;
       if (!hasToken) return false;
       try {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        const firstMsg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        const firstMsg = payloadForDlq.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
         const wamid = firstMsg?.id || `nowamid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const safeWamid = String(wamid).replace(/[^0-9a-z]/gi, '').slice(0, 40);
         const filename = `wa/pending/${ts}_${safeWamid}.json`;
         const dlqPayload = {
-          ...body,
+          ...payloadForDlq,
           _dlq_meta: {
+            ...(payloadForDlq._dlq_meta || {}),
             saved_at: new Date().toISOString(),
             reason: 'chatwoot_forward_failed',
             retry_count: 0,
@@ -915,6 +920,10 @@ export default async function handler(req, res) {
     // Processa eventos por object type
     const objectType = body.object; // whatsapp_business_account, ad_account, page
     console.log(`[WEBHOOK] Object: ${objectType} | Entries: ${body.entry?.length || 0}`);
+
+    let sawMessageWebhook = false;
+    let hasJpMessageClinic = false;
+    let hasUnknownMessageClinic = false;
 
     for (const entry of body.entry || []) {
 
@@ -1111,6 +1120,26 @@ export default async function handler(req, res) {
                   console.warn(`[LEADGEN] lead ${leadId} sem phone/email válidos — criando só contato (sem CAPI)`);
                 }
 
+                const clinic = resolveClinicFromPageIdStrict(value?.page_id);
+                if (!clinic) {
+                  console.warn(`[LEADGEN] skip lead=${leadId} reason=unknown_page_id page_id=${value?.page_id || '(missing)'}`);
+                  if (process.env.BLOB_READ_WRITE_TOKEN && leadId) {
+                    try {
+                      await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
+                        leadgen_id: String(leadId),
+                        skipped: 'unknown_page_id',
+                        page_id: value?.page_id || null,
+                        processed_at: new Date().toISOString(),
+                      }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
+                      const pendingBlobs = await list({ prefix: `leadgen/pending/${leadId}.json`, limit: 1 });
+                      if (pendingBlobs.blobs?.[0]?.url) await del(pendingBlobs.blobs[0].url);
+                    } catch (skipErr) {
+                      console.warn(`[LEADGEN] unknown_page_id cleanup failed lead=${leadId}: ${skipErr.message}`);
+                    }
+                  }
+                  continue;
+                }
+
                 // Fix CRITICAL 20/04/2026 (wizard CRM setup): CRIAR contato + conversa no
                 // Chatwoot quando lead nativo Meta chega. Meta wizard "Etapa 2: confirme se
                 // o lead de verificação está no seu CRM" exige que lead entregue
@@ -1131,7 +1160,7 @@ export default async function handler(req, res) {
                   'Content-Type': 'application/json',
                   'api_access_token': CHATWOOT_API_TOKEN,
                 };
-                if (CHATWOOT_API_TOKEN && CHATWOOT_BASE_URL && leadId) {
+                if (shouldUseChatwoot(clinic) && CHATWOOT_API_TOKEN && CHATWOOT_BASE_URL && leadId) {
                   try {
                     const identifier = `leadgen_${leadId}`;
                     // Fix 20/04/2026: AbortController 8s timeout em TODOS fetches
@@ -1382,8 +1411,27 @@ export default async function handler(req, res) {
                   } catch (chatwootErr) {
                     console.error(`[LEADGEN→CHATWOOT] exception: ${chatwootErr.message}`);
                   }
+                } else if (!shouldUseChatwoot(clinic)) {
+                  console.log(`[LEADGEN→CHATWOOT] skip clinic=${clinic.clinic} lead_id=${leadId} reason=not_recife`);
                 } else {
                   console.warn(`[LEADGEN→CHATWOOT] skipped: CHATWOOT_API_TOKEN=${!!CHATWOOT_API_TOKEN} CHATWOOT_BASE_URL=${!!CHATWOOT_BASE_URL}`);
+                }
+                if (!shouldUseChatwoot(clinic)) {
+                  if (process.env.BLOB_READ_WRITE_TOKEN && leadId) {
+                    try {
+                      await put(`leadgen/processed/${leadId}.json`, JSON.stringify({
+                        leadgen_id: String(leadId),
+                        skipped: 'non_chatwoot_clinic',
+                        clinic: clinic.clinic,
+                        processed_at: new Date().toISOString(),
+                      }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
+                      const pendingBlobs = await list({ prefix: `leadgen/pending/${leadId}.json`, limit: 1 });
+                      if (pendingBlobs.blobs?.[0]?.url) await del(pendingBlobs.blobs[0].url);
+                    } catch (jpCleanupErr) {
+                      console.warn(`[LEADGEN] non-chatwoot cleanup failed lead=${leadId}: ${jpCleanupErr.message}`);
+                    }
+                  }
+                  continue;
                 }
                 // Fix CRITICAL 20/04/2026 (wizard CRM setup): disparar CAPI Lead event quando lead nativo
                 // Meta Lead Ads entra via webhook leadgen. Antes: só enviava email.
@@ -1395,7 +1443,6 @@ export default async function handler(req, res) {
                 // (phone/email) — EMQ despenca pra 0, Meta degrada match rate.
                 // FIX V4.2 (Codex C4): rotear clínica COMPLETA por value.page_id.
                 // Antes: Recife hardcoded. Agora: clinic.{city,state,pageId,pixelId,capiToken}.
-                const clinic = resolveClinicFromPageId(value?.page_id || process.env.META_PAGE_ID);
                 if (clinic.capiToken && leadId && hasContactData) {
                   try {
                     const telDigits = String(tel || '').replace(/\D/g, '');
@@ -1430,7 +1477,7 @@ export default async function handler(req, res) {
                         user_data: leadUserData,
                         custom_data: {
                           event_source: 'crm',
-                          lead_event_source: 'Chatwoot',
+                          lead_event_source: clinic.isJp ? 'Kommo' : 'Chatwoot',
                           leadgen_form_id: String(formId || ''),
                           ...(adId ? { ad_id: String(adId) } : {}),
                           content_name: 'Meta Lead Ad Form Submission',
@@ -1521,7 +1568,18 @@ export default async function handler(req, res) {
 
         if (field !== 'messages') continue;
         const phoneNumberId = value?.metadata?.phone_number_id;
-        const clinic = resolveClinicFromPhoneNumberId(phoneNumberId);
+        const clinic = resolveClinicFromPhoneNumberIdStrict(phoneNumberId);
+        sawMessageWebhook = true;
+        if (!clinic) {
+          hasUnknownMessageClinic = true;
+          console.warn(`[WEBHOOK] messages skip reason=unknown_phone_number_id phone_number_id=${phoneNumberId || '(missing)'}`);
+          continue;
+        }
+        if (clinic.isJp) {
+          hasJpMessageClinic = true;
+          console.log(`[WEBHOOK] messages audit-only clinic=${clinic.clinic} phone_number_id=${phoneNumberId} reason=kommo_jp`);
+          continue;
+        }
 
         // Mensagens
         for (const msg of value.messages || []) {
@@ -1615,8 +1673,26 @@ export default async function handler(req, res) {
       return r;
     };
 
-    const hasMedia = () => {
+    const buildChatwootPayload = () => {
+      if (!sawMessageWebhook) return body;
+      const chatBody = { ...body, entry: [] };
       for (const entry of body.entry || []) {
+        const nextEntry = { ...entry, changes: [] };
+        for (const change of entry.changes || []) {
+          if (change.field !== 'messages') {
+            nextEntry.changes.push(change);
+            continue;
+          }
+          const clinic = resolveClinicFromPhoneNumberIdStrict(change.value?.metadata?.phone_number_id);
+          if (shouldUseChatwoot(clinic)) nextEntry.changes.push(change);
+        }
+        if (nextEntry.changes.length > 0) chatBody.entry.push(nextEntry);
+      }
+      return chatBody.entry.length > 0 ? chatBody : null;
+    };
+
+    const hasMedia = (payload = body) => {
+      for (const entry of payload.entry || []) {
         for (const change of entry.changes || []) {
           for (const msg of change.value?.messages || []) {
             if (MEDIA_TYPES.includes(msg.type)) return true;
@@ -1656,14 +1732,20 @@ export default async function handler(req, res) {
     };
 
     const fallbackToChatwoot = async () => {
+      let payloadForChatwoot = null;
       try {
-        if (hasMedia()) {
+        payloadForChatwoot = buildChatwootPayload();
+        if (!payloadForChatwoot) {
+          console.log(`[PROXY] Chatwoot skip reason=${hasJpMessageClinic ? 'jpa_uses_kommo' : 'unknown_clinic'}`);
+          return { ok: true, skipped: true };
+        }
+        if (hasMedia(payloadForChatwoot)) {
           // Fix MEDIUM AI review 20/04/2026 (M7): paralelizar downloadMediaToBlob.
           // Antes fazia N*3 fetches sequenciais (Graph metadata + download + put)
           // dentro do for loop. Com 3 imagens = 9 ops sequenciais. Em payload com
           // vídeos grandes, facilmente estourava timeout 30s Vercel Function.
           // Promise.allSettled: se 1 mídia falhar, outras ainda são entregues.
-          const payload = JSON.parse(JSON.stringify(body));
+          const payload = JSON.parse(JSON.stringify(payloadForChatwoot));
           const mediaJobs = [];
           for (const entry of payload.entry || []) {
             for (const change of entry.changes || []) {
@@ -1689,25 +1771,34 @@ export default async function handler(req, res) {
               text: { body: `${label} recebido${caption ? ': ' + caption : ''}${blobLink}` } };
           }
           const r = await sendToChat(JSON.stringify(payload), 'fallback-media');
-          return r.ok;
+          return { ok: r.ok, payload: payloadForChatwoot, skipped: false };
         }
-        const r = await sendToChat(rawBody.toString(), 'fallback-text');
-        return r.ok;
+        const payloadString = payloadForChatwoot === body ? rawBody.toString() : JSON.stringify(payloadForChatwoot);
+        const r = await sendToChat(payloadString, 'fallback-text');
+        return { ok: r.ok, payload: payloadForChatwoot, skipped: false };
       } catch (e) {
         console.error(`[FALLBACK] ${e.message}`);
-        return false;
+        return { ok: false, payload: payloadForChatwoot, skipped: false };
       }
     };
 
     // FLUXO: Chatwoot direto (com conversão de mídia) — Evolution API desabilitada temporariamente
-    const chatOk = await fallbackToChatwoot();
-    if (!chatOk) {
+    const chatResult = await fallbackToChatwoot();
+    if (!chatResult.ok) {
       console.error('[PROXY] ❌ Chatwoot falhou — tentando salvar em DLQ wa/pending');
     }
 
     // Backup blob "audit log" — todas mensagens salvas (sucesso ou falha)
     // FIX BUG P0-3 (Codex 17/05/2026): retorna bool agora
     const backupOk = await backupBlob();
+    if (chatResult.skipped) {
+      return res.status(200).json({
+        ok: true,
+        chatwoot: 'skipped',
+        reason: hasJpMessageClinic ? 'jpa_uses_kommo' : 'unknown_clinic',
+        backup: backupOk,
+      });
+    }
 
     // FIX BUG P0-3 (Codex 17/05/2026): se Chatwoot falhou, salva DLQ wa/pending pra cron replay.
     // Antes: retornava 200 cego — Meta não retrya — lead some.
@@ -1716,8 +1807,8 @@ export default async function handler(req, res) {
     //   - chatOk=true                  → 200 (msg entregue)
     //   - chatOk=false + dlq saved     → 200 (cron replay vai reenviar)
     //   - chatOk=false + dlq=false     → 502 (Meta retrya webhook — backup audit ≠ replay)
-    if (!chatOk) {
-      const dlqOk = await saveToWaPending();
+    if (!chatResult.ok) {
+      const dlqOk = await saveToWaPending(chatResult.payload || body);
       if (dlqOk) {
         console.log('[PROXY] ⚠️ Chatwoot falhou mas DLQ wa/pending salvou — cron replay reenvia');
         return res.status(200).json({ ok: true, dlq: 'saved' });

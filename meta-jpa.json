@@ -1,0 +1,28 @@
+{
+  "name": "IceLaser João Pessoa",
+  "short_name": "IceLaser JPA",
+  "description": "Depilação a laser Crystal 3D Plus em João Pessoa, Bancários. Avaliação gratuita.",
+  "url": "https://jpa.icelasers.com.br/",
+  "lang": "pt-BR",
+  "business": {
+    "type": "BeautySalon",
+    "phone": "+5583982071540",
+    "whatsapp": "https://wa.me/5583982071540",
+    "address": {
+      "streetAddress": "Bancários",
+      "locality": "João Pessoa",
+      "region": "PB",
+      "country": "BR",
+      "postalCode": "58000-000"
+    },
+    "openingHours": "Mo-Sa 09:00-19:00",
+    "priceRange": "$$"
+  },
+  "og": {
+    "title": "Depilação a Laser em João Pessoa | IceLaser Bancários",
+    "description": "Laser Crystal 3D Plus em João Pessoa. Avaliação gratuita e atendimento pelo WhatsApp.",
+    "image": "https://jpa.icelasers.com.br/api/og?titulo=IceLaser+Joao+Pessoa",
+    "type": "website",
+    "locale": "pt_BR"
+  }
+}

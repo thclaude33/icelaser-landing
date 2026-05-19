@@ -13,6 +13,8 @@ import { list, put, del } from '@vercel/blob';
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
+import { resolveClinicFromPhoneNumberIdStrict } from '../_lib/clinic-routing.js';
+import { clinicSlug, shouldUseChatwoot } from '../_lib/crm-routing.js';
 
 const MAX_PER_RUN = 50;
 const MAX_RETRIES = 10;
@@ -109,6 +111,16 @@ async function forwardToChatwoot(rawPayload) {
   }
 }
 
+function resolvePayloadClinic(payload) {
+  for (const entry of payload?.entry || []) {
+    for (const change of entry.changes || []) {
+      const phoneNumberId = change.value?.metadata?.phone_number_id;
+      if (phoneNumberId) return resolveClinicFromPhoneNumberIdStrict(phoneNumberId);
+    }
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   if (!isAuthorized(req)) return res.status(401).json({ error: 'unauthorized' });
 
@@ -122,7 +134,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'missing_env', detail: 'CHATWOOT_WEBHOOK_URL not set' });
   }
 
-  const stats = { listed: 0, replayed: 0, failed: 0, max_retries: 0, errors: [] };
+  const stats = { listed: 0, replayed: 0, skipped: 0, failed: 0, max_retries: 0, errors: [] };
   const startMs = Date.now();
 
   try {
@@ -160,6 +172,22 @@ export default async function handler(req, res) {
         // Strip _dlq_meta antes de reenviar pro Chatwoot
         const cleanPayload = { ...payload };
         delete cleanPayload._dlq_meta;
+
+        const clinic = resolvePayloadClinic(cleanPayload);
+        if (!shouldUseChatwoot(clinic)) {
+          await put(blob.pathname.replace('wa/pending/', 'wa/processed/'), JSON.stringify({
+            ...payload,
+            _dlq_meta: {
+              ...(payload._dlq_meta || {}),
+              processed_at: new Date().toISOString(),
+              skipped: 'non_chatwoot_or_unknown_clinic',
+              clinic: clinicSlug(clinic),
+            },
+          }), { access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
+          try { await del(blob.url); } catch { /* swallow */ }
+          stats.skipped += 1;
+          continue;
+        }
 
         // Reenviar
         const result = await forwardToChatwoot(cleanPayload);

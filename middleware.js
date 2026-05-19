@@ -19,12 +19,18 @@ import { next, rewrite } from '@vercel/edge';
  *    DIRETA do /.well-known/vercel/flags, não 301 redirect de preview URL →
  *    icelasers.com.br; senão Flags Explorer retorna INVALID_WELL_KNOWN_FLAGS_BLOCKED).
  *  - _vercel/: Vercel internal (Analytics, Speed Insights)
- *  - fonts/, assets/, *.woff2, favicon.ico, robots.txt, sitemap.xml, manifest.json,
- *    meta.json, apple-touch-icon.png: static assets (não precisam de rewrite fbp/fbc)
+ *  - fonts/, assets/, *.woff2, favicon.ico, apple-touch-icon.png: static assets
+ *    genéricos. JP precisa passar por middleware em manifest/meta/robots/sitemap
+ *    para não servir artefatos Recife no domínio jpa.icelasers.com.br.
  */
 export const config = {
   matcher: [
-    '/((?!api/|\\.well-known/|_vercel/|fonts/|assets/|.*\\.(?:woff2?|ttf|eot|ico|png|jpg|jpeg|svg|xml|txt|json|webp|avif)$).*)',
+    '/manifest.json',
+    '/meta.json',
+    '/robots.txt',
+    '/sitemap.xml',
+    '/privacidade/:path*',
+    '/((?!api/|\\.well-known/|_vercel/|fonts/|assets/|.*\\.(?:woff2?|ttf|eot|ico|png|jpg|jpeg|svg|webp|avif)$).*)',
   ],
 };
 
@@ -232,6 +238,26 @@ export default function middleware(request) {
   const buildResponse = () => {
     if (isJpHost) {
       const rewriteUrl = new URL(request.url);
+      if (url.pathname === '/manifest.json') {
+        rewriteUrl.pathname = '/manifest-jpa.json';
+        return rewrite(rewriteUrl);
+      }
+      if (url.pathname === '/meta.json') {
+        rewriteUrl.pathname = '/meta-jpa.json';
+        return rewrite(rewriteUrl);
+      }
+      if (url.pathname === '/robots.txt') {
+        rewriteUrl.pathname = '/robots-jpa.txt';
+        return rewrite(rewriteUrl);
+      }
+      if (url.pathname === '/sitemap.xml') {
+        rewriteUrl.pathname = '/sitemap-jpa.xml';
+        return rewrite(rewriteUrl);
+      }
+      if (url.pathname === '/privacidade' || url.pathname === '/privacidade/') {
+        rewriteUrl.pathname = '/privacidade-jpa/index.html';
+        return rewrite(rewriteUrl);
+      }
       // Home
       if (url.pathname === '/' || url.pathname === '/index.html') {
         rewriteUrl.pathname = '/index-jpa.html';

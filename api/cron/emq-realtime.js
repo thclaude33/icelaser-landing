@@ -33,8 +33,9 @@
  *   }
  */
 
-import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
+import { GRAPH_BASE } from '../_lib/config.js';
 import { brtISO } from '../_lib/time.js';
+import { getEmqDatasets } from '../_lib/emq-datasets.js';
 
 const EMQ_THRESHOLDS = {
   Purchase: 8.0,            // Meta benchmark 8.8; 8.0 é tolerância JARVIS
@@ -86,29 +87,49 @@ export default async function handler(req, res) {
   const fields = 'web{event_name,event_match_quality{composite_score,match_key_feedback{identifier,coverage{percentage}},diagnostics{name,percentage,affected_event_count}},event_coverage{percentage,goal_percentage},acr{percentage},data_freshness{upload_frequency}}';
 
   try {
-    const url = `${GRAPH_BASE}/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}`;
-    const response = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    // Fix INFO AI deep v3 (emq-realtime.js:89): response.ok check antes json().
-    if (!response.ok) {
-      const txt = (await response.text()).substring(0, 200);
-      console.error(`[EMQ-REALTIME] Meta API ${response.status}: ${txt}`);
-      return res.status(502).json({ error: 'meta_api_upstream_error', status: response.status });
-    }
-    const data = await response.json();
+    const datasets = getEmqDatasets();
+    const datasetErrors = [];
+    const webEvents = [];
+    for (const dataset of datasets) {
+      const url = `${GRAPH_BASE}/dataset_quality?dataset_id=${dataset.datasetId}&fields=${encodeURIComponent(fields)}`;
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const txt = (await response.text()).substring(0, 200);
+        datasetErrors.push({ dataset: dataset.slug, status: response.status, error: txt });
+        console.error(`[EMQ-REALTIME] ${dataset.slug} Meta API ${response.status}: ${txt}`);
+        continue;
+      }
+      const data = await response.json();
 
-    if (data.error) {
-      console.error(`[EMQ-REALTIME] Meta API error: ${data.error.message}`);
-      return res.status(502).json({ error: 'meta_api_error', details: data.error });
-    }
+      if (data.error) {
+        datasetErrors.push({ dataset: dataset.slug, error: data.error.message });
+        console.error(`[EMQ-REALTIME] ${dataset.slug} Meta API error: ${data.error.message}`);
+        continue;
+      }
 
-    const webEvents = data.web || [];
+      for (const ev of data.web || []) webEvents.push({ ...ev, __dataset: dataset });
+
+      const appUsageHeader = response.headers.get('x-app-usage');
+      if (appUsageHeader) {
+        try {
+          const usage = JSON.parse(appUsageHeader);
+          if (usage.call_count > 80 || usage.total_time > 80) {
+            console.warn(`[EMQ-REALTIME] ${dataset.slug} Meta API rate limit approaching: ${appUsageHeader}`);
+          }
+        } catch {}
+      }
+    }
+    if (webEvents.length === 0 && datasetErrors.length > 0) {
+      return res.status(502).json({ error: 'all_datasets_failed', dataset_errors: datasetErrors });
+    }
     const events = [];
     const summary = { healthy: 0, warning: 0, critical: 0, emq_sum: 0, emq_count: 0 };
 
     for (const ev of webEvents) {
       const name = ev.event_name || '?';
+      const dataset = ev.__dataset;
       const emq = ev.event_match_quality?.composite_score ?? null;
       const threshold = EMQ_THRESHOLDS[name] ?? EMQ_MIN_DEFAULT;
       const coverage = ev.event_coverage?.percentage ?? null;
@@ -136,6 +157,9 @@ export default async function handler(req, res) {
       }
 
       events.push({
+        dataset: dataset.slug,
+        dataset_label: dataset.label,
+        dataset_id: dataset.datasetId,
         event_name: name,
         emq, threshold, status,
         coverage_pct: coverage,
@@ -153,22 +177,12 @@ export default async function handler(req, res) {
       ? Math.round((summary.emq_sum / summary.emq_count) * 100) / 100
       : null;
 
-    // Monitor X-App-Usage (rate limit Meta) — log se > 80%
-    const appUsageHeader = response.headers.get('x-app-usage');
-    if (appUsageHeader) {
-      try {
-        const usage = JSON.parse(appUsageHeader);
-        if (usage.call_count > 80 || usage.total_time > 80) {
-          console.warn(`[EMQ-REALTIME] Meta API rate limit approaching: ${appUsageHeader}`);
-        }
-      } catch {}
-    }
-
     console.log(`[EMQ-REALTIME] ${brtISO()} events=${events.length} avg_emq=${avgEmq} healthy=${summary.healthy} warn=${summary.warning} crit=${summary.critical}`);
 
     return res.status(200).json({
       ok: true,
-      pixel_id: PIXEL_ID,
+      datasets: datasets.map(d => ({ slug: d.slug, label: d.label, dataset_id: d.datasetId })),
+      dataset_errors: datasetErrors,
       pulled_at_brt: brtISO(),
       pulled_at_iso: new Date().toISOString(),
       summary: {

@@ -2,13 +2,14 @@
  * /api/cron/emq-monitor — Monitora Event Match Quality via Dataset Quality API
  * Roda 1x por dia às 10h (Recife) — envia alerta por email se EMQ cair
  *
- * Dataset Quality API: GET /dataset_quality?dataset_id={PIXEL_ID}
+ * Dataset Quality API: GET /dataset_quality?dataset_id={dataset_id}
  * Retorna: EMQ score (0-10), event coverage (%), data freshness, diagnostics
  */
 
-import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
+import { GRAPH_BASE } from '../_lib/config.js';
 import { escapeHtml, sanitizeHeader } from '../_lib/security.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
+import { getEmqDatasets } from '../_lib/emq-datasets.js';
 
 const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS = process.env.EMAIL_PASS;
@@ -72,38 +73,39 @@ export default async function handler(req, res) {
 
   try {
     const fields = 'web{event_name,event_match_quality{composite_score,match_key_feedback{identifier,coverage{percentage}},diagnostics{description}},event_coverage{percentage,goal_percentage},acr{percentage},data_freshness{upload_frequency}}';
-    // Authorization Bearer (evita token na URL / logs)
-    const response = await fetch(
-      `${GRAPH_BASE}/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}`,
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    );
-    // Fix INFO AI deep review v2 (b4): checar response.ok antes de parse JSON.
-    if (!response.ok) {
-      const txt = (await response.text()).substring(0, 200);
-      console.error(`[EMQ-MONITOR] Meta API ${response.status}: ${txt}`);
-      return res.status(502).json({ error: 'meta_api_upstream_error', status: response.status });
+    const datasets = getEmqDatasets();
+    const webEvents = [];
+    const datasetErrors = [];
+    for (const dataset of datasets) {
+      const response = await fetch(
+        `${GRAPH_BASE}/dataset_quality?dataset_id=${dataset.datasetId}&fields=${encodeURIComponent(fields)}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (!response.ok) {
+        const txt = (await response.text()).substring(0, 200);
+        datasetErrors.push({ dataset, status: response.status, error: txt });
+        console.error(`[EMQ-MONITOR] ${dataset.slug} Meta API ${response.status}: ${txt}`);
+        continue;
+      }
+      const appUsage = response.headers.get('x-app-usage');
+      if (appUsage) {
+        try {
+          const usage = JSON.parse(appUsage);
+          console.log(`[EMQ-MONITOR] ${dataset.slug} API Usage: call_count=${usage.call_count}% cpu=${usage.total_cputime}% time=${usage.total_time}%`);
+        } catch {}
+      }
+      const data = await response.json();
+      if (data.error) {
+        const blame = data.error.blame_field_specs ? ` | blame: ${JSON.stringify(data.error.blame_field_specs)}` : '';
+        datasetErrors.push({ dataset, error: data.error.message });
+        console.error(`[EMQ-MONITOR] ${dataset.slug} API Error: code=${data.error.code} transient=${data.error.is_transient} msg=${data.error.message}${blame}`);
+        continue;
+      }
+      for (const evt of data.web || []) webEvents.push({ ...evt, __dataset: dataset });
     }
-    const data = await response.json();
-
-    // Monitorar X-App-Usage
-    const appUsage = response.headers.get('x-app-usage');
-    if (appUsage) {
-      try {
-        const usage = JSON.parse(appUsage);
-        console.log(`[EMQ-MONITOR] API Usage: call_count=${usage.call_count}% cpu=${usage.total_cputime}% time=${usage.total_time}%`);
-        if (usage.call_count > 80 || usage.total_cputime > 80 || usage.total_time > 80) {
-          console.warn(`[EMQ-MONITOR] ⚠️ Rate limit approaching!`);
-        }
-      } catch {}
+    if (webEvents.length === 0 && datasetErrors.length > 0) {
+      return res.status(502).json({ error: 'all_datasets_failed', dataset_errors: datasetErrors.map(e => ({ slug: e.dataset.slug, status: e.status, error: e.error })) });
     }
-
-    if (data.error) {
-      const blame = data.error.blame_field_specs ? ` | blame: ${JSON.stringify(data.error.blame_field_specs)}` : '';
-      console.error(`[EMQ-MONITOR] API Error: code=${data.error.code} transient=${data.error.is_transient} msg=${data.error.message}${blame}`);
-      return res.status(500).json({ error: data.error.message });
-    }
-
-    const webEvents = data.web || [];
     const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
 
     // Processar cada evento
@@ -112,6 +114,7 @@ export default async function handler(req, res) {
 
     for (const evt of webEvents) {
       const nome = evt.event_name || '?';
+      const dataset = evt.__dataset;
       // Fix HIGH AI deep review v2 (b4 emq-monitor.js:100): falsy-coercion.
       // score 0 NÃO significa ausente — significa "matching zero". Usar ??
       // (null/undefined) em vez de || (0, '', false também coercem).
@@ -128,7 +131,7 @@ export default async function handler(req, res) {
       const covStatus = coverage >= coverageGoal ? '🟢' : coverage >= 50 ? '🟡' : '🔴';
 
       resumo.push({
-        nome, emq, emqStatus, coverage, covStatus, freshness, acr,
+        dataset: dataset.label, dataset_slug: dataset.slug, nome, emq, emqStatus, coverage, covStatus, freshness, acr,
         matchKeys: matchKeys.map(k => `${k.identifier}: ${k.coverage?.percentage || 0}%`).join(', '),
         diagnostics: diagnostics.map(d => d.description || d.message || JSON.stringify(d)).join('; '),
       });
@@ -136,13 +139,13 @@ export default async function handler(req, res) {
       // Alertas com threshold específico por evento (Meta benchmarks 2026).
       const threshold = EMQ_THRESHOLDS[nome] ?? EMQ_MIN_DEFAULT;
       if (emq < threshold) {
-        alertas.push(`🔴 ${nome}: EMQ ${emq}/10 (mínimo: ${threshold})`);
+        alertas.push(`🔴 ${dataset.label} / ${nome}: EMQ ${emq}/10 (mínimo: ${threshold})`);
       }
       if (coverage < COVERAGE_MIN && coverage > 0) {
-        alertas.push(`🔴 ${nome}: Cobertura ${coverage}% (mínimo: ${COVERAGE_MIN}%)`);
+        alertas.push(`🔴 ${dataset.label} / ${nome}: Cobertura ${coverage}% (mínimo: ${COVERAGE_MIN}%)`);
       }
       if (diagnostics.length > 0) {
-        alertas.push(`⚠️ ${nome}: ${diagnostics.length} diagnóstico(s) ativo(s)`);
+        alertas.push(`⚠️ ${dataset.label} / ${nome}: ${diagnostics.length} diagnóstico(s) ativo(s)`);
       }
     }
 
@@ -150,6 +153,7 @@ export default async function handler(req, res) {
     // (defense-in-depth: event_name e diagnostics podem ter chars especiais).
     const rows = resumo.map(e => `
       <tr>
+        <td style="padding:8px;border:1px solid #ddd;font-size:11px">${escapeHtml(e.dataset)}</td>
         <td style="padding:8px;border:1px solid #ddd;font-weight:bold">${escapeHtml(e.nome)}</td>
         <td style="padding:8px;border:1px solid #ddd;text-align:center">${e.emqStatus} ${escapeHtml(String(e.emq))}/10</td>
         <td style="padding:8px;border:1px solid #ddd;text-align:center">${e.covStatus} ${escapeHtml(String(e.coverage))}%</td>
@@ -172,14 +176,15 @@ export default async function handler(req, res) {
     const html = `
     <div style="font-family:Arial,sans-serif;max-width:800px;margin:auto">
       <div style="background:#1a1a2e;padding:20px;border-radius:8px 8px 0 0">
-        <h2 style="color:#fff;margin:0">📊 EMQ Monitor — IceLaser Pixel</h2>
-        <p style="color:#aaa;margin:5px 0 0">${agora} | Pixel ${PIXEL_ID}</p>
+        <h2 style="color:#fff;margin:0">📊 EMQ Monitor — IceLaser</h2>
+        <p style="color:#aaa;margin:5px 0 0">${agora} | ${datasets.length} dataset(s)</p>
       </div>
       <div style="background:#f9f9f9;padding:20px;border-radius:0 0 8px 8px;border:1px solid #eee">
         ${alertaHtml}
         <table style="width:100%;border-collapse:collapse;background:#fff">
           <thead>
             <tr style="background:#f5f5f5">
+              <th style="padding:8px;border:1px solid #ddd;text-align:left">Dataset</th>
               <th style="padding:8px;border:1px solid #ddd;text-align:left">Evento</th>
               <th style="padding:8px;border:1px solid #ddd">EMQ</th>
               <th style="padding:8px;border:1px solid #ddd">Cobertura</th>
@@ -205,13 +210,15 @@ export default async function handler(req, res) {
 
     await enviarEmail(assunto, html);
 
-    console.log(`[EMQ-MONITOR] ${webEvents.length} eventos | ${alertas.length} alertas | email enviado`);
+    console.log(`[EMQ-MONITOR] ${webEvents.length} eventos | datasets=${datasets.length} | ${alertas.length} alertas | email enviado`);
 
     return res.status(200).json({
       ok: true,
       events_monitored: webEvents.length,
+      datasets: datasets.map(d => ({ slug: d.slug, label: d.label, dataset_id: d.datasetId })),
+      dataset_errors: datasetErrors.map(e => ({ slug: e.dataset.slug, status: e.status, error: e.error })),
       alerts: alertas.length,
-      summary: resumo.map(e => ({ event: e.nome, emq: e.emq, coverage: e.coverage })),
+      summary: resumo.map(e => ({ dataset: e.dataset_slug, event: e.nome, emq: e.emq, coverage: e.coverage })),
     });
   } catch (err) {
     console.error('[EMQ-MONITOR]', err.message);

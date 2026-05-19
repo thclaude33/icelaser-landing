@@ -20,10 +20,11 @@
 
 import { put, head } from '@vercel/blob';
 import nodemailer from 'nodemailer';
-import { PIXEL_ID, GRAPH_BASE } from '../_lib/config.js';
+import { GRAPH_BASE } from '../_lib/config.js';
 import { brtISO, isVercelCron } from '../_lib/time.js';
 import { escapeHtml, sanitizeHeader } from '../_lib/security.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
+import { getEmqDatasets } from '../_lib/emq-datasets.js';
 
 const EMAIL_FROM = process.env.EMAIL_FROM || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS = process.env.EMAIL_PASS;
@@ -43,9 +44,9 @@ const EMQ_THRESHOLDS = {
 const EMQ_MIN_DEFAULT = 5.0;
 const REALERT_WINDOW_MS = 6 * 60 * 60 * 1000; // 6h
 
-async function fetchEmq(token) {
+async function fetchEmq(token, dataset) {
   const fields = 'web{event_name,event_match_quality{composite_score},event_coverage{percentage,goal_percentage}}';
-  const url = `${GRAPH_BASE}/dataset_quality?dataset_id=${PIXEL_ID}&fields=${encodeURIComponent(fields)}`;
+  const url = `${GRAPH_BASE}/dataset_quality?dataset_id=${dataset.datasetId}&fields=${encodeURIComponent(fields)}`;
   const r = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
   // Fix HIGH AI deep review v2 (b4 emq-alert.js:49): checar response.ok antes
   // de r.json(). Meta retorna HTML em 502/503 → SyntaxError no parse, mensagem
@@ -56,7 +57,7 @@ async function fetchEmq(token) {
   }
   const data = await r.json();
   if (data.error) throw new Error(`Meta API: ${data.error.message}`);
-  return data.web || [];
+  return (data.web || []).map(ev => ({ ...ev, __dataset: dataset }));
 }
 
 function classifyCritical(events) {
@@ -67,7 +68,14 @@ function classifyCritical(events) {
     if (emq === null || emq === undefined) continue;
     const threshold = EMQ_THRESHOLDS[name] ?? EMQ_MIN_DEFAULT;
     if (emq < threshold) {
-      criticals.push({ event: name, emq, threshold });
+      criticals.push({
+        dataset: ev.__dataset?.slug || 'unknown',
+        dataset_label: ev.__dataset?.label || 'Unknown dataset',
+        dataset_id: ev.__dataset?.datasetId || null,
+        event: name,
+        emq,
+        threshold,
+      });
     }
   }
   return criticals;
@@ -118,7 +126,7 @@ function shouldAlert(currentCriticals, lastAlert) {
 async function sendSlack(criticals) {
   if (!SLACK_WEBHOOK_URL) return false;
   const text = `🔴 *EMQ Alerta IceLaser* (${brtISO()})\n${criticals.map(c =>
-    `• *${c.event}*: EMQ ${c.emq} < threshold ${c.threshold}`).join('\n')}`;
+    `• *${c.dataset_label} / ${c.event}*: EMQ ${c.emq} < threshold ${c.threshold}`).join('\n')}`;
   try {
     const r = await fetch(SLACK_WEBHOOK_URL, {
       method: 'POST',
@@ -142,6 +150,7 @@ async function sendEmail(criticals) {
     const rows = criticals.map(c =>
       `<tr>
         <td style="padding:8px;border:1px solid #ddd;font-weight:bold">${escapeHtml(c.event)}</td>
+        <td style="padding:8px;border:1px solid #ddd">${escapeHtml(c.dataset_label)}</td>
         <td style="padding:8px;border:1px solid #ddd;text-align:center;color:#c0392b">
           ${escapeHtml(String(c.emq))}
         </td>
@@ -151,11 +160,12 @@ async function sendEmail(criticals) {
     const html = `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
         <h2 style="color:#c0392b">🔴 EMQ Alerta — IceLaser Pixel</h2>
-        <p style="color:#666">${escapeHtml(brtISO())} | Pixel ${escapeHtml(PIXEL_ID)}</p>
+        <p style="color:#666">${escapeHtml(brtISO())}</p>
         <table style="width:100%;border-collapse:collapse;margin-top:12px">
           <thead>
             <tr style="background:#1a1a2e;color:#fff">
               <th style="padding:8px;text-align:left">Evento</th>
+              <th style="padding:8px;text-align:left">Dataset</th>
               <th style="padding:8px;text-align:left">EMQ atual</th>
               <th style="padding:8px;text-align:left">Threshold</th>
             </tr>
@@ -163,7 +173,7 @@ async function sendEmail(criticals) {
           <tbody>${rows}</tbody>
         </table>
         <p style="margin-top:16px">Verifique em
-          <a href="https://business.facebook.com/events_manager2/list/pixel/${PIXEL_ID}/diagnostics">Events Manager</a>.
+          <a href="https://business.facebook.com/events_manager2/list">Events Manager</a>.
         </p>
       </div>`;
     await t.sendMail({
@@ -197,13 +207,19 @@ export default async function handler(req, res) {
   if (!token) return res.status(503).json({ error: 'meta_token_not_configured' });
 
   try {
-    const events = await fetchEmq(token);
+    const datasets = getEmqDatasets();
+    const eventGroups = await Promise.allSettled(datasets.map(dataset => fetchEmq(token, dataset)));
+    const events = eventGroups.flatMap((r, idx) => {
+      if (r.status === 'fulfilled') return r.value;
+      console.error(`[EMQ-ALERT] dataset=${datasets[idx]?.slug} failed: ${r.reason?.message || r.reason}`);
+      return [];
+    });
     const criticals = classifyCritical(events);
 
     // Tudo saudável: log short, retorna OK
     if (criticals.length === 0) {
       console.log(`[EMQ-ALERT] ${brtISO()} trigger=${isCron ? 'cron' : 'manual'} healthy total=${events.length}`);
-      return res.status(200).json({ ok: true, critical_count: 0 });
+      return res.status(200).json({ ok: true, critical_count: 0, datasets: datasets.map(d => d.slug) });
     }
 
     // Anti-spam: checa última alerta
@@ -223,6 +239,7 @@ export default async function handler(req, res) {
       ok: true,
       critical_count: criticals.length,
       criticals,
+      datasets: datasets.map(d => d.slug),
       slack_sent: slackSent,
       email_sent: emailSent,
     });

@@ -15,6 +15,8 @@ process.env.META_ACCESS_TOKEN = 'token_meta_test';
 
 const {
   resolveClinicFromPhoneNumberId,
+  resolveClinicFromPhoneNumberIdStrict,
+  resolveClinicFromPageIdStrict,
 } = await import(`../api/_lib/clinic-routing.js?v=${Date.now()}_clinic`);
 
 after(() => {
@@ -47,5 +49,21 @@ describe('resolveClinicFromPhoneNumberId', () => {
   test('phone_number_id ausente/desconhecido usa Recife por compatibilidade legacy', () => {
     assert.equal(resolveClinicFromPhoneNumberId(null).clinic, 'recife');
     assert.equal(resolveClinicFromPhoneNumberId('unknown_phone').clinic, 'recife');
+  });
+});
+
+describe('strict clinic routing V5.2.1', () => {
+  test('resolveClinicFromPhoneNumberIdStrict resolve JPA/Recife e desconhecido null', () => {
+    assert.equal(resolveClinicFromPhoneNumberIdStrict('phone_jpa_test').clinic, 'jpa');
+    assert.equal(resolveClinicFromPhoneNumberIdStrict('phone_recife_test').clinic, 'recife');
+    assert.equal(resolveClinicFromPhoneNumberIdStrict(null), null);
+    assert.equal(resolveClinicFromPhoneNumberIdStrict('unknown_phone'), null);
+  });
+
+  test('resolveClinicFromPageIdStrict resolve JPA/Recife e desconhecido null', () => {
+    assert.equal(resolveClinicFromPageIdStrict('page_jpa_test').clinic, 'jpa');
+    assert.equal(resolveClinicFromPageIdStrict('page_recife_test').clinic, 'recife');
+    assert.equal(resolveClinicFromPageIdStrict(null), null);
+    assert.equal(resolveClinicFromPageIdStrict('unknown_page'), null);
   });
 });
