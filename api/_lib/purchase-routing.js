@@ -1,5 +1,5 @@
 /**
- * Purchase/Events CRM routing — binary decision (Pixel LP vs WAM).
+ * Purchase/Events CRM routing — Pixel-only decision.
  *
  * PROBLEMA (descoberto empíricamente 23/04/2026):
  *   Meta NÃO faz dedup cross-dataset mesmo com mesmo event_id.
@@ -13,14 +13,14 @@
  *   - Meta Conversions API Gateway resolve multi-domain MESMO pixel,
  *     não 2 pixels recebendo mesmo evento
  *
- * SOLUÇÃO:
- *   Roteamento binário — cada venda vai pra UM dataset apenas, baseado no
- *   campo custom_attribute `payment_method` do Chatwoot (marcado pela atendente).
+ * SOLUÇÃO V5:
+ *   WAM fica em quarentena total. Cada evento CRM vai para o Pixel LP correto;
+ *   payment_method fica apenas como contexto/auditoria.
  *
  * SAFETY:
  *   - Feature flag: PURCHASE_ROUTING_ENABLED=1 (default) habilita
  *   - Qualquer erro no routing: callers caem no comportamento antigo (fan-out)
- *   - Fail-safe: sem payment_method → WAM (80% do volume IceLaser)
+ *   - Fail-safe: sem payment_method → Pixel LP
  *
  * Docs oficiais Meta:
  *   - business_messaging: https://developers.facebook.com/docs/marketing-api/conversions-api/business-messaging/
@@ -53,9 +53,9 @@ function normalize(s) {
  *
  * Ordem de prioridade:
  *   1. payment_method explícito (atendente marcou) — precisão 100%
- *   2. ctwa_clid presente (conversa veio de ad CTWA) — inferência
- *   3. leadgen_id presente (Meta Lead Ad Instant Form) — inferência
- *   4. Fallback → WAM (80% do volume IceLaser é WhatsApp)
+ *   2. ctwa_clid presente (conversa veio de ad CTWA) — contexto/auditoria
+ *   3. leadgen_id presente (Meta Lead Ad Instant Form) — contexto/auditoria
+ *   4. Fallback → Pixel LP
  *
  * @param {object} opts
  * @param {object} opts.customAttrs - custom_attributes mesclados (contact + conversation)
@@ -66,16 +66,7 @@ export function decideTargetDataset({ customAttrs, ctwa_clid } = {}) {
   const attrs = customAttrs || {};
   const pmNorm = normalize(attrs.payment_method);
 
-  // business_messaging EXIGE ctwa_clid ou PSID (Meta subcode 2804071 quando ausente).
-  // Se target=WAM mas sem ctwa_clid real, usamos system_generated (CRM direct).
-  // WAM aceita system_generated pra events CRM (validado LIVE 23/04/2026 wam_received=1).
-  //
-  // Fix AI Review Opus 4.5 (CRITICAL #2): threshold 16 → 32 chars. Real ctwa_clid
-  // tem formato Base64-like ~40-60 chars. Threshold baixo deixava passar strings
-  // fake como "xxxxxxxxxxxxxxxx" que Meta rejeita com subcode 2804087.
-  // Alinhado com MIN_CTWA_CLID_LENGTH já definido em api/_lib/capi-wam.js.
   const hasValidCtwa = ctwa_clid && typeof ctwa_clid === 'string' && ctwa_clid.length >= 32;
-  const wamActionSource = hasValidCtwa ? 'business_messaging' : 'system_generated';
 
   // 1. payment_method explícito (atendente marcou)
   if (pmNorm) {
@@ -91,9 +82,9 @@ export function decideTargetDataset({ customAttrs, ctwa_clid } = {}) {
     }
     if (isWaLink) {
       return {
-        target: DATASET_WAM,
-        action_source: wamActionSource,  // business_messaging só se ctwa real
-        reason: hasValidCtwa ? 'payment_method_wa_link_ctwa' : 'payment_method_wa_link',
+        target: DATASET_PIXEL_LP,
+        action_source: 'system_generated',
+        reason: hasValidCtwa ? 'payment_method_wa_link_ctwa_pixel' : 'payment_method_wa_link_pixel',
       };
     }
     if (pmNorm.includes('outros') || pmNorm.includes('other')) {
@@ -110,27 +101,26 @@ export function decideTargetDataset({ customAttrs, ctwa_clid } = {}) {
   // 2. Inferência por ctwa_clid (CTWA click — user veio de ad)
   if (hasValidCtwa) {
     return {
-      target: DATASET_WAM,
-      action_source: 'business_messaging',
-      reason: 'ctwa_clid_inferred',
+      target: DATASET_PIXEL_LP,
+      action_source: 'system_generated',
+      reason: 'ctwa_clid_pixel_only',
     };
   }
 
   // 3. Inferência por leadgen_id (Meta Lead Ad Instant Form)
   if (attrs.leadgen_id && /^\d{15,17}$/.test(String(attrs.leadgen_id))) {
     return {
-      target: DATASET_WAM,
-      action_source: 'system_generated',  // Lead Ad native é CRM system_generated (não messaging)
-      reason: 'leadgen_id_inferred',
+      target: DATASET_PIXEL_LP,
+      action_source: 'system_generated',
+      reason: 'leadgen_id_pixel_only',
     };
   }
 
-  // 4. Fallback — WAM é 80% do volume IceLaser (vendas via WA link)
-  //    Sem ctwa_clid, usa system_generated (WAM aceita events CRM direct)
+  // 4. Fallback — Pixel LP. WAM está em quarentena total no V5.
   return {
-    target: DATASET_WAM,
+    target: DATASET_PIXEL_LP,
     action_source: 'system_generated',
-    reason: 'fallback_default_wam',
+    reason: 'fallback_default_pixel',
   };
 }
 

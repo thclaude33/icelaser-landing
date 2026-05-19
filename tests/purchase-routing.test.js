@@ -1,12 +1,12 @@
 /**
  * Test suite: purchase-routing.js
  *
- * Roteamento binário de events CRM baseado em payment_method do Chatwoot.
- * Regra Meta spec: cada evento vai pra UM dataset apenas (zero double counting):
+ * Roteamento Pixel-only de events CRM.
+ * Regra V5: cada evento vai pro Pixel LP correto; WAM fica em quarentena.
  *   - payment_method=presencial → Pixel LP (system_generated, CRM offline)
- *   - payment_method=wa_link    → WAM (business_messaging, venda inside WhatsApp)
- *   - ctwa_clid presente sem payment_method → WAM (conversa veio de ad CTWA)
- *   - fallback → WAM (80% do volume IceLaser)
+ *   - payment_method=wa_link    → Pixel LP
+ *   - ctwa_clid presente sem payment_method → Pixel LP
+ *   - fallback → Pixel LP
  *
  * Descoberta empírica (23/04/2026 18:30 BRT): Meta NÃO faz dedup cross-dataset
  * mesmo com mesmo event_id. Creative Testing contou 2× Purchase da Bruna
@@ -21,7 +21,6 @@ import {
   parsePurchaseValue,
   VALID_PAYMENT_METHODS,
   DATASET_PIXEL_LP,
-  DATASET_WAM,
 } from '../api/_lib/purchase-routing.js';
 
 describe('decideTargetDataset — regra explícita via payment_method', () => {
@@ -32,22 +31,21 @@ describe('decideTargetDataset — regra explícita via payment_method', () => {
     assert.equal(r.reason, 'payment_method_presencial');
   });
 
-  test('payment_method=wa_link SEM ctwa_clid → WAM system_generated', () => {
-    // Sem ctwa_clid real, WAM rejeita business_messaging. Usa system_generated.
+  test('payment_method=wa_link SEM ctwa_clid → Pixel LP system_generated', () => {
     const r = decideTargetDataset({ customAttrs: { payment_method: 'wa_link' } });
-    assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.target, DATASET_PIXEL_LP);
     assert.equal(r.action_source, 'system_generated');
-    assert.equal(r.reason, 'payment_method_wa_link');
+    assert.equal(r.reason, 'payment_method_wa_link_pixel');
   });
 
-  test('payment_method=wa_link COM ctwa_clid → WAM business_messaging', () => {
+  test('payment_method=wa_link COM ctwa_clid → Pixel LP system_generated', () => {
     const r = decideTargetDataset({
       customAttrs: { payment_method: 'wa_link' },
       ctwa_clid: 'x'.repeat(40),
     });
-    assert.equal(r.target, DATASET_WAM);
-    assert.equal(r.action_source, 'business_messaging');
-    assert.equal(r.reason, 'payment_method_wa_link_ctwa');
+    assert.equal(r.target, DATASET_PIXEL_LP);
+    assert.equal(r.action_source, 'system_generated');
+    assert.equal(r.reason, 'payment_method_wa_link_ctwa_pixel');
   });
 
   test('payment_method=outros (caso excepcional) → Pixel LP (seguro)', () => {
@@ -60,31 +58,31 @@ describe('decideTargetDataset — regra explícita via payment_method', () => {
     assert.equal(decideTargetDataset({ customAttrs: { payment_method: 'Presencial' } }).target, DATASET_PIXEL_LP);
     assert.equal(decideTargetDataset({ customAttrs: { payment_method: 'PRESENCIAL' } }).target, DATASET_PIXEL_LP);
     const r = decideTargetDataset({ customAttrs: { payment_method: ' WA_LINK ' } });
-    assert.equal(r.target, DATASET_WAM);
-    assert.equal(r.action_source, 'system_generated'); // sem ctwa_clid
+    assert.equal(r.target, DATASET_PIXEL_LP);
+    assert.equal(r.action_source, 'system_generated');
   });
 
   test('payment_method com emoji/label Chatwoot (ex: "💰 WA Link")', () => {
     // Chatwoot às vezes adiciona emojis nos valores de atributo
-    assert.equal(decideTargetDataset({ customAttrs: { payment_method: '💰 WA Link' } }).target, DATASET_WAM);
+    assert.equal(decideTargetDataset({ customAttrs: { payment_method: '💰 WA Link' } }).target, DATASET_PIXEL_LP);
     assert.equal(decideTargetDataset({ customAttrs: { payment_method: '🏪 Presencial' } }).target, DATASET_PIXEL_LP);
   });
 });
 
 describe('decideTargetDataset — inferência automática sem payment_method', () => {
-  test('ctwa_clid presente (≥32 chars) sem payment_method → WAM (veio de ad CTWA)', () => {
+  test('ctwa_clid presente (≥32 chars) sem payment_method → Pixel LP', () => {
     const r = decideTargetDataset({ customAttrs: {}, ctwa_clid: 'Abc123'.repeat(8) }); // 48 chars
-    assert.equal(r.target, DATASET_WAM);
-    assert.equal(r.action_source, 'business_messaging');
-    assert.equal(r.reason, 'ctwa_clid_inferred');
+    assert.equal(r.target, DATASET_PIXEL_LP);
+    assert.equal(r.action_source, 'system_generated');
+    assert.equal(r.reason, 'ctwa_clid_pixel_only');
   });
 
   test('ctwa_clid curto (16 chars) → NÃO qualifica business_messaging (fake/invalid)', () => {
     // Fix AI Opus CRITICAL #2: threshold 32 chars (era 16, permitia fakes)
     const r = decideTargetDataset({ customAttrs: {}, ctwa_clid: 'x'.repeat(16) });
-    assert.equal(r.target, DATASET_WAM);
-    assert.equal(r.action_source, 'system_generated'); // fallback: ctwa não é válido
-    assert.equal(r.reason, 'fallback_default_wam');
+    assert.equal(r.target, DATASET_PIXEL_LP);
+    assert.equal(r.action_source, 'system_generated');
+    assert.equal(r.reason, 'fallback_default_pixel');
   });
 
   test('ctwa_clid limítrofe (31 chars) → ainda NÃO qualifica', () => {
@@ -94,23 +92,22 @@ describe('decideTargetDataset — inferência automática sem payment_method', (
 
   test('ctwa_clid exatamente 32 chars → QUALIFICA business_messaging', () => {
     const r = decideTargetDataset({ customAttrs: {}, ctwa_clid: 'x'.repeat(32) });
-    assert.equal(r.action_source, 'business_messaging');
-    assert.equal(r.reason, 'ctwa_clid_inferred');
+    assert.equal(r.action_source, 'system_generated');
+    assert.equal(r.reason, 'ctwa_clid_pixel_only');
   });
 
-  test('leadgen_id presente sem payment_method → WAM system_generated', () => {
-    // Lead Ad native = CRM system_generated (não messaging)
+  test('leadgen_id presente sem payment_method → Pixel LP system_generated', () => {
     const r = decideTargetDataset({ customAttrs: { leadgen_id: '1902453593797849' } });
-    assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.target, DATASET_PIXEL_LP);
     assert.equal(r.action_source, 'system_generated');
-    assert.equal(r.reason, 'leadgen_id_inferred');
+    assert.equal(r.reason, 'leadgen_id_pixel_only');
   });
 
-  test('sem payment_method, sem ctwa_clid, sem leadgen → fallback WAM system_generated', () => {
+  test('sem payment_method, sem ctwa_clid, sem leadgen → fallback Pixel LP system_generated', () => {
     const r = decideTargetDataset({ customAttrs: {} });
-    assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.target, DATASET_PIXEL_LP);
     assert.equal(r.action_source, 'system_generated');
-    assert.equal(r.reason, 'fallback_default_wam');
+    assert.equal(r.reason, 'fallback_default_pixel');
   });
 
   test('payment_method sempre tem prioridade sobre ctwa_clid', () => {
@@ -125,22 +122,22 @@ describe('decideTargetDataset — inferência automática sem payment_method', (
 });
 
 describe('decideTargetDataset — defensive edge cases', () => {
-  test('customAttrs null/undefined → fallback WAM', () => {
-    assert.equal(decideTargetDataset({ customAttrs: null }).target, DATASET_WAM);
-    assert.equal(decideTargetDataset({}).target, DATASET_WAM);
-    assert.equal(decideTargetDataset({ customAttrs: undefined }).target, DATASET_WAM);
+  test('customAttrs null/undefined → fallback Pixel LP', () => {
+    assert.equal(decideTargetDataset({ customAttrs: null }).target, DATASET_PIXEL_LP);
+    assert.equal(decideTargetDataset({}).target, DATASET_PIXEL_LP);
+    assert.equal(decideTargetDataset({ customAttrs: undefined }).target, DATASET_PIXEL_LP);
   });
 
   test('payment_method valor inválido (ex: "asdf") → fallback inferência', () => {
     const r = decideTargetDataset({ customAttrs: { payment_method: 'asdf' } });
-    // Valor inválido → ignora e usa fallback (WAM default)
-    assert.equal(r.target, DATASET_WAM);
-    assert.equal(r.reason, 'fallback_default_wam');
+    // Valor inválido → ignora e usa fallback Pixel LP.
+    assert.equal(r.target, DATASET_PIXEL_LP);
+    assert.equal(r.reason, 'fallback_default_pixel');
   });
 
   test('payment_method vazio "" → fallback', () => {
     const r = decideTargetDataset({ customAttrs: { payment_method: '' } });
-    assert.equal(r.target, DATASET_WAM);
+    assert.equal(r.target, DATASET_PIXEL_LP);
   });
 });
 
