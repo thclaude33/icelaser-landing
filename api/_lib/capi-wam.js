@@ -36,6 +36,9 @@ const WAM_DATASET_ID = process.env.WAM_DATASET_ID;
 // Fix HIGH (AI review C3): SEM fallback. Token errado → atribuição cross-dataset
 // silenciosa (compliance-breaking). Se WAM_ACCESS_TOKEN ausente → skip explícito.
 const WAM_TOKEN = process.env.WAM_ACCESS_TOKEN;
+// V5 Pixel-only: WAM fica em quarentena total por default. Só escreve se
+// alguém reativar explicitamente com WAM_WRITE_MODE=all.
+const WAM_WRITE_MODE = String(process.env.WAM_WRITE_MODE || 'disabled').trim().toLowerCase();
 // Fix HIGH (AI review): sem fallback hardcoded — atribuição cruzada em prod é compliance-breaking.
 const PAGE_ID = process.env.META_PAGE_ID;
 const WABA_ID = process.env.META_WABA_ID;
@@ -157,6 +160,7 @@ const BUSINESS_MESSAGING_VALID = new Set([
  * @returns {Promise<object>} resposta Meta ou { skipped: 'reason' }
  */
 export async function sendWAMEvent({ event_name, event_id, event_time, user_data, custom_data, action_source, original_event_data }) {
+  if (WAM_WRITE_MODE !== 'all') return { skipped: `wam_disabled:${WAM_WRITE_MODE || 'disabled'}` };
   if (!WAM_DATASET_ID) return { skipped: 'wam_dataset_not_configured' };
   if (!WAM_TOKEN) return { skipped: 'wam_token_missing' };
   // Issue 5 defensive (PR follow-up /review 38): trim defensivo evita whitespace
@@ -385,5 +389,5 @@ export async function sendWAMEvent({ event_name, event_id, event_time, user_data
 }
 
 export function wamIsConfigured() {
-  return !!(WAM_DATASET_ID && WAM_TOKEN);
+  return WAM_WRITE_MODE === 'all' && !!(WAM_DATASET_ID && WAM_TOKEN);
 }

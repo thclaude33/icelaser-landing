@@ -31,6 +31,7 @@ describe('capi-wam.js gate skips (antes de fetch)', () => {
   });
 
   test('skip wam_dataset_not_configured quando WAM_DATASET_ID ausente', async () => {
+    process.env.WAM_WRITE_MODE = 'all';
     delete process.env.WAM_DATASET_ID;
     delete process.env.WAM_ACCESS_TOKEN;
     // Re-import pra pegar env var atual
@@ -41,6 +42,22 @@ describe('capi-wam.js gate skips (antes de fetch)', () => {
       user_data: { ctwa_clid: 'x'.repeat(40), page_id: '111' },
     });
     assert.ok(res.skipped?.startsWith('wam_'), `skipped com motivo wam_*, got: ${JSON.stringify(res)}`);
+  });
+
+  test('default fail-closed: WAM_WRITE_MODE ausente desabilita writes', async () => {
+    process.env.WAM_DATASET_ID = '967048725669499';
+    process.env.WAM_ACCESS_TOKEN = 'EAATestToken123';
+    delete process.env.WAM_WRITE_MODE;
+    globalThis.fetch = async () => {
+      throw new Error('fetch não deveria ser chamado quando WAM está disabled');
+    };
+    const mod = await import(`../api/_lib/capi-wam.js?v=${Date.now()}_disabled`);
+    const res = await mod.sendWAMEvent({
+      event_name: 'LeadSubmitted',
+      event_id: 'test_12345678',
+      user_data: { ctwa_clid: 'x'.repeat(40), page_id: '111' },
+    });
+    assert.equal(res.skipped, 'wam_disabled:disabled');
   });
 });
 
@@ -80,10 +97,19 @@ describe('wamIsConfigured helper', () => {
   beforeEach(() => { originalEnv = { ...process.env }; });
   afterEach(() => { process.env = originalEnv; });
 
-  test('retorna true com WAM_DATASET_ID + WAM_ACCESS_TOKEN', async () => {
+  test('retorna false por default mesmo com WAM_DATASET_ID + WAM_ACCESS_TOKEN', async () => {
     process.env.WAM_DATASET_ID = '967048725669499';
     process.env.WAM_ACCESS_TOKEN = 'EAATestToken123';
+    delete process.env.WAM_WRITE_MODE;
     const mod = await import(`../api/_lib/capi-wam.js?v=${Date.now()}`);
+    assert.equal(mod.wamIsConfigured(), false);
+  });
+
+  test('retorna true só com WAM_WRITE_MODE=all + credenciais', async () => {
+    process.env.WAM_WRITE_MODE = 'all';
+    process.env.WAM_DATASET_ID = '967048725669499';
+    process.env.WAM_ACCESS_TOKEN = 'EAATestToken123';
+    const mod = await import(`../api/_lib/capi-wam.js?v=${Date.now()}_enabled`);
     assert.equal(mod.wamIsConfigured(), true);
   });
 });
@@ -95,6 +121,7 @@ describe('business_messaging strip banned fields (fix 2804064)', () => {
     originalFetch = globalThis.fetch;
     originalEnv = { ...process.env };
     capturedBody = null;
+    process.env.WAM_WRITE_MODE = 'all';
     process.env.WAM_DATASET_ID = '967048725669499';
     process.env.WAM_ACCESS_TOKEN = 'EAATestToken123';
     process.env.META_PAGE_ID = '111790301665816';
@@ -182,6 +209,7 @@ describe('action_source decision logic (Issue 2 / Issues 3+5 defensive)', () => 
     originalFetch = globalThis.fetch;
     originalEnv = { ...process.env };
     capturedBody = null;
+    process.env.WAM_WRITE_MODE = 'all';
     process.env.WAM_DATASET_ID = '967048725669499';
     process.env.WAM_ACCESS_TOKEN = 'EAATestToken123';
     process.env.META_PAGE_ID = '111790301665816';
