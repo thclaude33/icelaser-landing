@@ -19,7 +19,7 @@
  *
  * SAFETY:
  *   - Feature flag: PURCHASE_ROUTING_ENABLED=1 (default) habilita
- *   - Qualquer erro no routing: callers caem no comportamento antigo (fan-out)
+ *   - Qualquer erro no routing: callers caem no Pixel LP
  *   - Fail-safe: sem payment_method → Pixel LP
  *
  * Docs oficiais Meta:
@@ -28,7 +28,6 @@
  */
 
 export const DATASET_PIXEL_LP = 'pixel_lp';
-export const DATASET_WAM = 'wam';
 
 export const VALID_PAYMENT_METHODS = ['presencial', 'wa_link', 'outros'];
 

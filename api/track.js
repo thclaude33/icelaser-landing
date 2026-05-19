@@ -6,8 +6,8 @@ import { ALLOWED_ORIGINS, getPixelByHost, isOriginAllowed } from './_lib/config.
 import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
-// WAM dataset removed from track.js fan-out (26/04/2026) — see FIX comment near
-// the original WAM dispatch site below. WAM is now CAPI-only (whatsapp.js + crm-webhook).
+// WAM dataset removed from track.js fan-out (26/04/2026) and quarantined in V5.
+// Website events stay Pixel-only.
 
 const EMAIL_FROM  = process.env.EMAIL_FROM  || 'espacoicelaserrecife2@gmail.com';
 const EMAIL_PASS  = process.env.EMAIL_PASS;
@@ -622,10 +622,7 @@ export default async function handler(req, res) {
     // CTWA/business_messaging-only. Combinado com fbq init duplo no browser
     // (também removido em index.html L270 mesmo dia), poluía o WAM com
     // sinais de website que distorciam Andromeda CTWA optimization.
-    // WAM passa a receber APENAS via fontes legítimas:
-    //   - whatsapp.js (CTWA LeadSubmitted + Flow + leadgen Lead Ad)
-    //   - crm-webhook.js (CRM stages via routing binário)
-    //   - process-leadgen.js (DLQ retry recovery)
+    // V5 mantém WAM em quarentena total: website e CRM ficam Pixel-only.
     // Audit LIVE 7d antes do fix: 1192 PageView + 3361 ViewContent + 151 Lead
     // chegavam ao WAM via essas duas fontes incorretas (browser + track.js).
 

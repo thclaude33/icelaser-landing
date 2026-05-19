@@ -1,13 +1,12 @@
 /**
  * /api/cron/capi-alerts — Fix VA-5 (AI review Opus 4.6, 23/04/2026).
  *
- * Propósito: detectar CAPI/WAM error events em tempo quase-real (horário) e
- * alertar por email. Antes, errors como subcode 2804066 (event_name inválido
- * pra business_messaging) e OAuthException code=1 (WABA_ID rejected) ficavam
- * DIAS em prod sem detecção — só auditoria manual achou.
+ * Propósito: detectar CAPI error events em tempo quase-real (horário) e
+ * alertar por email. Mantém leitura de erros legados gravados pelo antigo
+ * helper WAM, que está em quarentena total no V5.
  *
  * Pipeline:
- *   1. capi-wam.js (sendWAMEvent) persiste erros em Blob `alerts/capi-errors/{ts}-{subcode}-{rand}.json`
+ *   1. Helpers CAPI persistem erros em Blob `alerts/capi-errors/{ts}-{subcode}-{rand}.json`
  *   2. Este cron (horário) lê blobs da última hora, agrupa por subcode
  *   3. Se count > 0, envia email com tabela de erros + anti-spam 6h
  *
