@@ -29,6 +29,7 @@
 
 import { kvClaim, kvRelease } from './_lib/kv-rate-limit.js';
 import { shouldSendNow } from './_lib/send-window.js';
+import { responseOrFallbackFromEvents } from './_lib/bia-client-response.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL';
@@ -69,13 +70,6 @@ function isAuthorized(req) {
   return { ok: true };
 }
 
-function isMetaConfirmation(text) {
-  if (!text || typeof text !== 'string') return false;
-  const t = text.trim();
-  if (t.length >= 80) return false;
-  return /^(profile|perfil)[^\n]{0,40}(criad|salv|confirm|atualiz|registrad|anotad|escrit)/i.test(t);
-}
-
 async function pollSessionUntilIdle(sessionId, deadlineMs, headers) {
   while (Date.now() < deadlineMs) {
     const resp = await fetch(`${ANTHROPIC_BASE}/sessions/${sessionId}/events?limit=100`, { headers });
@@ -86,22 +80,16 @@ async function pollSessionUntilIdle(sessionId, deadlineMs, headers) {
     const hasError = events.some((e) => e.type === 'session.error');
     if (hasError) return { ready: false, error: 'session.error' };
     if (hasIdle) {
-      const agentMsgs = events
-        .filter((e) => e.type === 'agent.message')
-        .map((e) => {
-          const c = (e.content || []).find((x) => x.type === 'text' && x.text);
-          return { text: c?.text || '', idx: events.indexOf(e) };
-        })
-        .filter((m) => m.text && m.text.length > 0 && !isMetaConfirmation(m.text));
-      if (agentMsgs.length === 0) return { ready: false, error: 'no_text_found_but_idle' };
-      let lastToolUseIdx = -1;
-      for (let i = events.length - 1; i >= 0; i--) {
-        if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
-      }
-      const postTool = agentMsgs.filter((m) => m.idx > lastToolUseIdx);
-      if (postTool.length > 0) return { ready: true, text: postTool[postTool.length - 1].text };
-      const largest = agentMsgs.slice().sort((a, b) => b.text.length - a.text.length)[0];
-      return { ready: true, text: largest.text };
+      const extracted = responseOrFallbackFromEvents(events);
+      if (!extracted.ok) return { ready: false, error: extracted.reason || 'no_text_found_but_idle' };
+      return {
+        ready: true,
+        text: extracted.text,
+        agentMsgIdx: extracted.agentMsgIdx,
+        extraction_source: extracted.source,
+        fallback: extracted.fallback === true,
+        blocked_reason: extracted.blockedReason || null,
+      };
     }
     await new Promise((r) => setTimeout(r, POLLING_TICK_MS));
   }
@@ -219,6 +207,9 @@ export default async function handler(req, res) {
         success: true,
         session_id: session.id,
         agent_message: result.text,
+        extraction_source: result.extraction_source || null,
+        fallback: result.fallback === true,
+        blocked_reason: result.blocked_reason || null,
         source,
         elapsed_ms,
         resources_attached: session.resources?.length ?? null,

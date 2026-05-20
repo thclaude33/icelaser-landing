@@ -6,6 +6,8 @@
 // respostas privadas Bia ↔ cliente. Agora exige Authorization: Bearer <token>.
 // Token aceito (ordem): BIA_POLL_API_KEY, BIA_DIRECT_API_KEY, CRON_SECRET.
 
+import { SAFE_CLIENT_FALLBACK, extractClientResponseFromEvents } from './_lib/bia-client-response.js';
+
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 
 function isAuthorized(req) {
@@ -64,12 +66,16 @@ export default async function handler(req, res) {
     const events = Array.isArray(data.data) ? data.data : [];
 
     const agentMessages = events.filter((e) => e.type === 'agent.message');
-    const last = agentMessages.length ? agentMessages[agentMessages.length - 1] : null;
-    const lastText = last?.content?.find?.((c) => c?.type === 'text')?.text || '';
+    const extracted = extractClientResponseFromEvents(events, { preferSafeCandidate: 'last' });
+    const blocked = !extracted.ok && extracted.blockedAgentMsgIdx >= 0;
 
     return res.status(200).json({
       session_id,
-      bia_response: lastText,
+      bia_response: extracted.ok ? extracted.text : (blocked ? SAFE_CLIENT_FALLBACK : ''),
+      response_source: extracted.ok ? extracted.source : null,
+      response_blocked: blocked,
+      block_reason: extracted.ok ? null : extracted.reason,
+      safe_fallback: blocked ? SAFE_CLIENT_FALLBACK : null,
       session_status: data.status || null,
       events_total: events.length,
       agent_messages_total: agentMessages.length,

@@ -31,6 +31,7 @@ import { shouldSendNow } from './_lib/send-window.js';
 import { kvClaim, kvRelease } from './_lib/kv-rate-limit.js';
 import { armCascade, disarmCascade, markBiaOutgoing, buildSnapshotFromContext } from './_lib/cascade.js';
 import { resolveSessionForThread, setActiveSession } from './_lib/session-reuse.js';
+import { responseOrFallbackFromEvents } from './_lib/bia-client-response.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -290,29 +291,6 @@ function stripWhatsAppMarkdown(text) {
     .trim();
 }
 
-// FASE PRÉ-3 Fix #2/#4 — extractClientResponse simplificado.
-// Bug histórico: regex anterior pegava bloco errado quando Bia gerava multi-block
-// response (ex: msg 5441 conv 510 — cliente perguntou "meia perna" recebeu apenas
-// bloco "recorrência"). Causa raiz: regex match parcial em palavras como "IceLaser".
-// Fix: retornar texto completo. stripWhatsAppMarkdown remove "---" separadores.
-function extractClientResponse(text) {
-  if (!text) return null;
-  return text.trim();
-}
-
-// BUG #32 mitigation (15/05/2026) — Coord v36 PROFILE WRITE STUB MANDATORY induziu
-// regressão: Bia emitia "Profile criado ✅" como agent.message DEPOIS do tool_use de
-// write profile. Handler post-tool_use boundary pegava essa meta-confirmação ao invés
-// da resposta cliente real. Coord v37 PATCH instrui Bia a parar após tool_use, mas
-// defense-in-depth: handler também filtra essas meta-confirmações curtas.
-function isMetaConfirmation(text) {
-  if (!text || typeof text !== 'string') return false;
-  const t = text.trim();
-  if (t.length >= 80) return false;
-  // Padrão: "Profile/Perfil ... criado/salvo/confirmado/atualizado/registrado/anotado"
-  return /^(profile|perfil)[^\n]{0,40}(criad|salv|confirm|atualiz|registrad|anotad|escrit)/i.test(t);
-}
-
 async function fetchAnthropic(path) {
   const resp = await fetch(`${ANTHROPIC_BASE}${path}`, { headers: buildAnthropicHeaders() });
   if (!resp.ok) throw new Error(`Anthropic ${path} HTTP ${resp.status}`);
@@ -335,39 +313,17 @@ async function pollSessionForResponse(sessionId, deadlineMs, baseline = {}) {
     const hasError = events.some((e) => e.type === 'session.error');
     if (hasError) return { ready: false, error: 'session.error' };
     if (hasNewIdle) {
-      // FASE PRÉ-3 Fix #1 + BUG #32 mitigation (v37) + PROMPT 4 (reuse baseline):
-      // Estratégia 4 camadas:
-      //   0) Filtrar agent.messages APÓS baselineEventCount (só turno atual em reuse)
-      //   A) Coord v37 instrui Bia a NÃO emitir agent.message após tool_use profile write
-      //   B) Filtra meta-confirmações curtas (isMetaConfirmation)
-      //   C) Fallback: maior agent.message do turno (filtra meta)
-      const agentMsgs = events
-        .filter((e) => e.type === 'agent.message')
-        .map((e) => {
-          const c = (e.content || []).find((x) => x.type === 'text' && x.text);
-          return { text: c?.text || '', idx: events.indexOf(e) };
-        })
-        .filter((m) => m.text && m.text.length > 0 && !isMetaConfirmation(m.text))
-        .filter((m) => m.idx >= baselineEventCount);  // PROMPT 4: só turno atual
-
-      if (agentMsgs.length === 0) {
-        return { ready: false, error: 'no_text_found_but_idle' };
-      }
-
-      // Boundary primário: última agent.message não-meta APÓS último tool_use do TURNO ATUAL
-      let lastToolUseIdx = -1;
-      for (let i = events.length - 1; i >= baselineEventCount; i--) {
-        if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
-      }
-      const postTool = agentMsgs.filter((m) => m.idx > lastToolUseIdx);
-      if (postTool.length > 0) {
-        const chosen = postTool[postTool.length - 1];
-        return { ready: true, text: chosen.text, agentMsgIdx: chosen.idx };
-      }
-
-      // Fallback C: maior msg do turno (resposta real 639 chars vence meta 38 chars)
-      const largest = agentMsgs.slice().sort((a, b) => b.text.length - a.text.length)[0];
-      return { ready: true, text: largest.text, agentMsgIdx: largest.idx };
+      const extracted = responseOrFallbackFromEvents(events, { baselineEventCount });
+      if (!extracted.ok) return { ready: false, error: extracted.reason || 'no_text_found_but_idle' };
+      return {
+        ready: true,
+        text: extracted.text,
+        agentMsgIdx: extracted.agentMsgIdx,
+        extraction_source: extracted.source,
+        fallback: extracted.fallback === true,
+        blocked_reason: extracted.blockedReason || null,
+        blocked_preview: extracted.blockedTextPreview || null,
+      };
     }
     // Não terminou ainda — sleep tick
     await new Promise((r) => setTimeout(r, POLLING_TICK_MS));
@@ -706,9 +662,8 @@ export default async function handler(req, res) {
       const elapsed_ms = Date.now() - t_start;
 
       if (result.ready && result.text) {
-        const clientResp = extractClientResponse(result.text);
-        const clean = stripWhatsAppMarkdown(clientResp);
-        if (clean && clean.length >= 10) {
+        const clean = stripWhatsAppMarkdown(result.text);
+        if (clean) {
           // PROMPT 4 FIX (16/05): dedup_key usa agent.message event idx (único por turno).
           // Em session REUSE, chatwoot_message_id da metadata é STALE (turno 1 imutável).
           // Antes: cron-postback alreadyPosted('msg_<turno1>')=true em turno N → skip → resposta perdida.
@@ -752,6 +707,9 @@ export default async function handler(req, res) {
               chatwoot_message_id_incoming: extra.chatwoot_message_id || null,
               agent_msg_idx: result.agentMsgIdx,
               agent_msg_preview: (result.text || '').slice(0, 200),
+              extraction_source: result.extraction_source || null,
+              fallback: result.fallback === true,
+              blocked_reason: result.blocked_reason || null,
               dedup_key: dedupKey,
               posted_at: new Date().toISOString(),
               posted_by: 'handler_inline_claiming',
@@ -767,6 +725,9 @@ export default async function handler(req, res) {
                 chatwoot_message_id_incoming: extra.chatwoot_message_id || null,
                 agent_msg_idx: result.agentMsgIdx,
                 agent_msg_preview: (result.text || '').slice(0, 200),
+                extraction_source: result.extraction_source || null,
+                fallback: result.fallback === true,
+                blocked_reason: result.blocked_reason || null,
                 dedup_key: dedupKey,
                 posted_at: new Date().toISOString(),
                 posted_by: 'handler_inline_confirmed',

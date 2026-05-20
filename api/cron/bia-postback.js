@@ -19,6 +19,7 @@ import { shouldSendNow } from '../_lib/send-window.js';
 import { markBiaOutgoing, armCascade, buildSnapshotFromContext } from '../_lib/cascade.js';
 import { setActiveSession } from '../_lib/session-reuse.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
+import { responseOrFallbackFromEvents } from '../_lib/bia-client-response.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
@@ -44,25 +45,6 @@ function stripWhatsAppMarkdown(text) {
     .replace(/^---+\s*$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-}
-
-// FASE PRÉ-3 Fix #2/#4 — extractClientResponse simplificado, consistente com handler.
-// Bug histórico: regex incluía "laser" que match "IceLaser" em qualquer bloco —
-// produzia inconsistência handler×cron (msg 5441 conv 510). Fix: retornar full text.
-function extractClientResponse(text) {
-  if (!text) return null;
-  return text.trim();
-}
-
-// BUG #32 mitigation (15/05/2026) — consistente com handler bia-session-create.js.
-// Filtra meta-confirmações "Profile criado ✅" que Coord v36 PROFILE STUB MANDATORY
-// induziu Bia a emitir após tool_use de write profile. Coord v37 PATCH instrui pra
-// parar, mas filtro defensivo aqui também (defense in depth).
-function isMetaConfirmation(text) {
-  if (!text || typeof text !== 'string') return false;
-  const t = text.trim();
-  if (t.length >= 80) return false;
-  return /^(profile|perfil)[^\n]{0,40}(criad|salv|confirm|atualiz|registrad|anotad|escrit)/i.test(t);
 }
 
 async function fetchAnthropic(path) {
@@ -153,7 +135,17 @@ export default async function handler(req, res) {
   if (!process.env.ANTHROPIC_API_KEY_ICELASER) return res.status(500).json({ error: 'missing_env' });
   if (!process.env.CHATWOOT_API_TOKEN) return res.status(500).json({ error: 'missing_env_chatwoot' });
 
-  const stats = { scanned: 0, posted: 0, skipped_already: 0, skipped_processing: 0, skipped_no_content: 0, errors: 0, details: [] };
+  const stats = {
+    scanned: 0,
+    posted: 0,
+    fallback_posted: 0,
+    blocked_internal_content: 0,
+    skipped_already: 0,
+    skipped_processing: 0,
+    skipped_no_content: 0,
+    errors: 0,
+    details: [],
+  };
   const cutoff = Date.now() - LOOKBACK_MIN * 60 * 1000;
 
   try {
@@ -183,50 +175,30 @@ export default async function handler(req, res) {
           stats.skipped_processing += 1;
           continue;
         }
-        // FASE PRÉ-3 Fix #1 + BUG #32 mitigation (v37): defense-in-depth 3 camadas
-        // A) Coord v37 instrui Bia a parar após tool_use profile write
-        // B) isMetaConfirmation filtra "Profile criado ✅" curtos (~38 chars)
-        // C) Fallback: maior msg do turno se A+B falham
-        const agentMsgs = events
-          .filter((e) => e.type === 'agent.message')
-          .map((e) => {
-            const c = (e.content || []).find((x) => x.type === 'text' && x.text);
-            return { text: c?.text || '', idx: events.indexOf(e) };
-          })
-          .filter((m) => m.text && m.text.length > 0 && !isMetaConfirmation(m.text));
-
-        let bestText = null;
-        let bestIdx = -1;
-        if (agentMsgs.length > 0) {
-          let lastToolUseIdx = -1;
-          for (let i = events.length - 1; i >= 0; i--) {
-            if (events[i].type === 'agent.tool_use') { lastToolUseIdx = i; break; }
-          }
-          const postTool = agentMsgs.filter((m) => m.idx > lastToolUseIdx);
-          if (postTool.length > 0) {
-            const chosen = postTool[postTool.length - 1];
-            bestText = chosen.text;
-            bestIdx = chosen.idx;
-          } else {
-            // Fallback C: maior msg filtrada
-            const largest = agentMsgs.slice().sort((a, b) => b.text.length - a.text.length)[0];
-            bestText = largest.text;
-            bestIdx = largest.idx;
-          }
-        }
-
-        if (!bestText) {
+        // Cron postback has no inline baseline for reused sessions. Prefer the latest safe
+        // agent response after filtering internals so we do not retry a stale old turn.
+        const extracted = responseOrFallbackFromEvents(events, { preferSafeCandidate: 'last' });
+        if (!extracted.ok || !extracted.text) {
           stats.skipped_no_content += 1;
           continue;
         }
-        const clean = stripWhatsAppMarkdown(extractClientResponse(bestText));
-        if (!clean || clean.length < 10) {
+        if (extracted.fallback) {
+          stats.blocked_internal_content += 1;
+          stats.details.push({
+            sid: sid.slice(-12),
+            conv: convId,
+            action: 'safe_fallback_for_blocked_internal_content',
+            reason: extracted.blockedReason,
+          });
+        }
+        const clean = stripWhatsAppMarkdown(extracted.text);
+        if (!clean) {
           stats.skipped_no_content += 1;
           continue;
         }
         // PROMPT 4 FIX (16/05): dedup_key agora baseado em agent.message event idx (único por turno)
         // ao invés de metadata.chatwoot_message_id (STALE em session reuse). Resolve bug Damiane 538.
-        const dedupKey = getDedupKey(sid, bestIdx);
+        const dedupKey = getDedupKey(sid, extracted.agentMsgIdx);
         if (await alreadyPosted(dedupKey)) {
           stats.skipped_already += 1;
           continue;
@@ -245,8 +217,11 @@ export default async function handler(req, res) {
           conv_id: convId,
           chatwoot_msg_id: null, // será atualizado pós-POST
           chatwoot_message_id_incoming: incomingMsgId || null,
-          agent_msg_idx: bestIdx,
-          agent_msg_preview: bestText.slice(0, 200),
+          agent_msg_idx: extracted.agentMsgIdx,
+          agent_msg_preview: extracted.text.slice(0, 200),
+          extraction_source: extracted.source || null,
+          fallback: extracted.fallback === true,
+          blocked_reason: extracted.blockedReason || null,
           dedup_key: dedupKey,
           posted_at: new Date().toISOString(),
           posted_by: 'cron_fallback_claiming',
@@ -259,8 +234,11 @@ export default async function handler(req, res) {
             conv_id: convId,
             chatwoot_msg_id: posted.id,
             chatwoot_message_id_incoming: incomingMsgId || null,
-            agent_msg_idx: bestIdx,
-            agent_msg_preview: bestText.slice(0, 200),
+            agent_msg_idx: extracted.agentMsgIdx,
+            agent_msg_preview: extracted.text.slice(0, 200),
+            extraction_source: extracted.source || null,
+            fallback: extracted.fallback === true,
+            blocked_reason: extracted.blockedReason || null,
             dedup_key: dedupKey,
             posted_at: new Date().toISOString(),
             posted_by: 'cron_fallback_confirmed',
@@ -281,6 +259,7 @@ export default async function handler(req, res) {
             }
           }
           stats.posted += 1;
+          if (extracted.fallback) stats.fallback_posted += 1;
           stats.details.push({ sid: sid.slice(-12), conv: convId, msg_id: posted.id, dedup_key: dedupKey });
         } catch (postErr) {
           // POST falhou — DELETA marker pra próximo cron tick retry
