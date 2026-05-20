@@ -32,6 +32,21 @@ import { skipIfNotPrimary } from '../_lib/primary-project.js';
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
 const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
 const MAX_PER_RUN = 50;
+const TERMINAL_LABELS = new Set([
+  'compra_realizada',
+  '💰_compra_realizada',
+  'compra realizada',
+  'purchase',
+  'sold',
+  'desqualificado',
+  '❌_desqualificado',
+  'disqualified',
+  'unqualified',
+  'lead_quente',
+  '🔥_lead_quente',
+  'lead quente',
+  'hot_lead',
+]);
 
 function isAuthorized(req) {
   const expected = process.env.CRON_SECRET;
@@ -54,6 +69,115 @@ async function postChatwoot(convId, content) {
   try { return JSON.parse(txt); } catch { return { raw: txt }; }
 }
 
+export function normalizeChatwootLabels(conversation = {}) {
+  const sources = [
+    conversation.labels,
+    conversation.cached_label_list,
+    conversation.payload?.labels,
+    conversation.payload?.cached_label_list,
+    conversation.data?.labels,
+    conversation.data?.cached_label_list,
+  ];
+  return sources.flatMap((value) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') return value.split(',');
+    return [];
+  }).map((label) => String(label).trim().toLowerCase()).filter(Boolean);
+}
+
+function getConversationStatus(conversation = {}) {
+  return conversation.status || conversation.payload?.status || conversation.data?.status || null;
+}
+
+function getConversationMessages(conversation = {}) {
+  const value = conversation.messages || conversation.payload?.messages || conversation.data?.messages || [];
+  return Array.isArray(value) ? value : [];
+}
+
+function messageCreatedAtMs(message = {}) {
+  const raw = message.created_at || message.createdAt || message.timestamp || null;
+  if (typeof raw === 'number') return raw < 1000000000000 ? raw * 1000 : raw;
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function isIncomingMessage(message = {}) {
+  return message.message_type === 0 || message.message_type === 'incoming';
+}
+
+function isHumanOutgoingMessage(message = {}) {
+  const isOutgoing = message.message_type === 1 || message.message_type === 'outgoing';
+  if (!isOutgoing) return false;
+  const senderType = String(message.sender?.type || message.sender_type || message.senderType || '').toLowerCase();
+  return senderType === 'user' || senderType === 'agent';
+}
+
+export function validateFollowupConversation(conversation = {}, state = {}) {
+  const status = getConversationStatus(conversation);
+  if (status && String(status).toLowerCase() !== 'open') {
+    return { ok: false, reason: 'status_not_open', status, cleanup: true };
+  }
+
+  const labels = normalizeChatwootLabels(conversation);
+  const terminalLabel = labels.find((label) => TERMINAL_LABELS.has(label));
+  if (terminalLabel) {
+    return { ok: false, reason: 'terminal_label', label: terminalLabel, cleanup: true };
+  }
+
+  const sinceMs = Date.parse(state.last_step_sent_at || state.started_at || 0);
+  if (!Number.isNaN(sinceMs) && sinceMs > 0) {
+    const messages = getConversationMessages(conversation);
+    const incoming = messages.find((m) => isIncomingMessage(m) && messageCreatedAtMs(m) > sinceMs);
+    if (incoming) {
+      return { ok: false, reason: 'incoming_after_followup_state', message_id: incoming.id, cleanup: true };
+    }
+    const humanOutgoing = messages.find((m) => isHumanOutgoingMessage(m) && messageCreatedAtMs(m) > sinceMs);
+    if (humanOutgoing) {
+      return { ok: false, reason: 'human_outgoing_after_followup_state', message_id: humanOutgoing.id, cleanup: true };
+    }
+  }
+
+  return { ok: true, status: status || 'unknown', labels };
+}
+
+async function fetchChatwootConversation(convId) {
+  const resp = await fetch(
+    `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}`,
+    {
+      headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN },
+    }
+  );
+  const text = await resp.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = { raw: text }; }
+  if (!resp.ok) {
+    return { ok: false, status: resp.status, detail: text.slice(0, 200), not_found: resp.status === 404 };
+  }
+  return { ok: true, conversation: body?.payload || body?.data || body };
+}
+
+export function isKvWriteDegraded(result) {
+  return !result || result.ok === false || result.fallback === true;
+}
+
+function recordKvPersistenceWarning(stats, convId, action, results) {
+  const degraded = Object.entries(results).filter(([, result]) => isKvWriteDegraded(result));
+  if (degraded.length === 0) return false;
+  stats.kv_persistence_warnings += 1;
+  stats.details.push({
+    conv: convId,
+    action,
+    degraded_writes: degraded.map(([name, result]) => ({
+      name,
+      ok: result?.ok,
+      fallback: result?.fallback,
+      error: result?.error,
+    })),
+  });
+  console.error(`[FU-KV-DEGRADED] conv=${convId} action=${action} writes=${degraded.map(([name]) => name).join(',')}`);
+  return true;
+}
+
 export default async function handler(req, res) {
   if (!isAuthorized(req)) return res.status(401).json({ error: 'unauthorized' });
 
@@ -72,6 +196,8 @@ export default async function handler(req, res) {
     finished: 0,
     errors: 0,
     cleaned_orphans: 0,
+    skipped_revalidation: 0,
+    kv_persistence_warnings: 0,
     details: [],
   };
 
@@ -202,6 +328,35 @@ export default async function handler(req, res) {
         }
         const rendered = renderTemplate(template, state.nome_snapshot);
 
+        // 3d-bis. Revalidate current Chatwoot state before posting.
+        // Webhooks can be delayed/lost during Railway/Chatwoot incidents; this prevents
+        // old follow-ups after human reply, terminal label, or closed conversation.
+        const cwState = await fetchChatwootConversation(convId);
+        if (!cwState.ok) {
+          if (cwState.not_found) {
+            const zremResult = await kvZrem(KV_INDEX, convId);
+            const delResult = await kvDel(stateKey(convId));
+            recordKvPersistenceWarning(stats, convId, 'cleanup_orphan_revalidate_404_kv_degraded', { zremResult, delResult });
+            stats.cleaned_orphans += 1;
+            stats.details.push({ conv: convId, action: 'cleanup_orphan', reason: 'chatwoot_404_revalidate' });
+            continue;
+          }
+          stats.errors += 1;
+          stats.details.push({ conv: convId, action: 'revalidate_failed_transient', status: cwState.status, detail: cwState.detail });
+          console.warn(`[FU-REVALIDATE-ERROR] conv=${convId} status=${cwState.status} detail=${cwState.detail || '?'}`);
+          continue;
+        }
+        const revalidation = validateFollowupConversation(cwState.conversation, state);
+        if (!revalidation.ok) {
+          const zremResult = await kvZrem(KV_INDEX, convId);
+          const delResult = await kvDel(stateKey(convId));
+          recordKvPersistenceWarning(stats, convId, 'revalidation_cleanup_kv_degraded', { zremResult, delResult });
+          stats.skipped_revalidation += 1;
+          stats.details.push({ conv: convId, action: 'revalidation_skip_cleanup', reason: revalidation.reason, label: revalidation.label, status: revalidation.status });
+          console.log(`[FU-REVALIDATE-SKIP] conv=${convId} reason=${revalidation.reason}`);
+          continue;
+        }
+
         // 3e. POST Chatwoot
         let posted;
         try {
@@ -229,10 +384,11 @@ export default async function handler(req, res) {
         }
 
         // 3f. Mark Bia outgoing (anti-collision)
-        await markBiaOutgoing(convId);
+        const markOutgoingResult = await markBiaOutgoing(convId);
 
         // 3g. Increment daily count
-        await incrDailyCount(convId);
+        const dailyCountResult = await incrDailyCount(convId);
+        recordKvPersistenceWarning(stats, convId, 'post_send_markers_kv_degraded', { markOutgoingResult, dailyCountResult });
 
         stats.sent += 1;
 
@@ -240,8 +396,9 @@ export default async function handler(req, res) {
         const next = getNextStep(state);
         if (!next) {
           // Fim cascade
-          await kvDel(stateKey(convId));
-          await kvZrem(KV_INDEX, convId);
+          const delResult = await kvDel(stateKey(convId));
+          const zremResult = await kvZrem(KV_INDEX, convId);
+          recordKvPersistenceWarning(stats, convId, 'sent_then_finish_kv_degraded', { delResult, zremResult });
           stats.finished += 1;
           stats.details.push({ conv: convId, action: 'sent_then_finish', msg_id: posted?.id, phase: state.phase, step: state.step });
         } else {
@@ -249,8 +406,9 @@ export default async function handler(req, res) {
           state.step = next.step;
           state.scheduled_at = next.scheduledAt.toISOString();
           state.last_step_sent_at = new Date().toISOString();
-          await kvSet(stateKey(convId), JSON.stringify(state), 30 * 24 * 3600);
-          await kvZadd(KV_INDEX, Math.floor(next.scheduledAt.getTime() / 1000), convId);
+          const setResult = await kvSet(stateKey(convId), JSON.stringify(state), 30 * 24 * 3600);
+          const zaddResult = await kvZadd(KV_INDEX, Math.floor(next.scheduledAt.getTime() / 1000), convId);
+          recordKvPersistenceWarning(stats, convId, 'sent_then_advance_kv_degraded', { setResult, zaddResult });
           stats.details.push({
             conv: convId, action: 'sent_then_advance',
             msg_id: posted?.id, sent_phase: state.phase, sent_step: state.step, // note: já atualizado pra next

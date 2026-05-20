@@ -31,6 +31,18 @@ export const config = {
 
 const FLOW_VERSION = '1.0.0';
 
+export function checkBotInternalAuth(req) {
+  const internalToken = process.env.CHATWOOT_BOT_INTERNAL_TOKEN;
+  if (!internalToken) {
+    return { ok: false, http: 503, error: 'bot_misconfigured', mode: 'env_missing_fail_closed' };
+  }
+  const providedToken = req.headers?.['x-bot-internal-token'];
+  if (providedToken !== internalToken) {
+    return { ok: false, http: 401, error: 'unauthorized', mode: 'missing_or_invalid' };
+  }
+  return { ok: true, mode: 'x_bot_internal_token' };
+}
+
 export default async function handler(req, res) {
   // ──────────────────────────────────────────────────────────────
   // GET: health check + dry-run test
@@ -50,6 +62,15 @@ export default async function handler(req, res) {
 
     // Modo test: dispara handleNewConversation com payload mock
     if (req.query?.test === '1') {
+      const auth = checkBotInternalAuth(req);
+      if (!auth.ok) {
+        if (auth.http === 503) {
+          console.error('[CHATWOOT-BOT] CHATWOOT_BOT_INTERNAL_TOKEN not set — test fail-closed');
+        } else {
+          console.warn('[CHATWOOT-BOT] unauthorized GET test attempt');
+        }
+        return res.status(auth.http).json({ ...healthResp, test: true, error: auth.error, detail: auth.mode });
+      }
       const mockPayload = {
         event: 'conversation_created',
         id: 999999,
@@ -83,13 +104,12 @@ export default async function handler(req, res) {
   // Antes: `if (internalToken && providedToken !== internalToken)` permitia
   // bypass quando CHATWOOT_BOT_INTERNAL_TOKEN não setada — buraco de segurança.
   // Agora: token OBRIGATÓRIO no Vercel. Sem token configurado = 503 fail-closed.
-  const internalToken = process.env.CHATWOOT_BOT_INTERNAL_TOKEN;
-  if (!internalToken) {
+  const auth = checkBotInternalAuth(req);
+  if (!auth.ok && auth.http === 503) {
     console.error('[CHATWOOT-BOT] CHATWOOT_BOT_INTERNAL_TOKEN not set — fail-closed');
     return res.status(503).json({ error: 'bot_misconfigured' });
   }
-  const providedToken = req.headers['x-bot-internal-token'];
-  if (providedToken !== internalToken) {
+  if (!auth.ok) {
     console.warn('[CHATWOOT-BOT] unauthorized POST attempt');
     return res.status(401).json({ error: 'unauthorized' });
   }

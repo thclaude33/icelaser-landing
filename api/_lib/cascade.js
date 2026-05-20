@@ -24,6 +24,7 @@ const KV_INDEX = 'fu:idx:scheduled';
 const KV_KILLSWITCH = 'fu:killswitch';
 const STATE_TTL_SEC = 30 * 24 * 3600;             // 30 dias rolling
 const LAST_BIA_OUTGOING_TTL_SEC = 300;            // 5min — detect humana via timestamp
+export const OUTGOING_SELF_DETECT_THRESHOLD_MS = LAST_BIA_OUTGOING_TTL_SEC * 1000;
 const DAILY_COUNT_TTL_SEC = 25 * 3600;            // 25h
 const DAILY_MAX_SENDS = 6;                        // hard limit anti-spam
 const SNAPSHOT_REFRESH_AFTER_MS = 24 * 3600 * 1000; // 24h
@@ -244,15 +245,15 @@ export async function disarmCascade(convId, reason) {
  * Handler bia-session-create.js + cron/bia-postback.js chamam isso após postChatwoot success.
  */
 export async function markBiaOutgoing(convId) {
-  if (!convId) return;
-  await kvSet(lastBiaOutgoingKey(convId), new Date().toISOString(), LAST_BIA_OUTGOING_TTL_SEC);
+  if (!convId) return { ok: false, reason: 'no_conv_id' };
+  return kvSet(lastBiaOutgoingKey(convId), new Date().toISOString(), LAST_BIA_OUTGOING_TTL_SEC);
 }
 
 /**
  * Detecta se outgoing msg recebida no webhook é da própria Bia (true) ou humana (false).
- * Bia posta → mark timestamp → se NOW - last_bia < 60s = própria Bia.
+ * Bia posta → mark timestamp → se NOW - last_bia < marker TTL = própria Bia.
  */
-export async function isOutgoingFromBia(convId, thresholdMs = 60000) {
+export async function isOutgoingFromBia(convId, thresholdMs = OUTGOING_SELF_DETECT_THRESHOLD_MS) {
   const r = await kvGet(lastBiaOutgoingKey(convId));
   if (!r.ok || !r.value) return false; // nenhum mark → assume humana (safe default)
   const lastMs = Date.parse(r.value);

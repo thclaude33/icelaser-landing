@@ -80,7 +80,22 @@ async function markAlertSent(payload) {
   }
 }
 
-async function sendDriftEmail({ liveVersion, localVersion, latestCreated }) {
+export function selectLatestSkillVersion(versions = []) {
+  if (!Array.isArray(versions) || versions.length === 0) return null;
+  return [...versions].sort((a, b) => {
+    const bTime = Date.parse(b?.created_at || 0) || 0;
+    const aTime = Date.parse(a?.created_at || 0) || 0;
+    if (bTime !== aTime) return bTime - aTime;
+    return String(b?.id || '').localeCompare(String(a?.id || ''));
+  })[0] || null;
+}
+
+export function isSkillVersionInSync(localSyncedVersion, latestVersion) {
+  if (!localSyncedVersion || !latestVersion?.id) return false;
+  return String(localSyncedVersion).trim() === String(latestVersion.id).trim();
+}
+
+async function sendDriftEmail({ liveVersion, localVersion, latestCreated, liveVersionNumber }) {
   if (!process.env.EMAIL_PASS || !process.env.EMAIL_FROM || !process.env.EMAIL_TO) {
     return { sent: false, reason: 'missing_email_env' };
   }
@@ -96,7 +111,8 @@ async function sendDriftEmail({ liveVersion, localVersion, latestCreated }) {
   const body = `
 Drift detectado em skill_01VmKCpBmg717nKmCAWgnUYS (Bia Vendedora Premium).
 
-Production latest_version: ${liveVersion}
+Production latest_version_id: ${liveVersion}
+Production version number  : ${liveVersionNumber || '?'}
 Local synced version    : ${localVersion || '(NÃO commitada)'}
 Production created_at   : ${latestCreated || '?'}
 Checked at              : ${new Date().toISOString()}
@@ -141,31 +157,39 @@ export default async function handler(req, res) {
     skill_id: BIA_SKILL_ID,
     checked_at: new Date().toISOString(),
     live_version: null,
+    live_version_id: null,
+    live_version_number: null,
+    versions_seen: 0,
     local_synced_version: null,
     drift: false,
     alert: 'not_sent',
   };
 
   try {
-    // 1. GET latest version production
-    const resp = await fetch(`${ANTHROPIC_BASE}/skills/${BIA_SKILL_ID}/versions?limit=1`, { headers: apiHeaders });
+    // 1. GET versions production and pick latest by created_at.
+    // Anthropic currently returns ascending for this endpoint; limit=1 can pick oldest.
+    const resp = await fetch(`${ANTHROPIC_BASE}/skills/${BIA_SKILL_ID}/versions?limit=50`, { headers: apiHeaders });
     if (!resp.ok) {
       const text = await resp.text();
       return res.status(502).json({ error: 'skill_versions_fetch_failed', status: resp.status, detail: text.slice(0, 500), stats });
     }
     const data = await resp.json();
-    const latest = (data.data || [])[0] || null;
+    const versions = data.data || [];
+    const latest = selectLatestSkillVersion(versions);
     if (!latest) {
       return res.status(200).json({ ok: true, ...stats, note: 'no_versions_found' });
     }
-    stats.live_version = latest.version;
+    stats.versions_seen = versions.length;
+    stats.live_version = latest.id; // backward-compatible field: compare IDs, not numeric version.
+    stats.live_version_id = latest.id;
+    stats.live_version_number = latest.version;
     stats.live_created_at = latest.created_at;
 
     // 2. Read local synced version
     stats.local_synced_version = await readLocalSyncedVersion();
 
     // 3. Compare
-    if (stats.local_synced_version === stats.live_version) {
+    if (isSkillVersionInSync(stats.local_synced_version, latest)) {
       return res.status(200).json({ ok: true, ...stats, in_sync: true });
     }
 
@@ -178,12 +202,15 @@ export default async function handler(req, res) {
 
     const emailResult = await sendDriftEmail({
       liveVersion: stats.live_version,
+      liveVersionNumber: stats.live_version_number,
       localVersion: stats.local_synced_version,
       latestCreated: stats.live_created_at,
     });
     if (emailResult.sent) {
       await markAlertSent({
         live_version: stats.live_version,
+        live_version_id: stats.live_version_id,
+        live_version_number: stats.live_version_number,
         local_synced_version: stats.local_synced_version,
         sent_at: stats.checked_at,
         recipients: emailResult.recipients,
