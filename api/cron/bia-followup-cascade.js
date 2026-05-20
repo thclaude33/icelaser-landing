@@ -94,6 +94,10 @@ function getConversationMessages(conversation = {}) {
   return Array.isArray(value) ? value : [];
 }
 
+function parseJsonBody(text) {
+  try { return JSON.parse(text); } catch { return { raw: text }; }
+}
+
 function messageCreatedAtMs(message = {}) {
   const raw = message.created_at || message.createdAt || message.timestamp || null;
   if (typeof raw === 'number') return raw < 1000000000000 ? raw * 1000 : raw;
@@ -140,20 +144,54 @@ export function validateFollowupConversation(conversation = {}, state = {}) {
   return { ok: true, status: status || 'unknown', labels };
 }
 
-async function fetchChatwootConversation(convId) {
+async function fetchChatwootMessages(convId) {
   const resp = await fetch(
-    `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}`,
+    `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages`,
     {
       headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN },
     }
   );
   const text = await resp.text();
-  let body = null;
-  try { body = JSON.parse(text); } catch { body = { raw: text }; }
+  const body = parseJsonBody(text);
   if (!resp.ok) {
     return { ok: false, status: resp.status, detail: text.slice(0, 200), not_found: resp.status === 404 };
   }
-  return { ok: true, conversation: body?.payload || body?.data || body };
+  const messages = body?.payload || body?.data || body?.messages;
+  if (!Array.isArray(messages)) {
+    return { ok: false, status: resp.status, detail: 'invalid_messages_payload', not_found: false };
+  }
+  return { ok: true, messages };
+}
+
+export async function fetchChatwootConversation(convId) {
+  try {
+    const resp = await fetch(
+      `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}`,
+      {
+        headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN },
+      }
+    );
+    const text = await resp.text();
+    const body = parseJsonBody(text);
+    if (!resp.ok) {
+      return { ok: false, status: resp.status, detail: text.slice(0, 200), not_found: resp.status === 404 };
+    }
+
+    const messagesResult = await fetchChatwootMessages(convId);
+    if (!messagesResult.ok) {
+      return {
+        ok: false,
+        status: messagesResult.status,
+        detail: `messages_fetch_failed: ${messagesResult.detail}`,
+        not_found: messagesResult.not_found,
+      };
+    }
+
+    const conversation = body?.payload || body?.data || body;
+    return { ok: true, conversation: { ...conversation, messages: messagesResult.messages } };
+  } catch (err) {
+    return { ok: false, status: 0, detail: String(err?.message || err), network_error: true };
+  }
 }
 
 export function isKvWriteDegraded(result) {

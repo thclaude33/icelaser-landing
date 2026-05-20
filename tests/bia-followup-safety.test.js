@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  fetchChatwootConversation,
   isKvWriteDegraded,
   normalizeChatwootLabels,
   validateFollowupConversation,
@@ -82,4 +83,73 @@ test('isKvWriteDegraded catches fail-open fallback responses', () => {
   assert.equal(isKvWriteDegraded({ ok: true, fallback: true }), true);
   assert.equal(isKvWriteDegraded({ ok: false }), true);
   assert.equal(isKvWriteDegraded(undefined), true);
+});
+
+test('fetchChatwootConversation uses messages index, not only show last message', async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).endsWith('/conversations/123')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          payload: {
+            id: 123,
+            status: 'open',
+            labels: ['bia_teste'],
+            messages: [
+              { id: 99, message_type: 2, created_at: 1779192720 },
+            ],
+          },
+        }),
+      };
+    }
+    if (String(url).endsWith('/conversations/123/messages')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          payload: [
+            { id: 98, message_type: 0, created_at: 1779192660 },
+            { id: 99, message_type: 2, created_at: 1779192720 },
+          ],
+        }),
+      };
+    }
+    throw new Error(`unexpected url ${url}`);
+  };
+
+  try {
+    const result = await fetchChatwootConversation('123');
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.conversation.messages.map((m) => m.id), [98, 99]);
+    assert.equal(calls.some((url) => url.endsWith('/conversations/123/messages')), true);
+    assert.equal(
+      validateFollowupConversation(result.conversation, { last_step_sent_at: '2026-05-19T03:30:00.000Z' }).reason,
+      'incoming_after_followup_state',
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('fetchChatwootConversation returns network errors instead of throwing', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    throw new Error('ECONNREFUSED');
+  };
+
+  try {
+    const result = await fetchChatwootConversation('123');
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 0);
+    assert.equal(result.network_error, true);
+    assert.match(result.detail, /ECONNREFUSED/);
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
