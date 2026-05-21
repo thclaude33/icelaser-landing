@@ -32,6 +32,7 @@ import { kvClaim, kvRelease } from './_lib/kv-rate-limit.js';
 import { armCascade, disarmCascade, markBiaOutgoing, buildSnapshotFromContext } from './_lib/cascade.js';
 import { resolveSessionForThread, setActiveSession } from './_lib/session-reuse.js';
 import { responseOrFallbackFromEvents } from './_lib/bia-client-response.js';
+import { getRecentCtwaContextForPhone } from './_lib/followup-ctwa.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -743,6 +744,10 @@ export default async function handler(req, res) {
               if (process.env.FOLLOWUP_ENABLED === '1') {
                 try {
                   const snapshot = buildSnapshotFromContext(extra.sender_name, clean);
+                  snapshot.telefone = telefone;
+                  const ctwa = await getRecentCtwaContextForPhone(telefone);
+                  snapshot.is_ctwa = ctwa.is_ctwa === true;
+                  if (ctwa.template_free_until_at) snapshot.template_free_until_at = ctwa.template_free_until_at;
                   await armCascade(chatwoot_thread_id, session.id, snapshot);
                 } catch (e) {
                   console.error(`[FU-ARM-ERR] conv=${chatwoot_thread_id} ${e?.message || e}`);

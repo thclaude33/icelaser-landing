@@ -20,6 +20,7 @@ import { markBiaOutgoing, armCascade, buildSnapshotFromContext } from '../_lib/c
 import { setActiveSession } from '../_lib/session-reuse.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
 import { responseOrFallbackFromEvents } from '../_lib/bia-client-response.js';
+import { getRecentCtwaContextForPhone } from '../_lib/followup-ctwa.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
@@ -252,7 +253,12 @@ export default async function handler(req, res) {
           if (process.env.FOLLOWUP_ENABLED === '1') {
             try {
               const senderName = s.metadata?.sender_name || null;
+              const telefone = s.metadata?.telefone || null;
               const snapshot = buildSnapshotFromContext(senderName, clean);
+              snapshot.telefone = telefone;
+              const ctwa = await getRecentCtwaContextForPhone(telefone);
+              snapshot.is_ctwa = ctwa.is_ctwa === true;
+              if (ctwa.template_free_until_at) snapshot.template_free_until_at = ctwa.template_free_until_at;
               await armCascade(convId, sid, snapshot);
             } catch (e) {
               console.error(`[FU-ARM-CRON] conv=${convId} ${e?.message || e}`);

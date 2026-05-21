@@ -1,37 +1,29 @@
 // api/cron/bia-followup-cascade.js
-// PROMPT 2 — Cron Cascade Follow-up
-//
-// SCHEDULE: */2 * * * * (a cada 2 min, cobre F1 minimo 4min com tolerância)
-//
-// LÓGICA:
-//   1. Check killswitch (env FOLLOWUP_ENABLED=1 + KV fu:killswitch != "off")
-//   2. ZRANGEBYSCORE fu:idx:scheduled 0 NOW LIMIT 50 → conv_ids prontos
-//   3. Pra cada conv_id:
-//      a) Read state JSON
-//      b) Check daily count < 6 (anti-spam)
-//      c) Check window 08-20:30 BRT
-//      d) Render template via state.snapshot
-//      e) POST Chatwoot /messages outgoing
-//      f) markBiaOutgoing (anti-collision humana detect)
-//      g) Avança step OU migra F1→F2 OU termina cascade
-//      h) Update state + ZADD next_scheduled (ou ZREM se fim)
-//   4. Retorna stats
+// Bia Follow-up Cascade V5.3 — shadow test.
 
 import {
-  KV_INDEX, KV_KILLSWITCH,
-  stateKey, lastBiaOutgoingKey,
-  getNextStep, migrateToPhase2, getTemplate, renderTemplate,
-  incrDailyCount, getDailyCount, DAILY_MAX_SENDS,
+  KV_INDEX, KV_KILLSWITCH, STATE_TTL_SEC,
+  stateKey,
+  getNextStep, getTemplate, renderTemplate, getStepConfig,
+  incrDailyCount, getDailyCount, DAILY_MAX_SENDS, MAX_SENDS_PER_CASCADE,
+  SCHEMA_VERSION,
   markBiaOutgoing,
-  computeScheduledAt,
+  scheduleCurrentStepAt,
+  migrateToTemplatePhase,
 } from '../_lib/cascade.js';
-import { kvGet, kvSet, kvDel, kvZadd, kvZrem, kvZrangebyscore } from '../_lib/kv-rate-limit.js';
-import { shouldSendNow, nextWindowStart, isWithinSendWindow } from '../_lib/send-window.js';
+import { kvClaim, kvRelease, kvGet, kvSet, kvDel, kvZadd, kvZrem, kvZrangebyscore } from '../_lib/kv-rate-limit.js';
+import { nextWindowStart, isWithinSendWindow } from '../_lib/send-window.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
+import { sendTemplate } from '../chatwoot-bot/whatsapp.js';
 
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
 const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
 const MAX_PER_RUN = 50;
+const CHATWOOT_FETCH_TIMEOUT_MS = 12000;
+export const FOLLOWUP_CRON_LOCK_TTL_SEC = 180;
+export const FOLLOWUP_STEP_SENT_TTL_SEC = STATE_TTL_SEC;
+export const FOLLOWUP_BACKLOG_SCHEDULED_THRESHOLD_MS = 1 * 3600 * 1000;
+
 const TERMINAL_LABELS = new Set([
   'compra_realizada',
   '💰_compra_realizada',
@@ -62,6 +54,7 @@ async function postChatwoot(convId, content) {
       method: 'POST',
       headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN, 'Content-Type': 'application/json' },
       body: JSON.stringify({ content, message_type: 'outgoing' }),
+      signal: AbortSignal.timeout(CHATWOOT_FETCH_TIMEOUT_MS),
     }
   );
   const txt = await resp.text();
@@ -112,6 +105,7 @@ function isIncomingMessage(message = {}) {
 function isHumanOutgoingMessage(message = {}) {
   const isOutgoing = message.message_type === 1 || message.message_type === 'outgoing';
   if (!isOutgoing) return false;
+  if (message.private === true) return false;
   const senderType = String(message.sender?.type || message.sender_type || message.senderType || '').toLowerCase();
   return senderType === 'user' || senderType === 'agent';
 }
@@ -149,6 +143,7 @@ async function fetchChatwootMessages(convId) {
     `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages`,
     {
       headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN },
+      signal: AbortSignal.timeout(CHATWOOT_FETCH_TIMEOUT_MS),
     }
   );
   const text = await resp.text();
@@ -169,6 +164,7 @@ export async function fetchChatwootConversation(convId) {
       `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}`,
       {
         headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN },
+        signal: AbortSignal.timeout(CHATWOOT_FETCH_TIMEOUT_MS),
       }
     );
     const text = await resp.text();
@@ -216,21 +212,211 @@ function recordKvPersistenceWarning(stats, convId, action, results) {
   return true;
 }
 
+function brtMinuteOfDay(date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+  return hour * 60 + minute;
+}
+
+function isBeforeBrtWindow(date) {
+  return brtMinuteOfDay(date) < 8 * 60;
+}
+
+export function buildFollowupRunLockKey(convId) {
+  return `fu:thread:${convId}:run_lock`;
+}
+
+export function buildStepSendKey(convId, state = {}) {
+  const startedMs = Date.parse(state.started_at || '');
+  const startedPart = Number.isNaN(startedMs) ? 'unknown' : String(startedMs);
+  return `fu:thread:${convId}:sent_step:${state.schema_version || 0}:${startedPart}:${state.phase}:${state.step}`;
+}
+
+export function shouldSkipOverdueTemplateStep(state = {}, nowMs = Date.now(), thresholdMs = FOLLOWUP_BACKLOG_SCHEDULED_THRESHOLD_MS) {
+  if (Number(state.phase) !== 2) return false;
+  const scheduledMs = Date.parse(state.scheduled_at || '');
+  if (Number.isNaN(scheduledMs)) return true;
+  return nowMs - scheduledMs > thresholdMs;
+}
+
+export function isStateScheduledInFuture(state = {}, nowMs = Date.now(), graceMs = 0) {
+  const scheduledMs = Date.parse(state.scheduled_at || '');
+  if (Number.isNaN(scheduledMs)) return false;
+  return scheduledMs > nowMs + graceMs;
+}
+
+export function isRetryableTemplateSendFailure(result = {}) {
+  if (!result || result.ok === true) return false;
+  if (!result.status) return true;
+  if (result.status === 429) return true;
+  if (result.status >= 500) return true;
+  return result.error?.is_transient === true;
+}
+
+async function persistState(convId, state, scheduledAt, stats, action) {
+  state.scheduled_at = scheduledAt.toISOString();
+  const setResult = await kvSet(stateKey(convId), JSON.stringify(state), STATE_TTL_SEC);
+  const zaddResult = await kvZadd(KV_INDEX, Math.floor(scheduledAt.getTime() / 1000), convId);
+  recordKvPersistenceWarning(stats, convId, action, { setResult, zaddResult });
+}
+
+async function finishCascade(convId, stats, action, extra = {}) {
+  const delResult = await kvDel(stateKey(convId));
+  const zremResult = await kvZrem(KV_INDEX, convId);
+  recordKvPersistenceWarning(stats, convId, `${action}_kv_degraded`, { delResult, zremResult });
+  stats.finished += 1;
+  stats.details.push({ conv: convId, action, ...extra });
+}
+
+async function moveToTemplateOrFinish(convId, state, stats, reason, nowMs = Date.now()) {
+  const untilMs = Date.parse(state.template_free_until_at || 0);
+  if (state.is_ctwa !== true) {
+    stats.template_skipped_no_ctwa += 1;
+    await finishCascade(convId, stats, 'finish_no_ctwa_for_template', { reason });
+    return;
+  }
+  if (Number.isNaN(untilMs) || nowMs >= untilMs) {
+    stats.template_skipped_70h += 1;
+    await finishCascade(convId, stats, 'finish_template_window_expired', { reason });
+    return;
+  }
+
+  const next = migrateToTemplatePhase(state, nowMs);
+  if (!next || next.scheduledAt.getTime() >= untilMs) {
+    await finishCascade(convId, stats, 'finish_no_template_slot', { reason });
+    return;
+  }
+
+  state.phase = next.phase;
+  state.step = next.step;
+  await persistState(convId, state, next.scheduledAt, stats, `migrate_template_${reason}`);
+  stats.migrated_to_template += 1;
+  stats.details.push({ conv: convId, action: `migrate_template_${reason}`, next_scheduled: state.scheduled_at });
+}
+
+async function skipOverdueTemplateOrFinish(convId, state, stats, reason, nowMs = Date.now()) {
+  if (state.is_ctwa !== true) {
+    stats.template_skipped_no_ctwa += 1;
+    await finishCascade(convId, stats, 'finish_no_ctwa_for_template', { reason });
+    return;
+  }
+  const untilMs = Date.parse(state.template_free_until_at || 0);
+  if (Number.isNaN(untilMs) || nowMs >= untilMs) {
+    stats.template_skipped_70h += 1;
+    await finishCascade(convId, stats, 'finish_template_window_expired', { reason });
+    return;
+  }
+
+  const next = migrateToTemplatePhase(state, nowMs);
+  if (!next || next.scheduledAt.getTime() >= untilMs) {
+    await finishCascade(convId, stats, 'finish_no_template_slot', { reason });
+    return;
+  }
+
+  state.phase = next.phase;
+  state.step = next.step;
+  await persistState(convId, state, next.scheduledAt, stats, `template_backlog_skip_${reason}`);
+  stats.template_backlog_migrated += 1;
+  stats.details.push({ conv: convId, action: `template_backlog_skip_${reason}`, next_scheduled: state.scheduled_at });
+}
+
+async function revalidateOrCleanup(convId, state, stats) {
+  const cwState = await fetchChatwootConversation(convId);
+  if (!cwState.ok) {
+    if (cwState.not_found) {
+      await finishCascade(convId, stats, 'cleanup_orphan', { reason: 'chatwoot_404_revalidate' });
+      return { ok: false, cleaned: true };
+    }
+    stats.errors += 1;
+    stats.details.push({ conv: convId, action: 'revalidate_failed_transient', status: cwState.status, detail: cwState.detail });
+    console.warn(`[FU-REVALIDATE-ERROR] conv=${convId} status=${cwState.status} detail=${cwState.detail || '?'}`);
+    return { ok: false, transient: true };
+  }
+
+  const revalidation = validateFollowupConversation(cwState.conversation, state);
+  if (!revalidation.ok) {
+    await finishCascade(convId, stats, 'revalidation_skip_cleanup', {
+      reason: revalidation.reason,
+      label: revalidation.label,
+      status: revalidation.status,
+    });
+    stats.skipped_revalidation += 1;
+    console.log(`[FU-REVALIDATE-SKIP] conv=${convId} reason=${revalidation.reason}`);
+    return { ok: false, cleaned: true };
+  }
+  return { ok: true };
+}
+
+async function advanceAfterSend(convId, state, stats, sentInfo) {
+  state.total_sent_count = Number(state.total_sent_count || 0) + 1;
+  state.last_step_sent_at = new Date().toISOString();
+
+  const next = getNextStep(state);
+  if (!next) {
+    await finishCascade(convId, stats, 'sent_then_finish', sentInfo);
+    return;
+  }
+
+  state.phase = next.phase;
+  state.step = next.step;
+  await persistState(convId, state, next.scheduledAt, stats, 'sent_then_advance');
+  stats.details.push({
+    conv: convId,
+    action: 'sent_then_advance',
+    ...sentInfo,
+    next_phase: state.phase,
+    next_step: state.step,
+    next_scheduled: state.scheduled_at,
+  });
+}
+
+async function claimStepSend(convId, state, stats) {
+  const key = buildStepSendKey(convId, state);
+  const claim = await kvClaim(key, new Date().toISOString(), FOLLOWUP_STEP_SENT_TTL_SEC);
+  if (!claim.ok && !claim.fallback) {
+    stats.skipped_step_idempotency += 1;
+    stats.details.push({ conv: convId, action: 'step_already_claimed_skip_send', key });
+    return { ok: false, key };
+  }
+  if (claim.fallback) stats.kv_lock_fallback += 1;
+  return { ok: true, key, fallback: claim.fallback === true };
+}
+
+async function releaseStepSendClaim(key) {
+  if (!key) return { ok: true };
+  return kvDel(key);
+}
+
 export default async function handler(req, res) {
   if (!isAuthorized(req)) return res.status(401).json({ error: 'unauthorized' });
-
-  // Multi-projeto race guard (incidente conv 510 16/05/2026 — 3 projetos disparavam
-  // mesma conv em paralelo causando rajada de 6 msgs). Apenas primary project executa.
   if (skipIfNotPrimary(res, 'bia-followup-cascade')) return;
 
   const stats = {
     enabled: process.env.FOLLOWUP_ENABLED === '1',
     candidates: 0,
     sent: 0,
+    sent_freeform: 0,
+    sent_template: 0,
     skipped_daily_limit: 0,
     skipped_window: 0,
-    migrated_to_f2: 0,
-    f1_backlog_reset_to_f2: 0,
+    migrated_to_template: 0,
+    f1_backlog_migrated: 0,
+    legacy_state_purged: 0,
+    skipped_total_limit: 0,
+    template_skipped_no_ctwa: 0,
+    template_skipped_70h: 0,
+    template_backlog_migrated: 0,
+    skipped_locked: 0,
+    skipped_not_due: 0,
+    skipped_step_idempotency: 0,
+    template_permanent_failures: 0,
+    kv_lock_fallback: 0,
     finished: 0,
     errors: 0,
     cleaned_orphans: 0,
@@ -239,7 +425,6 @@ export default async function handler(req, res) {
     details: [],
   };
 
-  // 1. Kill switch checks
   if (process.env.FOLLOWUP_ENABLED !== '1') {
     return res.status(200).json({ ok: true, stats, reason: 'env_disabled' });
   }
@@ -253,23 +438,30 @@ export default async function handler(req, res) {
 
   try {
     const nowSec = Math.floor(Date.now() / 1000);
-    // 2. Pick candidates with scheduled_at <= now
     const range = await kvZrangebyscore(KV_INDEX, 0, nowSec, MAX_PER_RUN);
     const convIds = range.members || [];
     stats.candidates = convIds.length;
 
     for (const convId of convIds) {
+      const lockKey = buildFollowupRunLockKey(convId);
+      const lock = await kvClaim(lockKey, `run_${Date.now()}`, FOLLOWUP_CRON_LOCK_TTL_SEC);
+      if (!lock.ok && !lock.fallback) {
+        stats.skipped_locked += 1;
+        stats.details.push({ conv: convId, action: 'skip_locked', existing: lock.existing || null });
+        continue;
+      }
+      if (lock.fallback) stats.kv_lock_fallback += 1;
+
       try {
-        // 3a. Read state
         const stateR = await kvGet(stateKey(convId));
         if (!stateR.ok || !stateR.value) {
-          // Orfão no index — limpa (cenário race: crm-webhook fez DEL state mas ZREM index falhou OR não-atomic)
           await kvZrem(KV_INDEX, convId);
           stats.cleaned_orphans += 1;
           stats.details.push({ conv: convId, action: 'cleanup_orphan', reason: 'state_null' });
           console.log(`[FU-ORPHAN-CLEANUP] conv=${convId} reason=state_null`);
           continue;
         }
+
         let state;
         try { state = JSON.parse(stateR.value); }
         catch {
@@ -279,183 +471,231 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // 3a-bis. F1 BACKLOG DETECTOR (cravado 16/05/2026 após incidente conv 510)
-        // Se cliente entrou tarde da noite (started_at < ontem), cron acorda na janela
-        // 08:00 BRT com scheduled_at antigo. Sem este guard, cron queima F1[0..N] em
-        // rajada (1 step por tick) até bater daily_limit=6. Solução: se F1 com started>8h
-        // OU scheduled_lag>1h → migrar direto pra F2 step 0 com NOVO started_at=NOW.
-        // F2[0]=D+1 10:00 BRT (1 msg), F2[1]=D+1 14:30, F2[2]=D+1 19:00 (espaçado natural).
-        if (state.phase === 1) {
-          const startedAgeMs = Date.now() - Date.parse(state.started_at);
-          const scheduledLagMs = Date.now() - Date.parse(state.scheduled_at);
-          const F1_BACKLOG_STARTED_THRESHOLD_MS = 8 * 3600 * 1000;  // 8h
-          const F1_BACKLOG_SCHEDULED_THRESHOLD_MS = 1 * 3600 * 1000; // 1h
+        if (!state.schema_version || state.schema_version < SCHEMA_VERSION) {
+          await kvZrem(KV_INDEX, convId);
+          await kvDel(stateKey(convId));
+          stats.legacy_state_purged += 1;
+          stats.details.push({ conv: convId, action: 'legacy_state_purged', schema_version: state.schema_version || null });
+          console.log(`[FU-LEGACY-PURGE] conv=${convId} schema=${state.schema_version || 'none'}`);
+          continue;
+        }
 
-          if (startedAgeMs > F1_BACKLOG_STARTED_THRESHOLD_MS ||
-              scheduledLagMs > F1_BACKLOG_SCHEDULED_THRESHOLD_MS) {
-            const nowMs = Date.now();
-            state.started_at = new Date(nowMs).toISOString();
-            state.phase = 2;
-            state.step = 0;
-            const migratedDate = computeScheduledAt(2, 0, nowMs);
-            state.scheduled_at = migratedDate.toISOString();
-            await kvSet(stateKey(convId), JSON.stringify(state), 30 * 24 * 3600);
-            await kvZadd(KV_INDEX, Math.floor(migratedDate.getTime() / 1000), convId);
-            stats.f1_backlog_reset_to_f2 += 1;
-            stats.details.push({
-              conv: convId,
-              action: 'f1_backlog_reset_to_f2',
-              started_age_h: (startedAgeMs / 3600000).toFixed(1),
-              scheduled_lag_h: (scheduledLagMs / 3600000).toFixed(1),
-              new_scheduled: state.scheduled_at,
+        const now = new Date();
+        const nowMs = now.getTime();
+
+        if (isStateScheduledInFuture(state, nowMs)) {
+          const scheduledAt = new Date(state.scheduled_at);
+          await persistState(convId, state, scheduledAt, stats, 'skip_not_due_reindexed');
+          stats.skipped_not_due += 1;
+          stats.details.push({ conv: convId, action: 'skip_not_due', scheduled_at: state.scheduled_at });
+          continue;
+        }
+
+        const cfg = getStepConfig(state.phase, state.step);
+        if (!cfg || cfg.enabled === false) {
+          await finishCascade(convId, stats, 'step_disabled_or_missing', { phase: state.phase, step: state.step });
+          continue;
+        }
+
+        if (Number(state.total_sent_count || 0) >= MAX_SENDS_PER_CASCADE) {
+          stats.skipped_total_limit += 1;
+          await finishCascade(convId, stats, 'finish_total_limit', { total_sent_count: state.total_sent_count });
+          continue;
+        }
+
+        if (state.phase === 1) {
+          const scheduledLagMs = nowMs - Date.parse(state.scheduled_at || 0);
+          if (scheduledLagMs > FOLLOWUP_BACKLOG_SCHEDULED_THRESHOLD_MS) {
+            stats.f1_backlog_migrated += 1;
+            await moveToTemplateOrFinish(convId, state, stats, 'f1_scheduled_lag', nowMs);
+            continue;
+          }
+        }
+
+        if (shouldSkipOverdueTemplateStep(state, nowMs)) {
+          await skipOverdueTemplateOrFinish(convId, state, stats, 'scheduled_lag', nowMs);
+          continue;
+        }
+
+        const dailyCount = await getDailyCount(convId);
+        if (dailyCount >= DAILY_MAX_SENDS) {
+          stats.skipped_daily_limit += 1;
+          if (state.phase === 1) {
+            await moveToTemplateOrFinish(convId, state, stats, 'daily_limit_phase1', nowMs);
+          } else {
+            await finishCascade(convId, stats, 'finish_daily_limit_template', { count: dailyCount });
+          }
+          continue;
+        }
+
+        if (state.phase === 1) {
+          const freeformExpiresMs = Date.parse(state.freeform_expires_at || 0);
+          if (Number.isNaN(freeformExpiresMs) || nowMs >= freeformExpiresMs) {
+            await moveToTemplateOrFinish(convId, state, stats, 'freeform_expired', nowMs);
+            continue;
+          }
+
+          if (!isWithinSendWindow(now)) {
+            const next = nextWindowStart(now);
+            if (isBeforeBrtWindow(now) && next.getTime() < freeformExpiresMs) {
+              const rescheduled = scheduleCurrentStepAt(state, next);
+              Object.assign(state, rescheduled);
+              await persistState(convId, state, next, stats, 'f1_before_window_reagendado');
+              stats.skipped_window += 1;
+              stats.details.push({ conv: convId, action: 'f1_before_window_reagendado', next: state.scheduled_at });
+            } else {
+              await moveToTemplateOrFinish(convId, state, stats, 'f1_after_window', nowMs);
+            }
+            continue;
+          }
+        } else if (state.phase === 2) {
+          const untilMs = Date.parse(state.template_free_until_at || 0);
+          if (state.is_ctwa !== true) {
+            stats.template_skipped_no_ctwa += 1;
+            await finishCascade(convId, stats, 'finish_no_ctwa_for_template', { phase: state.phase, step: state.step });
+            continue;
+          }
+          if (Number.isNaN(untilMs) || nowMs >= untilMs) {
+            stats.template_skipped_70h += 1;
+            await finishCascade(convId, stats, 'finish_template_window_expired', { phase: state.phase, step: state.step });
+            continue;
+          }
+          if (!isWithinSendWindow(now)) {
+            const next = nextWindowStart(now);
+            if (next.getTime() < untilMs) {
+              await persistState(convId, state, next, stats, 'template_window_reagendado');
+              stats.skipped_window += 1;
+              stats.details.push({ conv: convId, action: 'template_window_reagendado', next: state.scheduled_at });
+            } else {
+              await finishCascade(convId, stats, 'finish_template_window_no_slot', { phase: state.phase, step: state.step });
+            }
+            continue;
+          }
+        }
+
+        const revalidation = await revalidateOrCleanup(convId, state, stats);
+        if (!revalidation.ok) continue;
+
+        if (cfg.kind === 'freeform') {
+          const template = getTemplate(state.phase, state.step);
+          if (!template) {
+            await finishCascade(convId, stats, 'no_template_finish', { phase: state.phase, step: state.step });
+            continue;
+          }
+          const rendered = renderTemplate(template, state.nome_snapshot);
+          const stepClaim = await claimStepSend(convId, state, stats);
+          if (!stepClaim.ok) {
+            await advanceAfterSend(convId, state, stats, {
+              sent_phase: state.phase,
+              sent_step: state.step,
+              kind: cfg.kind,
+              idempotent_skip: true,
             });
             continue;
           }
-        }
-
-        // 3b. Daily limit
-        const dailyCount = await getDailyCount(convId);
-        if (dailyCount >= DAILY_MAX_SENDS) {
-          // Reagenda 08:00 dia seguinte
-          const next = nextWindowStart(new Date());
-          // forçar amanhã se hoje já bateu
-          const tomorrowMs = next.getTime() < Date.now() ? next.getTime() + 86400000 : next.getTime();
-          state.scheduled_at = new Date(tomorrowMs).toISOString();
-          await kvSet(stateKey(convId), JSON.stringify(state), 30 * 24 * 3600);
-          await kvZadd(KV_INDEX, Math.floor(tomorrowMs / 1000), convId);
-          stats.skipped_daily_limit += 1;
-          stats.details.push({ conv: convId, action: 'daily_limit_reagendado', count: dailyCount });
-          continue;
-        }
-
-        // 3c. Window gate
-        const sessionType = state.phase >= 2 ? 'proactive_followup' : 'cascade_intraday';
-        const gate = shouldSendNow({ session_type: sessionType });
-        if (!gate.ok) {
-          // FASE 1 estourou janela → migra direto pra F2 step 0
-          if (state.phase === 1) {
-            const migrated = migrateToPhase2(state);
-            state.phase = migrated.phase;
-            state.step = migrated.step;
-            state.scheduled_at = migrated.scheduledAt.toISOString();
-            await kvSet(stateKey(convId), JSON.stringify(state), 30 * 24 * 3600);
-            await kvZadd(KV_INDEX, Math.floor(migrated.scheduledAt.getTime() / 1000), convId);
-            stats.migrated_to_f2 += 1;
-            stats.details.push({ conv: convId, action: 'f1_window_blew_migrate_f2', new_scheduled: state.scheduled_at });
-          } else {
-            // FASE 2/3/4 fora janela: reagenda próximo 08:00
-            const nextEpoch = Math.floor(Date.parse(gate.next_send_at) / 1000);
-            state.scheduled_at = gate.next_send_at;
-            await kvSet(stateKey(convId), JSON.stringify(state), 30 * 24 * 3600);
-            await kvZadd(KV_INDEX, nextEpoch, convId);
-            stats.skipped_window += 1;
-            stats.details.push({ conv: convId, action: 'f2plus_window_reagendado', next: gate.next_send_at });
-          }
-          continue;
-        }
-
-        // 3d. Render template
-        const template = getTemplate(state.phase, state.step, state.pacote_snapshot);
-        if (!template) {
-          // Template missing — finish cascade
-          await kvDel(stateKey(convId));
-          await kvZrem(KV_INDEX, convId);
-          stats.finished += 1;
-          stats.details.push({ conv: convId, action: 'no_template_finish' });
-          continue;
-        }
-        const rendered = renderTemplate(template, state.nome_snapshot);
-
-        // 3d-bis. Revalidate current Chatwoot state before posting.
-        // Webhooks can be delayed/lost during Railway/Chatwoot incidents; this prevents
-        // old follow-ups after human reply, terminal label, or closed conversation.
-        const cwState = await fetchChatwootConversation(convId);
-        if (!cwState.ok) {
-          if (cwState.not_found) {
-            const zremResult = await kvZrem(KV_INDEX, convId);
-            const delResult = await kvDel(stateKey(convId));
-            recordKvPersistenceWarning(stats, convId, 'cleanup_orphan_revalidate_404_kv_degraded', { zremResult, delResult });
-            stats.cleaned_orphans += 1;
-            stats.details.push({ conv: convId, action: 'cleanup_orphan', reason: 'chatwoot_404_revalidate' });
+          const markOutgoingResult = await markBiaOutgoing(convId);
+          recordKvPersistenceWarning(stats, convId, 'pre_post_bia_marker_kv_degraded', { markOutgoingResult });
+          let posted;
+          try {
+            posted = await postChatwoot(convId, rendered);
+          } catch (postErr) {
+            const errMsg = String(postErr?.message || postErr);
+            const is404 = errMsg.includes('Chatwoot 404') || errMsg.includes('Resource could not be found');
+            if (is404) {
+              await releaseStepSendClaim(stepClaim.key);
+              await finishCascade(convId, stats, 'cleanup_orphan', { reason: 'chatwoot_404' });
+              console.log(`[FU-ORPHAN-CLEANUP] conv=${convId} reason=chatwoot_404`);
+              continue;
+            }
+            await releaseStepSendClaim(stepClaim.key);
+            stats.errors += 1;
+            stats.details.push({ conv: convId, action: 'post_failed_transient', err: errMsg.slice(0, 100) });
+            console.warn(`[FU-POST-ERROR] conv=${convId} transient err=${errMsg.slice(0, 100)}`);
             continue;
           }
-          stats.errors += 1;
-          stats.details.push({ conv: convId, action: 'revalidate_failed_transient', status: cwState.status, detail: cwState.detail });
-          console.warn(`[FU-REVALIDATE-ERROR] conv=${convId} status=${cwState.status} detail=${cwState.detail || '?'}`);
-          continue;
-        }
-        const revalidation = validateFollowupConversation(cwState.conversation, state);
-        if (!revalidation.ok) {
-          const zremResult = await kvZrem(KV_INDEX, convId);
-          const delResult = await kvDel(stateKey(convId));
-          recordKvPersistenceWarning(stats, convId, 'revalidation_cleanup_kv_degraded', { zremResult, delResult });
-          stats.skipped_revalidation += 1;
-          stats.details.push({ conv: convId, action: 'revalidation_skip_cleanup', reason: revalidation.reason, label: revalidation.label, status: revalidation.status });
-          console.log(`[FU-REVALIDATE-SKIP] conv=${convId} reason=${revalidation.reason}`);
+
+          const dailyCountResult = await incrDailyCount(convId);
+          recordKvPersistenceWarning(stats, convId, 'post_send_daily_count_kv_degraded', { dailyCountResult });
+          stats.sent += 1;
+          stats.sent_freeform += 1;
+          await advanceAfterSend(convId, state, stats, {
+            msg_id: posted?.id,
+            sent_phase: state.phase,
+            sent_step: state.step,
+            kind: cfg.kind,
+          });
           continue;
         }
 
-        // 3e. POST Chatwoot
-        let posted;
-        try {
-          posted = await postChatwoot(convId, rendered);
-        } catch (postErr) {
-          const errMsg = String(postErr?.message || postErr);
-          // BUG cleanup (15/05/2026 ~23h45): distinguir 404 explícito (conv deletada permanentemente)
-          // vs 5xx/timeout/rate-limit (transitório — Chatwoot down recupera, mantém scheduled retry next cron).
-          // Cenário: smoke conv deletada OU race condition crm-webhook clearActive+disarmCascade não-atômico.
-          // Antes: loop infinito até TTL 30d. Agora: ZREM auto em 404 + DEL state pra cleanup full.
-          const is404 = errMsg.includes('Chatwoot 404') || errMsg.includes('Resource could not be found');
-          if (is404) {
-            await kvZrem(KV_INDEX, convId);
-            await kvDel(stateKey(convId));
-            stats.cleaned_orphans += 1;
-            stats.details.push({ conv: convId, action: 'cleanup_orphan', reason: 'chatwoot_404' });
-            console.log(`[FU-ORPHAN-CLEANUP] conv=${convId} reason=chatwoot_404`);
+        if (cfg.kind === 'template') {
+          if (!cfg.templateName) {
+            await finishCascade(convId, stats, 'template_name_missing', { phase: state.phase, step: state.step });
             continue;
           }
-          // 5xx, timeout, rate limit etc → NÃO ZREM (transitório, retry next cron)
-          stats.errors += 1;
-          stats.details.push({ conv: convId, action: 'post_failed_transient', err: errMsg.slice(0, 100) });
-          console.warn(`[FU-POST-ERROR] conv=${convId} transient err=${errMsg.slice(0, 100)}`);
-          continue;
-        }
+          const to = state.telefone || state.phone;
+          if (!to) {
+            await finishCascade(convId, stats, 'template_phone_missing', { phase: state.phase, step: state.step });
+            continue;
+          }
+          const stepClaim = await claimStepSend(convId, state, stats);
+          if (!stepClaim.ok) {
+            await advanceAfterSend(convId, state, stats, {
+              sent_phase: state.phase,
+              sent_step: state.step,
+              kind: cfg.kind,
+              template: cfg.templateName,
+              idempotent_skip: true,
+            });
+            continue;
+          }
+          const result = await sendTemplate({ to, templateName: cfg.templateName, language: 'pt_BR' });
+          if (!result.ok) {
+            const errorText = String(result.error?.message || result.error || result.detail || 'unknown').slice(0, 120);
+            if (!isRetryableTemplateSendFailure(result)) {
+              stats.errors += 1;
+              stats.template_permanent_failures += 1;
+              await finishCascade(convId, stats, 'finish_template_permanent_failure', {
+                template: cfg.templateName,
+                status: result.status || null,
+                error: errorText,
+              });
+              console.warn(`[FU-TEMPLATE-PERMANENT] conv=${convId} template=${cfg.templateName} status=${result.status || '?'} err=${errorText}`);
+              continue;
+            }
 
-        // 3f. Mark Bia outgoing (anti-collision)
-        const markOutgoingResult = await markBiaOutgoing(convId);
+            await releaseStepSendClaim(stepClaim.key);
+            stats.errors += 1;
+            stats.details.push({
+              conv: convId,
+              action: 'template_send_failed_transient',
+              template: cfg.templateName,
+              error: errorText,
+            });
+            console.warn(`[FU-TEMPLATE-ERROR] conv=${convId} template=${cfg.templateName} err=${JSON.stringify(result.error || result).slice(0, 160)}`);
+            continue;
+          }
 
-        // 3g. Increment daily count
-        const dailyCountResult = await incrDailyCount(convId);
-        recordKvPersistenceWarning(stats, convId, 'post_send_markers_kv_degraded', { markOutgoingResult, dailyCountResult });
-
-        stats.sent += 1;
-
-        // 3h. Advance step
-        const next = getNextStep(state);
-        if (!next) {
-          // Fim cascade
-          const delResult = await kvDel(stateKey(convId));
-          const zremResult = await kvZrem(KV_INDEX, convId);
-          recordKvPersistenceWarning(stats, convId, 'sent_then_finish_kv_degraded', { delResult, zremResult });
-          stats.finished += 1;
-          stats.details.push({ conv: convId, action: 'sent_then_finish', msg_id: posted?.id, phase: state.phase, step: state.step });
-        } else {
-          state.phase = next.phase;
-          state.step = next.step;
-          state.scheduled_at = next.scheduledAt.toISOString();
-          state.last_step_sent_at = new Date().toISOString();
-          const setResult = await kvSet(stateKey(convId), JSON.stringify(state), 30 * 24 * 3600);
-          const zaddResult = await kvZadd(KV_INDEX, Math.floor(next.scheduledAt.getTime() / 1000), convId);
-          recordKvPersistenceWarning(stats, convId, 'sent_then_advance_kv_degraded', { setResult, zaddResult });
-          stats.details.push({
-            conv: convId, action: 'sent_then_advance',
-            msg_id: posted?.id, sent_phase: state.phase, sent_step: state.step, // note: já atualizado pra next
-            next_scheduled: state.scheduled_at,
+          const dailyCountResult = await incrDailyCount(convId);
+          recordKvPersistenceWarning(stats, convId, 'template_send_markers_kv_degraded', { dailyCountResult });
+          stats.sent += 1;
+          stats.sent_template += 1;
+          await advanceAfterSend(convId, state, stats, {
+            msg_id: result.messageId,
+            sent_phase: state.phase,
+            sent_step: state.step,
+            kind: cfg.kind,
+            template: cfg.templateName,
+            dry_run: result.dryRun === true,
           });
         }
       } catch (err) {
         stats.errors += 1;
         stats.details.push({ conv: convId, error: String(err?.message || err).slice(0, 150) });
+      } finally {
+        if (!lock.fallback) {
+          const releaseResult = await kvRelease(lockKey);
+          recordKvPersistenceWarning(stats, convId, 'run_lock_release_kv_degraded', { releaseResult });
+        }
       }
     }
 
