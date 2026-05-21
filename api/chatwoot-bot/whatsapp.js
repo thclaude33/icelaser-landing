@@ -14,6 +14,7 @@
 
 const PHONE_NUMBER_ID = '1140709345781659';
 const GRAPH_BASE = 'https://graph.facebook.com/v25.0';
+const GRAPH_FETCH_TIMEOUT_MS = 12000;
 
 /**
  * Sanitiza phone pra formato Meta E.164 sem '+' (ex: '558195749947')
@@ -65,6 +66,7 @@ async function postWhatsApp(payload, retryCount = 0) {
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(GRAPH_FETCH_TIMEOUT_MS),
     });
   } catch (e) {
     console.error('[WA-BOT] network error:', e.message);
@@ -95,6 +97,39 @@ async function postWhatsApp(payload, retryCount = 0) {
   const messageId = data?.messages?.[0]?.id || null;
   console.log(`[WA-BOT] sent ${payload.type || 'unknown'} → ${messageId || '?'}`);
   return { ok: true, messageId, status: res.status };
+}
+
+export function buildTemplatePayload({ to, templateName, language = 'pt_BR', bodyParams = [] }) {
+  const payload = {
+    messaging_product: 'whatsapp',
+    to: sanitizePhone(to),
+    type: 'template',
+    template: {
+      name: String(templateName || '').trim(),
+      language: { code: language },
+    },
+  };
+  if (Array.isArray(bodyParams) && bodyParams.length > 0) {
+    payload.template.components = [
+      {
+        type: 'body',
+        parameters: bodyParams.map((param) => ({
+          type: 'text',
+          text: String(param ?? ''),
+        })),
+      },
+    ];
+  }
+  return payload;
+}
+
+/**
+ * Envia template aprovado pela Cloud API.
+ * Templates V5.3 D+1 não possuem variáveis; nesse caso o payload não leva components.
+ */
+export async function sendTemplate({ to, templateName, language = 'pt_BR', bodyParams = [] }) {
+  const payload = buildTemplatePayload({ to, templateName, language, bodyParams });
+  return postWhatsApp(payload);
 }
 
 /**

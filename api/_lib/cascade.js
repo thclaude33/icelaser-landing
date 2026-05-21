@@ -1,107 +1,127 @@
 // api/_lib/cascade.js
-// PROMPT 2 — Cascade Follow-up: templates, timing, ARM/DISARM, render.
+// Bia Follow-up V5.3 — shadow test cadence.
 //
 // FASES:
-//   FASE 1 (intra-dia): 14 steps em rajada, abandona se estourar 20:30 (vai pra F2 step 0)
-//   FASE 2 (D+1): 3 msgs (manhã/tarde/noite) com janela horária
-//   FASE 3 (D+2): igual F2
-//   FASE 4 (D+3 / D+5 / D+7 / silêncio / D+15): 4 sends finais
+//   FASE 1: free-form via Chatwoot dentro da janela WhatsApp 0-24h.
+//   FASE 2: templates Meta aprovados D+1. D+2 fica preparado, mas disabled.
 //
-// DISARM (3 condições):
-//   1. Cliente responde — handler bia-session-create.js DEL no início
-//   2. Atendente humana posta — crm-webhook.js DEL via timestamp check
-//   3. Label terminal (compra_realizada / desqualificado / lead_quente)
+// DISARM:
+//   1. Cliente responde — bia-session-create.js DEL no início.
+//   2. Atendente humana posta — crm-webhook.js DEL via timestamp check.
+//   3. Label terminal (compra_realizada / desqualificado / lead_quente).
 //
-// SNAPSHOT KV: nome_curto + pacote_oferecido cravados na ARMA. Refresh @24h.
-//
-// $0 marginal Anthropic — templates fixos, sem Coord call.
+// Valores 16/20/24 são de shadow mode. Recalibrar antes de remover o gate
+// inbox 7 + label bia_teste em bia-session-create.js.
 
 import { kvSet, kvGet, kvDel, kvZadd, kvZrem, kvIncrWithExpire } from './kv-rate-limit.js';
-import { shouldSendNow, nextWindowStart } from './send-window.js';
 
 const KV_NAMESPACE = 'fu';
 const KV_INDEX = 'fu:idx:scheduled';
 const KV_KILLSWITCH = 'fu:killswitch';
-const STATE_TTL_SEC = 30 * 24 * 3600;             // 30 dias rolling
-const LAST_BIA_OUTGOING_TTL_SEC = 300;            // 5min — detect humana via timestamp
+const STATE_TTL_SEC = 30 * 24 * 3600;
+const LAST_BIA_OUTGOING_TTL_SEC = 300;
 export const OUTGOING_SELF_DETECT_THRESHOLD_MS = LAST_BIA_OUTGOING_TTL_SEC * 1000;
-const DAILY_COUNT_TTL_SEC = 25 * 3600;            // 25h
-const DAILY_MAX_SENDS = 6;                        // hard limit anti-spam
-const SNAPSHOT_REFRESH_AFTER_MS = 24 * 3600 * 1000; // 24h
+const DAILY_COUNT_TTL_SEC = 25 * 3600;
 
-// ─────────────────────────────────────────────────────────────────────────
-// INTERVALS — minutos cumulativos relativos ao started_at (FASE 1)
-// ─────────────────────────────────────────────────────────────────────────
+export const SCHEMA_VERSION = 3;
+export const FREEFORM_EXPIRES_AFTER_MS = 23 * 3600 * 1000;
+export const TEMPLATE_FREE_UNTIL_AFTER_MS = 70 * 3600 * 1000;
 
-// F1 (14 steps): 4min, 10min, 16min, 26min, 50min, 1h20, 1h50, 2h30, 4h, 5h30, 7h, 8h30, 10h, 13h
-export const F1_INTERVALS_MIN = [4, 10, 16, 26, 50, 80, 110, 150, 240, 330, 420, 510, 600, 780];
+// VALORES DE TESTE (shadow mode) — recalibrar antes do go-live geral.
+const DAILY_MAX_SENDS = 20;                       // por conversa/dia BRT
+export const MAX_SENDS_PER_CASCADE = 24;          // por cascade armada
+const SNAPSHOT_REFRESH_AFTER_MS = 24 * 3600 * 1000;
 
-// F2/F3 (3 steps each): horários alvo BRT — manhã/tarde/noite
-// Aplicados ao próximo dia (F2) e D+2 (F3)
-export const F2F3_TARGET_HOURS_BRT = [10, 14.5, 19]; // 10:00, 14:30, 19:00
+// VALOR DE TESTE (shadow mode) — recalibrar antes do go-live geral.
+export const F1_INTERVALS_MIN = [5, 10, 15, 21, 30, 45, 60, 90, 120, 145, 170, 195, 240, 300, 360, 450];
 
-// F4 (4 steps): D+3, D+5, D+7, D+15 — alvo 10:00 BRT
-export const F4_DAY_OFFSETS = [3, 5, 7, 15];
+const F1_MESSAGES = [
+  'Oi {nome}! Conseguiu ver direitinho? Se tiver qualquer dúvida, tô aqui 💜',
+  'Posso te explicar com calma como funcionam os pacotes e valores, se quiser 😊',
+  '{nome}, se preferir, eu também posso começar te mostrando as opções mais leves pra começar.',
+  'Me fala quais áreas você pensa em fazer que eu te ajudo a escolher o pacote mais certinho pra sua rotina 💜',
+  'E se a dúvida for dor, resultado ou forma de pagamento, pode perguntar sem vergonha tá?',
+  'Também consigo ver horários disponíveis pra você sem compromisso, só pra ter uma ideia.',
+  '{nome}, sigo por aqui. Quando quiser, posso te mandar um resumo simples com áreas, valores e parcelas 😊',
+  'Uma coisa boa é que dá pra começar com poucas áreas e ir aumentando depois, se fizer mais sentido pra você.',
+  'Posso te mostrar uma opção mais econômica pra começar e outra mais completa, pra você comparar com calma 💜',
+  'Se você ainda estiver pensando, tudo bem. Só quero deixar fácil caso queira tirar alguma dúvida comigo.',
+  '{nome}, quer que eu veja qual pacote combina melhor com o que você quer fazer agora?',
+  'Dá pra parcelar em até 12x sem juros. Se quiser, te mostro como ficaria de um jeito bem simples.',
+  'Passando só pra saber se ficou alguma dúvida específica sobre áreas, valores ou atendimento 💜',
+  'Se preferir, posso te mandar só as melhores opções pra começar sem gastar muito.',
+  '{nome}, ainda faz sentido pra você? Se não for o momento, tudo bem também.',
+  'Vou deixar por aqui por enquanto 💜 Quando quiser retomar, me chama que eu te ajudo com calma.',
+];
 
-// ─────────────────────────────────────────────────────────────────────────
-// TEMPLATES — 24 finais (14 F1 + 3 F2 + 3 F3 + 4 F4)
-// Placeholder {nome} substituído via renderTemplate.
-// Condicionais (pacote_oferecido) via funções "a" / "b" no map.
-// ─────────────────────────────────────────────────────────────────────────
+export const F1_STEPS = F1_INTERVALS_MIN.map((offsetMin, idx) => ({
+  id: `F1-${idx}`,
+  kind: 'freeform',
+  enabled: true,
+  offsetMin,
+  text: F1_MESSAGES[idx],
+}));
+
+export const TEMPLATE_STEPS = [
+  {
+    id: 'T1_D1_0930_DUVIDA',
+    kind: 'template',
+    enabled: true,
+    dayOffset: 1,
+    hourBRT: 9,
+    minuteBRT: 30,
+    templateName: 'bia_d1_duvida_recife_v1',
+  },
+  {
+    id: 'T1_D1_1200_PACOTES',
+    kind: 'template',
+    enabled: true,
+    dayOffset: 1,
+    hourBRT: 12,
+    minuteBRT: 0,
+    templateName: 'bia_d1_pacotes_recife_v1',
+  },
+  {
+    id: 'T1_D1_1430_AGENDA',
+    kind: 'template',
+    enabled: true,
+    dayOffset: 1,
+    hourBRT: 14,
+    minuteBRT: 30,
+    templateName: 'bia_d1_agenda_recife_v1',
+  },
+  {
+    id: 'T1_D1_1700_PARCELAS',
+    kind: 'template',
+    enabled: true,
+    dayOffset: 1,
+    hourBRT: 17,
+    minuteBRT: 0,
+    templateName: 'bia_d1_parcelas_recife_v1',
+  },
+  {
+    id: 'T1_D1_1930_RETOMAR',
+    kind: 'template',
+    enabled: true,
+    dayOffset: 1,
+    hourBRT: 19,
+    minuteBRT: 30,
+    templateName: 'bia_d1_retomar_recife_v1',
+  },
+  {
+    id: 'T2_D2_PREPARED',
+    kind: 'template',
+    enabled: false,
+    dayOffset: 2,
+    hourBRT: 14,
+    minuteBRT: 30,
+    templateName: null,
+  },
+];
 
 export const TEMPLATES = {
-  F1: [
-    // step 0..13
-    'Oi {nome}! Ficou alguma dúvida? Tô aqui pra te ajudar 💜',
-    'Tô aqui se quiser falar de valores ou agendamento {nome}, é só responder 😊',
-    null, // step 2 condicional — usar getTemplate
-    '{nome}, agenda dessa semana tá enchendo. Quer que eu separe um horário pra você?',
-    'Posso te mostrar foto da clínica ou do Crystal 3D Plus se ajudar a decidir {nome} 😊',
-    'Lembrete: 12× sem juros + cancelamento ZERO a qualquer momento — sem amarras {nome} 💜',
-    'Reservo um horário sem compromisso {nome}? Só pra garantir caso queira fechar.',
-    'Tô por aqui quando {nome} quiser retomar 💜 Sem pressão nenhuma.',
-    'Brinde dessa semana ainda tá rodando {nome} — quer aproveitar antes de virar?',
-    'Ficou alguma dúvida específica {nome}? Me conta que eu te ajudo a decidir 😊',
-    '{nome}, ainda interessada? Sem pressão — só quero garantir que não te incomodo à toa 💜',
-    'Tô fechando os agendamentos do mês {nome} — quer garantir?',
-    'Tô fechando hoje {nome} 💜 Amanhã continuo por aqui se quiser conversar.',
-    'Vou pausar por aqui hoje {nome}. Quando quiser retomar, é só me chamar 😊',
-  ],
-  F2: [
-    'Bom dia {nome}! 💜 Pensou no pacote? Se surgiu alguma dúvida nova, tô aqui.',
-    'Oi {nome}! Tô puxando agendamentos da semana — quer entrar?',
-    'Boa noite {nome}! Última chance hoje de fechar com o brinde — quer?',
-  ],
-  F3: [
-    'Oi {nome}, tudo bem? 💜 Tô aqui ainda. Posso te ajudar com algo?',
-    null, // step 1 condicional
-    'Boa noite {nome}! Se mudou de ideia, é só me chamar — tô por aqui 😊',
-  ],
-  F4: [
-    'Oi {nome}, tudo bem? Voltei rapidinho 💜',
-    '{nome}, quer ver os pacotes novos dessa semana?',
-    'Última passada por aqui {nome} 💜 Se quiser conversar, é só me chamar.',
-    'Oi {nome}! Lembra de mim? 💜 Tem promo nova essa semana — quer ver?',
-  ],
+  F1: F1_MESSAGES,
 };
-
-// Condicionais (pacote_oferecido)
-const CONDITIONAL_TEMPLATES = {
-  // F1 step 2
-  'F1.2': {
-    with_pacote: '{nome}, gero o link de pagamento agora — abre em qualquer banco, 12× sem juros 💜',
-    without_pacote: '{nome}, posso te mostrar valores agora? Te explico tudo 💜',
-  },
-  // F3 step 1
-  'F3.1': {
-    with_pacote: 'Lembrete {nome}: link de pagamento abre em qualquer banco, débito ou crédito 12×.',
-    without_pacote: 'Oi {nome}! Quer ver os pacotes da semana? Tem opções pra todo orçamento 💜',
-  },
-};
-
-// ─────────────────────────────────────────────────────────────────────────
-// HELPERS de tempo / index keys
-// ─────────────────────────────────────────────────────────────────────────
 
 function stateKey(convId) {
   return `${KV_NAMESPACE}:thread:${convId}:state`;
@@ -113,92 +133,125 @@ function dailyCountKey(convId, dateStr) {
   return `${KV_NAMESPACE}:thread:${convId}:daily_count:${dateStr}`;
 }
 function todayBRT() {
-  // YYYY-MM-DD no fuso BRT
-  const p = new Intl.DateTimeFormat('en-CA', {
+  return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Sao_Paulo',
-    year: 'numeric', month: '2-digit', day: '2-digit',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).format(new Date());
-  return p; // já vem YYYY-MM-DD
 }
 
-/**
- * Calcula scheduled_at (ISO + epoch sec) baseado em phase/step + started_at.
- *
- * F1 step N: started_at + F1_INTERVALS_MIN[N] minutos
- * F2 step N: D+1 às F2F3_TARGET_HOURS_BRT[N]
- * F3 step N: D+2 às F2F3_TARGET_HOURS_BRT[N]
- * F4 step N: D + F4_DAY_OFFSETS[N] às 10:00 BRT
- */
-export function computeScheduledAt(phase, step, startedAtMs) {
-  if (phase === 1) {
-    const min = F1_INTERVALS_MIN[step];
-    if (min === undefined) return null;
-    return new Date(startedAtMs + min * 60 * 1000);
-  }
-  const dayOffset = phase === 2 ? 1 : phase === 3 ? 2 : phase === 4 ? F4_DAY_OFFSETS[step] : null;
-  if (dayOffset === null || dayOffset === undefined) return null;
-  // Horário alvo BRT
-  const targetHour = phase === 4 ? 10 : F2F3_TARGET_HOURS_BRT[step];
-  if (targetHour === undefined) return null;
-  // started_at + dayOffset dias, hora=targetHour BRT
-  // Convert BRT (UTC-3) hour → UTC hour (targetHour + 3)
-  const startBRT = new Intl.DateTimeFormat('en-CA', {
+function brtDateParts(ms) {
+  const str = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Sao_Paulo',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date(startedAtMs));
-  const [y, m, d] = startBRT.split('-').map(Number);
-  const baseUTC = new Date(Date.UTC(y, m - 1, d + dayOffset, 0, 0, 0));
-  const wholeHours = Math.floor(targetHour);
-  const minutes = Math.round((targetHour - wholeHours) * 60);
-  // BRT é UTC-3 (DST off em SP desde 2019)
-  baseUTC.setUTCHours(wholeHours + 3, minutes, 0, 0);
-  return baseUTC;
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(ms));
+  return str.split('-').map(Number);
 }
 
-/**
- * Próximo step válido — retorna {phase, step, scheduledAt} ou null se chegou no fim.
- */
-export function getNextStep(state) {
-  const { phase, step, started_at } = state;
-  const startedAtMs = Date.parse(started_at);
-  let nextPhase = phase;
-  let nextStep = step + 1;
-  // Limite por fase
-  const limits = { 1: F1_INTERVALS_MIN.length, 2: 3, 3: 3, 4: F4_DAY_OFFSETS.length };
-  if (nextStep >= limits[phase]) {
-    nextPhase = phase + 1;
-    nextStep = 0;
-    if (nextPhase > 4) return null; // fim da cascade
+function makeBrtDateTimeFromStart(startedAtMs, dayOffset, hourBRT, minuteBRT) {
+  const [y, m, d] = brtDateParts(startedAtMs);
+  return new Date(Date.UTC(y, m - 1, d + dayOffset, hourBRT + 3, minuteBRT, 0, 0));
+}
+
+export function getStepConfig(phase, step) {
+  if (phase === 1) return F1_STEPS[step] || null;
+  if (phase === 2) return TEMPLATE_STEPS[step] || null;
+  return null;
+}
+
+export function getPhaseSteps(phase) {
+  if (phase === 1) return F1_STEPS;
+  if (phase === 2) return TEMPLATE_STEPS;
+  return [];
+}
+
+export function getScheduleAnchorMs(state = {}, phase = state.phase) {
+  if (phase === 1) return Date.parse(state.f1_anchor_at || state.started_at);
+  return Date.parse(state.started_at);
+}
+
+export function computeScheduledAt(phase, step, startedAtMs) {
+  const cfg = getStepConfig(phase, step);
+  if (!cfg || cfg.enabled === false) return null;
+  if (cfg.kind === 'freeform') {
+    return new Date(startedAtMs + cfg.offsetMin * 60 * 1000);
   }
-  const scheduledAt = computeScheduledAt(nextPhase, nextStep, startedAtMs);
-  return scheduledAt ? { phase: nextPhase, step: nextStep, scheduledAt } : null;
+  if (cfg.kind === 'template') {
+    return makeBrtDateTimeFromStart(startedAtMs, cfg.dayOffset, cfg.hourBRT, cfg.minuteBRT);
+  }
+  return null;
 }
 
-/**
- * Migra FASE 1 → FASE 2 step 0 (caso F1 estoure janela 20:30 BRT em qualquer step).
- */
-export function migrateToPhase2(state) {
+export function computeScheduledAtForState(state, phase = state.phase, step = state.step) {
+  const anchorMs = getScheduleAnchorMs(state, phase);
+  if (Number.isNaN(anchorMs)) return null;
+  return computeScheduledAt(phase, step, anchorMs);
+}
+
+export function scheduleCurrentStepAt(state, scheduledAt) {
+  const scheduledAtDate = scheduledAt instanceof Date ? scheduledAt : new Date(scheduledAt);
+  const cfg = getStepConfig(state.phase, state.step);
+  const nextState = { ...state, scheduled_at: scheduledAtDate.toISOString() };
+  if (cfg?.kind === 'freeform') {
+    const anchorMs = scheduledAtDate.getTime() - cfg.offsetMin * 60 * 1000;
+    nextState.f1_anchor_at = new Date(anchorMs).toISOString();
+  }
+  return nextState;
+}
+
+export function getNextStep(state) {
+  const phase = Number(state.phase || 1);
+  const step = Number(state.step || 0);
+
+  if (phase === 1) {
+    const nextFreeformStep = step + 1;
+    if (nextFreeformStep < F1_STEPS.length) {
+      const scheduledAt = computeScheduledAt(1, nextFreeformStep, getScheduleAnchorMs(state, 1));
+      return scheduledAt ? { phase: 1, step: nextFreeformStep, scheduledAt } : null;
+    }
+    return getFirstTemplateStepAtOrAfter(state, -Infinity);
+  }
+
+  if (phase === 2) {
+    const nextTemplateStep = step + 1;
+    const cfg = TEMPLATE_STEPS[nextTemplateStep];
+    if (!cfg || cfg.enabled === false) return null;
+    const scheduledAt = computeScheduledAt(2, nextTemplateStep, Date.parse(state.started_at));
+    return scheduledAt ? { phase: 2, step: nextTemplateStep, scheduledAt } : null;
+  }
+
+  return null;
+}
+
+export function getFirstTemplateStepAtOrAfter(state, nowMs = Date.now()) {
   const startedAtMs = Date.parse(state.started_at);
-  const scheduledAt = computeScheduledAt(2, 0, startedAtMs);
-  return { phase: 2, step: 0, scheduledAt };
+  if (Number.isNaN(startedAtMs)) return null;
+  for (let step = 0; step < TEMPLATE_STEPS.length; step += 1) {
+    const cfg = TEMPLATE_STEPS[step];
+    if (!cfg || cfg.enabled === false) return null;
+    const scheduledAt = computeScheduledAt(2, step, startedAtMs);
+    if (scheduledAt && scheduledAt.getTime() >= nowMs) {
+      return { phase: 2, step, scheduledAt };
+    }
+  }
+  return null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// ARM / DISARM
-// ─────────────────────────────────────────────────────────────────────────
+export function migrateToTemplatePhase(state, nowMs = Date.now()) {
+  return getFirstTemplateStepAtOrAfter(state, nowMs);
+}
 
-/**
- * ARMA cascade após resposta Bia postada com sucesso.
- *
- * @param {string|number} convId
- * @param {string} sessionId       Anthropic session_id (referência)
- * @param {object} snapshot        { nome_curto, pacote_oferecido } extraído do profile.md
- */
+export function migrateToPhase2(state) {
+  return migrateToTemplatePhase(state, Date.now());
+}
+
 export async function armCascade(convId, sessionId, snapshot = {}) {
   if (process.env.FOLLOWUP_ENABLED !== '1') {
     return { ok: false, reason: 'followup_disabled_env' };
   }
-  // Killswitch runtime
   const ks = await kvGet(KV_KILLSWITCH);
   if (ks.ok && ks.value === 'off') {
     return { ok: false, reason: 'killswitch_off' };
@@ -207,31 +260,39 @@ export async function armCascade(convId, sessionId, snapshot = {}) {
 
   const now = new Date();
   const nowMs = now.getTime();
-  const scheduledAt = computeScheduledAt(1, 0, nowMs); // F1 step 0 = +4min
+  const scheduledAt = computeScheduledAt(1, 0, nowMs);
   if (!scheduledAt) return { ok: false, reason: 'compute_schedule_failed' };
+  const defaultTemplateFreeUntilMs = nowMs + TEMPLATE_FREE_UNTIL_AFTER_MS;
+  const snapshotTemplateFreeUntilMs = Date.parse(snapshot.template_free_until_at || '');
+  const templateFreeUntilMs = Number.isNaN(snapshotTemplateFreeUntilMs)
+    ? defaultTemplateFreeUntilMs
+    : Math.min(defaultTemplateFreeUntilMs, snapshotTemplateFreeUntilMs);
 
   const state = {
+    schema_version: SCHEMA_VERSION,
     phase: 1,
     step: 0,
     started_at: now.toISOString(),
+    f1_anchor_at: now.toISOString(),
+    freeform_expires_at: new Date(nowMs + FREEFORM_EXPIRES_AFTER_MS).toISOString(),
+    template_free_until_at: new Date(templateFreeUntilMs).toISOString(),
     scheduled_at: scheduledAt.toISOString(),
     session_id_arm: sessionId || null,
     nome_snapshot: snapshot.nome_curto || null,
     pacote_snapshot: snapshot.pacote_oferecido || null,
+    telefone: snapshot.telefone || snapshot.phone || null,
+    is_ctwa: snapshot.is_ctwa === true,
+    total_sent_count: 0,
     snapshot_refreshed_at: now.toISOString(),
   };
 
   await kvSet(stateKey(convId), JSON.stringify(state), STATE_TTL_SEC);
-  const scoreEpoch = Math.floor(scheduledAt.getTime() / 1000);
-  await kvZadd(KV_INDEX, scoreEpoch, String(convId));
+  await kvZadd(KV_INDEX, Math.floor(scheduledAt.getTime() / 1000), String(convId));
   await kvSet(lastBiaOutgoingKey(convId), now.toISOString(), LAST_BIA_OUTGOING_TTL_SEC);
 
   return { ok: true, scheduled_at: state.scheduled_at, conv_id: convId };
 }
 
-/**
- * DESARMA cascade (3 condições): cliente respondeu / humana posta / label terminal.
- */
 export async function disarmCascade(convId, reason) {
   if (!convId) return { ok: false, reason: 'no_conv_id' };
   await kvDel(stateKey(convId));
@@ -240,96 +301,47 @@ export async function disarmCascade(convId, reason) {
   return { ok: true, conv_id: convId, reason };
 }
 
-/**
- * REGISTRA timestamp da última msg outgoing da Bia (anti-collision com webhook humana detect).
- * Handler bia-session-create.js + cron/bia-postback.js chamam isso após postChatwoot success.
- */
 export async function markBiaOutgoing(convId) {
   if (!convId) return { ok: false, reason: 'no_conv_id' };
   return kvSet(lastBiaOutgoingKey(convId), new Date().toISOString(), LAST_BIA_OUTGOING_TTL_SEC);
 }
 
-/**
- * Detecta se outgoing msg recebida no webhook é da própria Bia (true) ou humana (false).
- * Bia posta → mark timestamp → se NOW - last_bia < marker TTL = própria Bia.
- */
 export async function isOutgoingFromBia(convId, thresholdMs = OUTGOING_SELF_DETECT_THRESHOLD_MS) {
   const r = await kvGet(lastBiaOutgoingKey(convId));
-  if (!r.ok || !r.value) return false; // nenhum mark → assume humana (safe default)
+  if (!r.ok || !r.value) return false;
   const lastMs = Date.parse(r.value);
   if (Number.isNaN(lastMs)) return false;
   return (Date.now() - lastMs) < thresholdMs;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// RENDER TEMPLATE
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * Pega template (com fallback condicional pacote_oferecido).
- */
-export function getTemplate(phase, step, pacoteOferecido) {
-  const key = `F${phase}.${step}`;
-  if (CONDITIONAL_TEMPLATES[key]) {
-    return pacoteOferecido
-      ? CONDITIONAL_TEMPLATES[key].with_pacote
-      : CONDITIONAL_TEMPLATES[key].without_pacote;
-  }
-  const arr = TEMPLATES[`F${phase}`];
-  if (!arr || !arr[step]) return null;
-  return arr[step];
+export function getTemplate(phase, step) {
+  const cfg = getStepConfig(phase, step);
+  if (!cfg || cfg.kind !== 'freeform') return null;
+  return cfg.text || null;
 }
 
-/**
- * Substitui {nome} no template. Sem nome → remove placeholder + limpa pontuação/espaços.
- */
 export function renderTemplate(template, nome) {
   if (!template) return '';
   let txt = template;
   if (nome && typeof nome === 'string' && nome.trim().length > 0) {
     txt = txt.replace(/\{nome\}/g, nome.trim());
   } else {
-    // Sem nome: tira ", {nome}" / " {nome}" / "{nome} " / "{nome}," / "{nome}!"
     txt = txt.replace(/,?\s*\{nome\}\s*,?/g, ' ');
     txt = txt.replace(/\s+([!?.])/g, '$1');
     txt = txt.replace(/\s{2,}/g, ' ');
-    // Edge: começo "Oi !" → "Oi!"
     txt = txt.replace(/^Oi\s+!/, 'Oi!');
   }
   return txt.trim();
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// SNAPSHOT — construído a partir do contexto disponível no handler
-// ─────────────────────────────────────────────────────────────────────────
-//
-// LIMITAÇÃO Anthropic API: memory_stores REST API expõe apenas metadata
-// (path, byte_size, created_at), NÃO o content. Content só é acessível via
-// Bash tool dentro de sessions ativas (mount /mnt/memory/...).
-//
-// SOLUÇÃO V1: snapshot construído no handler via contexto disponível:
-//   - nome_curto: extra.sender_name do Chatwoot webhook (primeiro nome)
-//   - pacote_oferecido: regex P[1-7] na resposta postada pela Bia
-//
-// Refresh @24h: V2 future-work (requer session ephemeral $0.05/snapshot).
-
-/**
- * Constrói snapshot a partir do contexto do handler.
- *
- * @param {string} senderName       Nome completo vindo do Chatwoot (ex: "Maria Silva")
- * @param {string} biaResponseText  Resposta Bia postada (extrair pacote via regex)
- * @returns { nome_curto, pacote_oferecido }
- */
 export function buildSnapshotFromContext(senderName, biaResponseText) {
   const out = {};
-  // Primeiro nome capitalizado
   if (senderName && typeof senderName === 'string') {
     const first = String(senderName).trim().split(/\s+/)[0];
     if (first && first.length >= 2 && /^[A-Za-zÀ-ÿ]+$/.test(first)) {
       out.nome_curto = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
     }
   }
-  // Pacote ofertado: primeiro match P[1-7] na resposta Bia
   if (biaResponseText && typeof biaResponseText === 'string') {
     const m = biaResponseText.match(/\bP([1-7])\b/);
     if (m) out.pacote_oferecido = `P${m[1]}`;
@@ -337,10 +349,6 @@ export function buildSnapshotFromContext(senderName, biaResponseText) {
   return out;
 }
 
-/**
- * Parse YAML frontmatter simples — extrai nome_curto + pacote_oferecido.
- * NÃO usa lib YAML (KISS, evita dep). Regex tolerante.
- */
 export function parseProfileYaml(content) {
   if (!content || typeof content !== 'string') return {};
   const out = {};
@@ -355,22 +363,11 @@ export function parseProfileYaml(content) {
   return out;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// DAILY COUNT — anti-spam max 6 sends/dia
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * Incrementa contador diário + retorna count.
- * Se passou de DAILY_MAX_SENDS → caller deve pular send + reagendar.
- */
 export async function incrDailyCount(convId) {
   const date = todayBRT();
   return kvIncrWithExpire(dailyCountKey(convId, date), DAILY_COUNT_TTL_SEC);
 }
 
-/**
- * Verifica se daily count atingiu limit (sem incrementar).
- */
 export async function getDailyCount(convId) {
   const date = todayBRT();
   const r = await kvGet(dailyCountKey(convId, date));
