@@ -123,7 +123,38 @@ function normalizePhone(raw) {
   return digits.startsWith('55') ? digits : `55${digits}`;
 }
 
-async function lookupCtwaBlobByPhone(rawPhone) {
+/**
+ * Função pura: transforma um candidato (CTWA blob data + uploadedAt) no objeto
+ * de enrichment usado em buildLeadEvent. Exportada para teste sem mockar
+ * @vercel/blob. Retorna {} se candidato inválido.
+ */
+export function buildCtwaEnrichment(best) {
+  if (!best?.ctwa_clid) return {};
+  const ts = Number.isFinite(best.timestamp_ms) && best.timestamp_ms > 0 ? best.timestamp_ms : Date.now();
+  return {
+    ctwaClid: best.ctwa_clid,
+    adId: best.ad_id,
+    adsetId: best.adset_id,
+    campaignId: best.campaign_id,
+    sourceUrl: best.source_url,
+    fbc: `fb.1.${ts}.${best.ctwa_clid}`,
+    utmSource: 'whatsapp_ad',
+    sourceName: 'waba_blob',
+  };
+}
+
+/**
+ * Resolve timestamp do blob: prefere data.timestamp; fallback pra uploadedAt.
+ * Exportada para teste de resolução de "mais recente".
+ */
+export function resolveBlobTimestamp(data, blobUploadedAt) {
+  const parsed = Date.parse(data?.timestamp);
+  if (Number.isFinite(parsed)) return parsed;
+  const fallback = Date.parse(blobUploadedAt);
+  return Number.isFinite(fallback) ? fallback : 0;
+}
+
+export async function lookupCtwaBlobByPhone(rawPhone) {
   if (!rawPhone || !process.env.BLOB_READ_WRITE_TOKEN) return {};
   const variants = ctwaPhoneVariants(rawPhone);
   if (variants.length === 0) return {};
@@ -138,24 +169,13 @@ async function lookupCtwaBlobByPhone(rawPhone) {
           if (!r.ok) continue;
           const data = await r.json();
           if (!data?.ctwa_clid) continue;
-          const ts = Number.isFinite(Date.parse(data.timestamp)) ? Date.parse(data.timestamp) : Date.parse(blob.uploadedAt);
+          const ts = resolveBlobTimestamp(data, blob.uploadedAt);
           if (!best || ts > best.timestamp_ms) best = { ...data, timestamp_ms: ts };
         }
         cursor = found.hasMore ? found.cursor : undefined;
       } while (cursor);
     }
-    if (!best) return {};
-    const ts = Number.isFinite(best.timestamp_ms) && best.timestamp_ms > 0 ? best.timestamp_ms : Date.now();
-    return {
-      ctwaClid: best.ctwa_clid,
-      adId: best.ad_id,
-      adsetId: best.adset_id,
-      campaignId: best.campaign_id,
-      sourceUrl: best.source_url,
-      fbc: `fb.1.${ts}.${best.ctwa_clid}`,
-      utmSource: 'whatsapp_ad',
-      sourceName: 'waba_blob',
-    };
+    return buildCtwaEnrichment(best);
   } catch (e) {
     console.warn(`[KOMMO-JP] ctwa blob lookup failed: ${e?.message}`);
     return {};
