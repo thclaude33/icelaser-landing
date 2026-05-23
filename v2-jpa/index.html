@@ -612,6 +612,8 @@ img,video{max-width:100%;height:auto}
         headers: { 'Content-Type': 'application/json' },
         body: body,
         keepalive: true,
+      }).then(function(resp) {
+        if (!resp || !resp.ok) throw new Error('http_' + (resp && resp.status));
       }).catch(function() {
         try {
           if (navigator.sendBeacon) {
@@ -678,7 +680,7 @@ img,video{max-width:100%;height:auto}
       <a href="#faq" class="hover:text-bordo">FAQ</a>
     </nav>
 
-    <a href="https://wa.me/5583982071540?text=%5BLP3-HEADER%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20agendar%20minha%20avalia%C3%A7%C3%A3o%20gratuita." target="_blank" rel="noopener" class="btn-wa !py-2.5 !px-3.5 !text-[13.5px] sm:!text-sm sm:!px-4 sm:!py-3" aria-label="Agendar avaliação grátis no WhatsApp">
+    <a href="https://wa.me/558382071540?text=%5BLP3-HEADER%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20agendar%20minha%20avalia%C3%A7%C3%A3o%20gratuita." target="_blank" rel="noopener" class="btn-wa !py-2.5 !px-3.5 !text-[13.5px] sm:!text-sm sm:!px-4 sm:!py-3" aria-label="Agendar avaliação grátis no WhatsApp">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163A11.867 11.867 0 010 11.892C0 5.335 5.335 0 11.892 0c3.18 0 6.167 1.24 8.413 3.488A11.82 11.82 0 0123.785 11.9c-.003 6.557-5.338 11.893-11.893 11.893a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.978-1.607zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413z"/></svg>
       <span class="hidden xs:inline sm:inline">Agendar avaliação grátis</span>
       <span class="xs:hidden sm:hidden">Agendar grátis</span>
@@ -717,7 +719,7 @@ img,video{max-width:100%;height:auto}
 
         <!-- CTA + prova logo após o sub (acima da dobra mobile) -->
         <div class="mt-6 flex flex-col sm:flex-row sm:items-center gap-3">
-          <a href="https://wa.me/5583982071540?text=%5BLP3-HERO%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20agendar%20minha%20avalia%C3%A7%C3%A3o%20gratuita." target="_blank" rel="noopener" class="btn-wa giant w-full sm:w-auto">
+          <a href="https://wa.me/558382071540?text=%5BLP3-HERO%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20agendar%20minha%20avalia%C3%A7%C3%A3o%20gratuita." target="_blank" rel="noopener" class="btn-wa giant w-full sm:w-auto">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163A11.867 11.867 0 010 11.892C0 5.335 5.335 0 11.892 0c3.18 0 6.167 1.24 8.413 3.488A11.82 11.82 0 0123.785 11.9c-.003 6.557-5.338 11.893-11.893 11.893a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.978-1.607z"/></svg>
             Falar no WhatsApp agora
           </a>
@@ -974,7 +976,7 @@ img,video{max-width:100%;height:auto}
           <li class="flex gap-2"><span class="text-gold">✓</span> Acompanhamento personalizado</li>
         </ul>
 
-        <a href="https://wa.me/5583982071540?text=%5BLP6-PACOTE-VIRILHA%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20o%20pacote%20Virilha%20%2B%20axilas%20%2B%20bu%C3%A7o." target="_blank" rel="noopener" class="btn-wa w-full mt-7">
+        <a href="https://wa.me/558382071540?text=%5BLP6-PACOTE-VIRILHA%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20o%20pacote%20Virilha%20%2B%20axilas%20%2B%20bu%C3%A7o." target="_blank" rel="noopener" class="btn-wa w-full mt-7">
           Quero esse pacote
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
         </a>
@@ -998,7 +1000,7 @@ img,video{max-width:100%;height:auto}
           <li class="flex gap-2"><span class="text-bordo">✓</span> Confortável, com refrigeração 3D</li>
         </ul>
 
-        <a href="https://wa.me/5583982071540?text=%5BLP6-PACOTE-PERNAS%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20o%20pacote%20Pernas%20completas%20%2B%20p%C3%A9s." target="_blank" rel="noopener" class="btn-wa w-full mt-7">
+        <a href="https://wa.me/558382071540?text=%5BLP6-PACOTE-PERNAS%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20o%20pacote%20Pernas%20completas%20%2B%20p%C3%A9s." target="_blank" rel="noopener" class="btn-wa w-full mt-7">
           Quero esse pacote
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
         </a>
@@ -1022,7 +1024,7 @@ img,video{max-width:100%;height:auto}
           <li class="flex gap-2"><span class="text-bordo">✓</span> Pele uniforme e mais clara</li>
         </ul>
 
-        <a href="https://wa.me/5583982071540?text=%5BLP6-PACOTE-ROSTO%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20o%20pacote%20Rosto%20%2B%20pesco%C3%A7o." target="_blank" rel="noopener" class="btn-wa w-full mt-7">
+        <a href="https://wa.me/558382071540?text=%5BLP6-PACOTE-ROSTO%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20o%20pacote%20Rosto%20%2B%20pesco%C3%A7o." target="_blank" rel="noopener" class="btn-wa w-full mt-7">
           Quero esse pacote
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
         </a>
@@ -1038,24 +1040,24 @@ img,video{max-width:100%;height:auto}
         <div class="bg-cream border border-line rounded-2xl p-5">
           <p class="serif text-[18px] text-ink leading-snug">Meia perna + joelhos</p>
           <p class="text-bordo serif text-[24px] mt-2">12× R$ 64,90</p>
-          <a href="https://wa.me/5583982071540?text=%5BLP6-PACOTE-MEIAPERNA%5D%20Ol%C3%A1%2C%20quero%20saber%20sobre%20o%20pacote%20Meia%20perna%20%2B%20joelhos." target="_blank" rel="noopener" class="text-[13px] text-bordo underline mt-3 inline-block">Falar no WhatsApp →</a>
+          <a href="https://wa.me/558382071540?text=%5BLP6-PACOTE-MEIAPERNA%5D%20Ol%C3%A1%2C%20quero%20saber%20sobre%20o%20pacote%20Meia%20perna%20%2B%20joelhos." target="_blank" rel="noopener" class="text-[13px] text-bordo underline mt-3 inline-block">Falar no WhatsApp →</a>
         </div>
         <div class="bg-cream border border-line rounded-2xl p-5">
           <p class="serif text-[18px] text-ink leading-snug">Combo virilha + meia perna</p>
           <p class="text-[12px] text-ink-soft mt-1">virilha + perianal + axilas + buço + meia perna + joelhos</p>
           <p class="text-bordo serif text-[24px] mt-2">12× R$ 84,90</p>
-          <a href="https://wa.me/5583982071540?text=%5BLP6-PACOTE-BRACOS%5D%20Ol%C3%A1%2C%20quero%20saber%20sobre%20o%20combo%20Virilha%20%2B%20axilas%20%2B%20bu%C3%A7o%20%2B%20meia%20perna%20%2B%20joelhos." target="_blank" rel="noopener" class="text-[13px] text-bordo underline mt-3 inline-block">Falar no WhatsApp →</a>
+          <a href="https://wa.me/558382071540?text=%5BLP6-PACOTE-BRACOS%5D%20Ol%C3%A1%2C%20quero%20saber%20sobre%20o%20combo%20Virilha%20%2B%20axilas%20%2B%20bu%C3%A7o%20%2B%20meia%20perna%20%2B%20joelhos." target="_blank" rel="noopener" class="text-[13px] text-bordo underline mt-3 inline-block">Falar no WhatsApp →</a>
         </div>
         <div class="bg-cream border border-line rounded-2xl p-5">
           <p class="serif text-[18px] text-ink leading-snug">Glúteos</p>
           <p class="text-bordo serif text-[24px] mt-2">12× R$ 39,90</p>
-          <a href="https://wa.me/5583982071540?text=%5BLP6-PACOTE-GLUTEOS%5D%20Ol%C3%A1%2C%20quero%20saber%20sobre%20o%20pacote%20Gl%C3%BAteos." target="_blank" rel="noopener" class="text-[13px] text-bordo underline mt-3 inline-block">Falar no WhatsApp →</a>
+          <a href="https://wa.me/558382071540?text=%5BLP6-PACOTE-GLUTEOS%5D%20Ol%C3%A1%2C%20quero%20saber%20sobre%20o%20pacote%20Gl%C3%BAteos." target="_blank" rel="noopener" class="text-[13px] text-bordo underline mt-3 inline-block">Falar no WhatsApp →</a>
         </div>
         <div class="bg-cream border border-line rounded-2xl p-5">
           <p class="serif text-[18px] text-ink leading-snug">Combo virilha + pernas completas</p>
           <p class="text-[12px] text-ink-soft mt-1">virilha + perianal + axilas + buço + pernas completas + pés</p>
           <p class="text-bordo serif text-[24px] mt-2">12× R$ 124,90</p>
-          <a href="https://wa.me/5583982071540?text=%5BLP6-PACOTE-CORPOTODO%5D%20Ol%C3%A1%2C%20quero%20saber%20sobre%20o%20combo%20Virilha%20%2B%20axilas%20%2B%20bu%C3%A7o%20%2B%20pernas%20completas%20%2B%20p%C3%A9s." target="_blank" rel="noopener" class="text-[13px] text-bordo underline mt-3 inline-block">Falar no WhatsApp →</a>
+          <a href="https://wa.me/558382071540?text=%5BLP6-PACOTE-CORPOTODO%5D%20Ol%C3%A1%2C%20quero%20saber%20sobre%20o%20combo%20Virilha%20%2B%20axilas%20%2B%20bu%C3%A7o%20%2B%20pernas%20completas%20%2B%20p%C3%A9s." target="_blank" rel="noopener" class="text-[13px] text-bordo underline mt-3 inline-block">Falar no WhatsApp →</a>
         </div>
       </div>
     </details>
@@ -1315,7 +1317,7 @@ img,video{max-width:100%;height:auto}
       </div>
     </div>
 
-    <a href="https://wa.me/5583982071540?text=%5BLP4-CTA-FINAL%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20garantir%20minha%20sess%C3%A3o%20experimental%20gr%C3%A1tis." target="_blank" rel="noopener" class="btn-wa giant mt-10 inline-flex reveal">
+    <a href="https://wa.me/558382071540?text=%5BLP4-CTA-FINAL%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20garantir%20minha%20sess%C3%A3o%20experimental%20gr%C3%A1tis." target="_blank" rel="noopener" class="btn-wa giant mt-10 inline-flex reveal">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163A11.867 11.867 0 010 11.892C0 5.335 5.335 0 11.892 0c3.18 0 6.167 1.24 8.413 3.488A11.82 11.82 0 0123.785 11.9c-.003 6.557-5.338 11.893-11.893 11.893a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.978-1.607z"/></svg>
       Garantir minha sessão experimental grátis
     </a>
@@ -1349,7 +1351,7 @@ img,video{max-width:100%;height:auto}
 
       <div class="lg:col-span-2">
         <p class="text-[11px] uppercase tracking-[0.2em] text-gold">Contato</p>
-        <a href="https://wa.me/5583982071540?text=%5BLP7-FOOTER-TEL%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20falar%20sobre%20depila%C3%A7%C3%A3o%20a%20laser." target="_blank" rel="noopener" class="block mt-3 text-[14.5px] hover:text-gold">+55 83 9 8207-1540</a>
+        <a href="https://wa.me/558382071540?text=%5BLP7-FOOTER-TEL%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20quero%20falar%20sobre%20depila%C3%A7%C3%A3o%20a%20laser." target="_blank" rel="noopener" class="block mt-3 text-[14.5px] hover:text-gold">+55 83 8207-1540</a>
         <a href="mailto:contato@icelaser.com.br" class="block mt-1 text-[14.5px] hover:text-gold">contato@icelaser.com.br</a>
         <a href="https://instagram.com/icelaser_jp" class="block mt-1 text-[14.5px] hover:text-gold">@icelaser_jp</a>
       </div>
@@ -1383,7 +1385,7 @@ img,video{max-width:100%;height:auto}
 <!-- ============================================================
 STICKY WHATSAPP FAB
 ============================================================ -->
-<a href="https://wa.me/5583982071540?text=%5BLP5-FAB%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." target="_blank" rel="noopener"
+<a href="https://wa.me/558382071540?text=%5BLP5-FAB%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." target="_blank" rel="noopener"
    class="wa-fab fixed z-50 right-4 bottom-4 sm:right-6 sm:bottom-6 bg-wa text-white rounded-full shadow-fab grid place-items-center"
    style="width:60px;height:60px"
    aria-label="Falar no WhatsApp">

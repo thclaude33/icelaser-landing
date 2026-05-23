@@ -57,6 +57,8 @@
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
 import { buildUserData as sdkBuildUserData } from './_lib/piiBuilder.js';
 import { PAGE_ID_JPA, KOMMO_CAPI_DATASET } from './_lib/config.js';
+import { ctwaPhoneVariants } from './_lib/followup-ctwa.js';
+import { list } from '@vercel/blob';
 
 const KOMMO_ACCOUNT_ID = '36397911';
 const KOMMO_PIPELINE_JP = '13628687';
@@ -119,6 +121,45 @@ function normalizePhone(raw) {
   const digits = String(raw).replace(/\D/g, '');
   if (!digits) return undefined;
   return digits.startsWith('55') ? digits : `55${digits}`;
+}
+
+async function lookupCtwaBlobByPhone(rawPhone) {
+  if (!rawPhone || !process.env.BLOB_READ_WRITE_TOKEN) return {};
+  const variants = ctwaPhoneVariants(rawPhone);
+  if (variants.length === 0) return {};
+  try {
+    let best = null;
+    for (const phoneKey of variants) {
+      let cursor;
+      do {
+        const found = await list({ prefix: `ctwa/${phoneKey}`, cursor, limit: 100 });
+        for (const blob of found.blobs || []) {
+          const r = await fetch(blob.url, { signal: AbortSignal.timeout(5000) });
+          if (!r.ok) continue;
+          const data = await r.json();
+          if (!data?.ctwa_clid) continue;
+          const ts = Number.isFinite(Date.parse(data.timestamp)) ? Date.parse(data.timestamp) : Date.parse(blob.uploadedAt);
+          if (!best || ts > best.timestamp_ms) best = { ...data, timestamp_ms: ts };
+        }
+        cursor = found.hasMore ? found.cursor : undefined;
+      } while (cursor);
+    }
+    if (!best) return {};
+    const ts = Number.isFinite(best.timestamp_ms) && best.timestamp_ms > 0 ? best.timestamp_ms : Date.now();
+    return {
+      ctwaClid: best.ctwa_clid,
+      adId: best.ad_id,
+      adsetId: best.adset_id,
+      campaignId: best.campaign_id,
+      sourceUrl: best.source_url,
+      fbc: `fb.1.${ts}.${best.ctwa_clid}`,
+      utmSource: 'whatsapp_ad',
+      sourceName: 'waba_blob',
+    };
+  } catch (e) {
+    console.warn(`[KOMMO-JP] ctwa blob lookup failed: ${e?.message}`);
+    return {};
+  }
 }
 
 /**
@@ -436,7 +477,7 @@ async function patchKommoLead(leadId, customFields) {
  *
  * @returns {Promise<{ctwaClid?: string, adId?: string, sourceUrl?: string}>}
  */
-async function enrichLeadFromReferral(leadId) {
+async function enrichLeadFromReferral(leadId, rawPhone = null) {
   if (!leadId) return {};
   // 🚨 BUG KOMMO API CONFIRMADO 03/05 — `filter[lead_id]` e `filter[entity_id]`
   // são SILENTLY IGNORED pelo /leads/unsorted endpoint. API sempre retorna
@@ -467,16 +508,17 @@ async function enrichLeadFromReferral(leadId) {
   const meta = u.metadata || {};
   const origin = meta.origin || {};
   const sourceName = u.source_name || meta.source_name || '';
+  const blobEnrich = await lookupCtwaBlobByPhone(rawPhone);
 
   // Captura via metadata.origin (Kommo armazena ref + visitor_uid + chat_id aqui).
   // Em CTWA WABA, Meta passa source_id e ctwa_clid no welcome message.
   // Kommo NÃO mapeia 1:1 atualmente — visitor_uid pode ser ctwa_clid em alguns casos.
-  // Como fallback, source_name "waba:..." indica origem WhatsApp Business.
-  const ctwaClid = origin.ctwa_clid || origin.ref || null;
-  const adId = meta.referral?.source_id || origin.source_id || null;
-  const adsetId = meta.referral?.adset_id || null;
-  const campaignId = meta.referral?.campaign_id || null;
-  const sourceUrl = meta.referral?.source_url || null;
+  // Como fallback, busca o referral bruto salvo pelo webhook WhatsApp em Blob.
+  const ctwaClid = origin.ctwa_clid || origin.ref || origin.visitor_uid || blobEnrich.ctwaClid || null;
+  const adId = meta.referral?.source_id || origin.source_id || blobEnrich.adId || null;
+  const adsetId = meta.referral?.adset_id || blobEnrich.adsetId || null;
+  const campaignId = meta.referral?.campaign_id || blobEnrich.campaignId || null;
+  const sourceUrl = meta.referral?.source_url || blobEnrich.sourceUrl || null;
   const fbclid = meta.referral?.fbclid || null;
 
   // Determina utm_source baseado em source_name
@@ -484,10 +526,11 @@ async function enrichLeadFromReferral(leadId) {
   if (sourceName.startsWith('waba:')) utmSource = 'whatsapp_ad';
   else if (sourceName.startsWith('instagram_business:')) utmSource = 'instagram';
   else if (sourceName.startsWith('facebook:')) utmSource = 'facebook';
+  else if (blobEnrich.utmSource) utmSource = blobEnrich.utmSource;
 
   // Constrói fbc no formato Meta CAPI se temos ctwa_clid
   const tsMs = (Number(u.created_at) || Math.floor(Date.now() / 1000)) * 1000;
-  const fbc = ctwaClid ? `fb.1.${tsMs}.${ctwaClid}` : null;
+  const fbc = blobEnrich.fbc || (ctwaClid ? `fb.1.${tsMs}.${ctwaClid}` : null);
 
   // Monta payload PATCH só com fields que temos valor
   const fields = [];
@@ -516,7 +559,7 @@ async function enrichLeadFromReferral(leadId) {
     `[KOMMO-JP] enriched lead=${leadId} source=${sourceName} ` +
     `fields=${fields.map(f => f.field_id).join(',')}`
   );
-  return { ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, utmSource, fbclid, sourceName };
+  return { ctwaClid, adId, adsetId, campaignId, sourceUrl, fbc, utmSource, fbclid, sourceName: sourceName || blobEnrich.sourceName };
 }
 
 export default async function handler(req, res) {
@@ -586,24 +629,21 @@ export default async function handler(req, res) {
   for (const lead of leadsAdd) {
     if (lead.pipeline_id && String(lead.pipeline_id) !== KOMMO_PIPELINE_JP) continue;
 
-    // FIX Vercel Agent #2 (race condition): enrich retorna os valores que populou.
-    // Pii do lead original (webhook payload) NÃO tem fields recém-PATCHados ainda
-    // (o lead full re-fetch seria 1 round-trip extra). Mergeamos enrich into pii
-    // ao invés. Falha graciosa: se enrich fail, retorna {} e segue fluxo normal.
-    const enrich = await enrichLeadFromReferral(lead.id).catch(() => ({}));
-
     const stageId = String(lead.status_id || '');
-    const eventName = mapKommoStageToMetaEvent(stageId);
-    if (!eventName) continue; // incoming → espera transition
-    if (alreadyFiredInPayload(lead.id, eventName)) continue; // FIX v3.2
-
     const contact = await getContact(lead.id, lead._embedded?.contacts);
     if (!contact) {
       errors.push({ lead: lead.id, reason: 'no_contact', event: 'add_lead', stage: stageId });
       continue;
     }
     const piiBase = extractContactPII(contact, lead);
+    // FIX Vercel Agent #2 (race condition): enrich retorna os valores que populou.
+    // Passa telefone do contato para recuperar o referral CTWA bruto salvo pelo
+    // webhook WhatsApp; Kommo Unsorted não expõe o telefone no metadata.
+    const enrich = await enrichLeadFromReferral(lead.id, piiBase.phone).catch(() => ({}));
     const pii = mergeEnrichmentIntoPII(piiBase, enrich);
+    const eventName = mapKommoStageToMetaEvent(stageId);
+    if (!eventName) continue; // incoming → já enriqueceu; espera transition
+    if (alreadyFiredInPayload(lead.id, eventName)) continue; // FIX v3.2
     const userData = await buildUserDataKommo(contact, pii);
 
     const customData = {};
@@ -686,7 +726,7 @@ export default async function handler(req, res) {
   const validEvents = filterValidEvents(events);
   if (validEvents.length === 0) {
     console.warn(`[KOMMO-JP] todos os ${events.length} events rejeitados em filterValidEvents`);
-    return res.status(200).json({ ok: true, processed: 0, errors, dropped: events.length });
+    return res.status(422).json({ ok: false, error: 'all_events_invalid', processed: 0, errors, dropped: events.length });
   }
 
   const token = process.env.META_ACCESS_TOKEN;
@@ -694,12 +734,24 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'meta_token_missing' });
   }
   const result = await sendCapiEvents(validEvents, token, { pixelId: KOMMO_CAPI_DATASET });
+  const eventsReceived = Number(result?.events_received ?? 0);
 
   console.log(
     `[KOMMO-JP] processed=${validEvents.length}/${events.length} ` +
     `events=${validEvents.map(e => e.event_name).join(',')} ` +
     `meta=${JSON.stringify(result).slice(0, 200)}`
   );
+  if (result?.error || eventsReceived < validEvents.length) {
+    return res.status(502).json({
+      ok: false,
+      error: result?.error?.message || 'capi_incomplete_delivery',
+      processed: validEvents.length,
+      dropped: events.length - validEvents.length,
+      events_received: eventsReceived,
+      meta: result,
+      errors,
+    });
+  }
   return res.status(200).json({
     ok: true,
     processed: validEvents.length,

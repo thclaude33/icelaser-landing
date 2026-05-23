@@ -91,6 +91,8 @@
         headers: { 'Content-Type': 'application/json' },
         body,
         keepalive: true,
+      }).then(function (resp) {
+        if (!resp || !resp.ok) throw new Error('http_' + (resp && resp.status));
       }).catch(function (err) {
         try {
           const sent = navigator.sendBeacon &&

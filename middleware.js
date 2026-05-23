@@ -210,12 +210,11 @@ export default function middleware(request) {
     }
   }
 
-  // Fix MEDIUM AI deep v3 (middleware.js:174): Domain=.icelasers.com.br pra
-  // cookies funcionarem cross-subdomain (www/api). Sem Domain= cookies são
-  // host-only e divergem do Set-Cookie de /api/track (que agora usa Domain=).
-  // Se host não é icelasers.com.br (ex: vercel.app preview), omite Domain.
-  const isProdHost = typeof host === 'string' && host.endsWith('icelasers.com.br');
-  const domainAttr = isProdHost ? '; Domain=.icelasers.com.br' : '';
+  // Compartilha cookies só entre apex/www Recife. Subdomínios de clínica
+  // (ex: jpa.icelasers.com.br) ficam host-only para não vazar _fbc/_fbp entre contas.
+  const hostname = typeof host === 'string' ? host.split(':')[0].toLowerCase() : '';
+  const shouldShareCookieDomain = hostname === 'icelasers.com.br' || hostname === 'www.icelasers.com.br';
+  const domainAttr = shouldShareCookieDomain ? '; Domain=.icelasers.com.br' : '';
   const cookiesToSet = [];
   if (!hasFbp) {
     cookiesToSet.push(

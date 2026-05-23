@@ -1310,7 +1310,7 @@ export default async function handler(req, res) {
   });
 
   if (validEvents.length === 0) {
-    return res.status(200).json({ ok: true, skipped: true, reason: 'all_events_invalid' });
+    return res.status(422).json({ ok: false, skipped: true, reason: 'all_events_invalid' });
   }
 
   // ═════════════════════════════════════════════════════════════════════
@@ -1405,7 +1405,9 @@ export default async function handler(req, res) {
   if (!shouldSendPixelLP) {
     console.warn(`[CRM-WEBHOOK] routing target não-Pixel ignorado no V5; enviando Pixel LP`);
   }
-  result = await sendCAPI(funnelEvents, targetToken, 0, targetPixelId);
+  if (funnelEvents.length > 0) {
+    result = await sendCAPI(funnelEvents, targetToken, 0, targetPixelId);
+  }
   // Fix MEDIUM AI review 20/04/2026 (M4): events_received pode ser undefined se
   // CAPI retornou erro (ex: invalid_token). Explicitar 0 pra JSON ser sempre determinístico.
   // Fix 27/04/2026 v2 (Vercel Agent finding PR #41): incluir audienceResult no total
@@ -1414,6 +1416,19 @@ export default async function handler(req, res) {
   const eventsReceived = (result?.events_received ?? 0) + (audienceResult?.events_received ?? 0);
 
   console.log(`[CRM-WEBHOOK] ${event} | contact=${maskName(nome)} phone=${maskPhone(telefone)} email=${maskEmail(email)} | labels: ${labels.join(',')} | CAPI: ${eventsReceived} eventos | WAM disabled | ctwa:${!!ctwaClid} | seg:${customerSeg}`);
+  if (result?.error || audienceResult?.error || eventsReceived < validEvents.length) {
+    return res.status(502).json({
+      ok: false,
+      error: result?.error?.message || audienceResult?.error?.message || 'capi_incomplete_delivery',
+      contact: maskName(nome),
+      labels,
+      events_sent: validEvents.length,
+      events_received: eventsReceived,
+      wam_disabled: true,
+      ctwa_clid: !!ctwaClid,
+      customer_segmentation: customerSeg,
+    });
+  }
   return res.status(200).json({
     ok: true,
     // Fix LOW AI review 20/04/2026 (L1): mask PII na response (pode vazar em
