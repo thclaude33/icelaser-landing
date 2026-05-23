@@ -28,7 +28,9 @@ import { put, list } from '@vercel/blob';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
-const BIA_SKILL_ID = 'skill_01VmKCpBmg717nKmCAWgnUYS';
+// Sanitização 22/05/2026: skill velha skill_01VmKCpBmg717nKmCAWgnUYS DESCONTINUADA,
+// agents agora carregam a skill nova sanitizada (v5, ~9KB vs ~15KB).
+const BIA_SKILL_ID = 'skill_01NZsF2j4JnEsF3VM234Ljy8';
 const SOURCE_VERSION_FILE = 'knowledge-base/skill-source/.last_synced_version';
 const ALERT_BUCKET_HOURS = 4;
 const ALERT_BLOB_PREFIX = 'bia/skill-drift-alerts/';
@@ -109,7 +111,7 @@ async function sendDriftEmail({ liveVersion, localVersion, latestCreated, liveVe
     .filter(Boolean);
   const subject = `[BIA-SKILL-DRIFT] Production skill diverge do source local`;
   const body = `
-Drift detectado em skill_01VmKCpBmg717nKmCAWgnUYS (Bia Vendedora Premium).
+Drift detectado em skill_01NZsF2j4JnEsF3VM234Ljy8 (Bia Vendedora Premium — sanitizada v5).
 
 Production latest_version_id: ${liveVersion}
 Production version number  : ${liveVersionNumber || '?'}
@@ -121,7 +123,7 @@ Causa provável: upload direto Anthropic console sem passar pelo flow
 landing-page/knowledge-base/skill-source/.
 
 Ação:
-1. Verificar version production via API (skills/skill_01VmK.../versions)
+1. Verificar version production via API (skills/skill_01NZsF.../versions)
 2. Re-sincronizar source local: dump SKILL.md via probe + commit
 3. Atualizar .last_synced_version
 4. Documentar mudança em SAB Reference

@@ -31,7 +31,7 @@ import { shouldSendNow } from './_lib/send-window.js';
 import { kvClaim, kvRelease } from './_lib/kv-rate-limit.js';
 import { armCascade, disarmCascade, markBiaOutgoing, buildSnapshotFromContext } from './_lib/cascade.js';
 import { resolveSessionForThread, setActiveSession } from './_lib/session-reuse.js';
-import { responseOrFallbackFromEvents } from './_lib/bia-client-response.js';
+import { isSafeForClientHistory, responseOrFallbackFromEvents } from './_lib/bia-client-response.js';
 import { getRecentCtwaContextForPhone } from './_lib/followup-ctwa.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
@@ -353,7 +353,8 @@ async function fetchChatwootHistory(convId, limit = 50) {
     const filtered = all.filter((m) => {
       const t = m.message_type;
       const isText = t === 0 || t === 1 || t === 'incoming' || t === 'outgoing';
-      return isText && !m.private && (m.content || '').trim().length > 0;
+      const content = String(m.content || '').trim();
+      return isText && !m.private && isSafeForClientHistory(content);
     });
     // Order ASC by timestamp + limit últimas N (mais recentes ao final)
     filtered.sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
