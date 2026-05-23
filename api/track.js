@@ -18,7 +18,7 @@ const EMAIL_TO    = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,
  * IMPORTANTE: NÃO usar nome 'isJpRoute' — já é let local no handler linha ~510 (TDZ bug).
  * Olha múltiplos sinais: Origin/Referer/host/event_source_url/landing_url.
  */
-export function detectJpRequest(req, body) {
+function detectJpRequest(req, body) {
   const sigs = [
     req?.headers?.origin,
     req?.headers?.referer,
