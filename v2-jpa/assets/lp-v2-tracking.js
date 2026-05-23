@@ -20,7 +20,7 @@
   // CONFIG
   // ════════════════════════════════════════════════════════════════
   window._PIXEL_ID = '1386967056530127'; // IceLaser João Pessoa (Bancários)
-  const WA_PHONE = '5583982071540';
+  const WA_PHONE = '558382071540';
   const FORM_TAG = '[LP3-FORM]';
   const FORM_MSG = 'Olá, vi o anúncio e acabei de preencher o formulário pra avaliação.';
   let submitting = false;
@@ -82,6 +82,8 @@
         headers: { 'Content-Type': 'application/json' },
         body,
         keepalive: true,
+      }).then(function (resp) {
+        if (!resp || !resp.ok) throw new Error('http_' + (resp && resp.status));
       }).catch(function (err) {
         try {
           const sent = navigator.sendBeacon &&

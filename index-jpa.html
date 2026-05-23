@@ -289,7 +289,7 @@
     // Advanced Matching do primeiro perde geo se localStorage só tem em/ph.
     // Agora: única init que inclui geo + Advanced Matching quando disponível.
     (function initPixel() {
-      var initParams = { country: 'br', st: 'pe', ct: 'recife', zp: '50000', ge: 'f' };
+      var initParams = { country: 'br', st: 'pb', ct: 'joao pessoa', zp: '58051', ge: 'f' };
       try {
         var _lsEm = localStorage.getItem('ice_em');
         var _lsPh = localStorage.getItem('ice_ph');
@@ -1742,7 +1742,7 @@
 <!-- STICKY HEADER -->
 <header class="header">
   <div class="header-logo">Ice<span>Laser</span> · João Pessoa</div>
-  <a href="https://api.whatsapp.com/send?phone=5583982071540&text=%5BLP1%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="header-cta" id="btn-header-cta" data-cta="header" rel="noopener">Agendar avaliação</a>
+  <a href="https://api.whatsapp.com/send?phone=558382071540&text=%5BLP1%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="header-cta" id="btn-header-cta" data-cta="header" rel="noopener">Agendar avaliação</a>
 </header>
 
 <!-- URGENCY BAR — role=status anuncia mudança dinâmica pra screen reader sem interromper -->
@@ -1772,7 +1772,7 @@
   </p>
 
   <!-- BOTÃO WA DIRETO — above the fold (movido pra cima dos checks pra aparecer sem scroll). -->
-  <a href="https://api.whatsapp.com/send?phone=5583982071540&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero" data-cta="hero" rel="noopener">
+  <a href="https://api.whatsapp.com/send?phone=558382071540&text=%5BLP3%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-wa-hero" id="btn-wa-hero" data-cta="hero" rel="noopener">
     <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
     Falar no WhatsApp agora
   </a>
@@ -2047,7 +2047,7 @@
   <h2>Chega de cera.<br><em>Sua vaga</em> te espera.</h2>
   <p class="cta-promessa"><strong>Sem pressão, sem compromisso.</strong> Você vem, conhece a clínica, faz o teste de pele gratuito e recebe o orçamento. Se não quiser continuar — sem problema.</p>
   <p>Avaliação 100% gratuita + brinde surpresa na sua visita.<br>Apenas <strong id="vagas2">3</strong> vagas disponíveis — válido até hoje 23:59</p>
-  <a href="https://api.whatsapp.com/send?phone=5583982071540&text=%5BLP4%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-cta2" id="cta-final-btn" data-cta="final" rel="noopener">
+  <a href="https://api.whatsapp.com/send?phone=558382071540&text=%5BLP4%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="btn-cta2" id="cta-final-btn" data-cta="final" rel="noopener">
     <svg width="22" height="22" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
     Garantir minha 1ª sessão grátis
   </a>
@@ -2079,15 +2079,15 @@
 </footer>
 
 <!-- FLOATING ACTION BUTTON — role=complementary landmark (aside-like) -->
-<a href="https://api.whatsapp.com/send?phone=5583982071540&text=%5BLP5%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="fab" id="fab" aria-label="Falar no WhatsApp" data-cta="fab" rel="noopener">
+<a href="https://api.whatsapp.com/send?phone=558382071540&text=%5BLP5%5D%20Ol%C3%A1%2C%20vi%20o%20an%C3%BAncio%20e%20gostaria%20de%20retirar%20meu%20brinde." class="fab" id="fab" aria-label="Falar no WhatsApp" data-cta="fab" rel="noopener">
   <svg width="20" height="20" aria-hidden="true" style="color:white"><use href="#icon-wa"/></svg>
   Garantir vaga grátis
 </a>
 
 <script>
-  // JP — WhatsApp Cloud API ATIVO. Chip Bancários +55 83 9 8207-1540 verified GREEN
+  // JP — WhatsApp Cloud API ATIVO. Chip Bancários +55 83 8207-1540 verified GREEN
   // (Cloud API id 1104617299399194, WABA 2042108643039937 "Icelaser Bancarios").
-  const WA_NUMBER = '5583982071540';
+  const WA_NUMBER = '558382071540';
   const WA_MSG = encodeURIComponent('[LP3] Olá, vi o anúncio e gostaria de retirar meu brinde.');
 
   /* HELPERS ──────────────────────────────────────────── */
@@ -2393,9 +2393,9 @@
         ln: lnPart,
         external_id: externalId,
         country: 'br',
-        st: 'pe',
-        ct: 'recife',
-        zp: '50000',
+        st: 'pb',
+        ct: 'joao pessoa',
+        zp: '58051',
         ge: 'f',
       });
       // Persiste em localStorage pra Advanced Matching em próximas visitas.

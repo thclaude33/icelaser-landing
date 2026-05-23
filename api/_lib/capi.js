@@ -116,17 +116,34 @@ export async function sendCapiEvents(events, token, options = {}) {
         );
       }
       // events_received = 0 com status 200 e sem error = silent drop total.
-      if ((result.events_received ?? 0) === 0) {
+      const eventsReceived = result.events_received ?? 0;
+      if (eventsReceived === 0) {
         const eventNames = events.map(e => e.event_name).join(',');
         console.error(
           `[CAPI SILENT_DROP] events=${eventNames} received=0 sent=${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`
         );
+        result.error = {
+          message: 'capi_zero_received',
+          code: 'CAPI_ZERO_RECEIVED',
+          is_transient: false,
+          silent_drop: true,
+          events_sent: events.length,
+          events_received: 0,
+        };
       }
       // Mismatch count → parcialmente dropados.
-      if ((result.events_received ?? 0) > 0 && result.events_received < events.length) {
+      if (eventsReceived > 0 && eventsReceived < events.length) {
         console.warn(
-          `[CAPI PARTIAL_DROP] received=${result.events_received ?? 0}/${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`
+          `[CAPI PARTIAL_DROP] received=${eventsReceived}/${events.length} fbtrace=${result.fbtrace_id || 'n/a'}`
         );
+        result.error = {
+          message: 'capi_partial_received',
+          code: 'CAPI_PARTIAL_RECEIVED',
+          is_transient: false,
+          partial_drop: true,
+          events_sent: events.length,
+          events_received: eventsReceived,
+        };
       }
       return result;
     }

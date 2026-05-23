@@ -613,6 +613,8 @@ img,video{max-width:100%;height:auto}
         headers: { 'Content-Type': 'application/json' },
         body: body,
         keepalive: true,
+      }).then(function(resp) {
+        if (!resp || !resp.ok) throw new Error('http_' + (resp && resp.status));
       }).catch(function() {
         try {
           if (navigator.sendBeacon) {

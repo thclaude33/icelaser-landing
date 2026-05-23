@@ -406,7 +406,8 @@ function stateFromPhone(phone) {
 }
 
 // ── PROCESSA MENSAGEM CTWA + SALVA NO BLOB ───────────────────────────────────
-async function processarCTWA(from, message, referral, profileName, clinic = null) {
+async function processarCTWA(from, message, referral, profileName, clinic = null, options = {}) {
+  const sendCapi = options.sendCapi !== false;
   const clid = referral?.ctwa_clid;
   const sourceUrl = referral?.source_url || '';
   const sourceType = referral?.source_type || '';
@@ -527,7 +528,7 @@ async function processarCTWA(from, message, referral, profileName, clinic = null
   // (Lead qualificado real é disparado depois pelo crm-webhook via label lead_quente.)
   // Fix V5.2: token/pixel/page vêm da clínica resolvida por phone_number_id.
   // Antes JP caía no CAPI/Pixels Recife quando o webhook compartilhado processava CTWA.
-  if (clid && from && clinic?.capiToken) {
+  if (sendCapi && clid && from && clinic?.capiToken) {
     try {
       // event_time: prefere timestamp do WA webhook (message.timestamp, unix seconds).
       // Se Meta retentar o webhook, event_time ainda é consistente com 1ª entrega.
@@ -1577,6 +1578,25 @@ export default async function handler(req, res) {
         }
         if (clinic.isJp) {
           hasJpMessageClinic = true;
+          for (const msg of value.messages || []) {
+            if (msg.id && await dedupCheck(msg.id)) {
+              console.log(`[DEDUP] ⏭️ Ignorando msg JPA duplicada: ${msg.id}`);
+              continue;
+            }
+            if (msg.id) await dedupMark(msg.id);
+
+            const from = msg.from;
+            let profileName = null;
+            if (value.contacts && Array.isArray(value.contacts)) {
+              const contact = value.contacts.find(c => c.wa_id === from);
+              if (contact && contact.profile && contact.profile.name) {
+                profileName = String(contact.profile.name).trim();
+              }
+            }
+            if (msg.referral?.ctwa_clid) {
+              await processarCTWA(from, msg, msg.referral, profileName, clinic, { sendCapi: false });
+            }
+          }
           console.log(`[WEBHOOK] messages audit-only clinic=${clinic.clinic} phone_number_id=${phoneNumberId} reason=kommo_jp`);
           continue;
         }

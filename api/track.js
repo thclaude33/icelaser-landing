@@ -1,8 +1,8 @@
 import nodemailer from 'nodemailer';
 import { put, list } from '@vercel/blob';
-// PIXEL_ID + GRAPH_BASE + PARTNER_AGENT NÃO importados — refatoração 20/04/2026
+// GRAPH_BASE + PARTNER_AGENT não importados — refatoração 20/04/2026
 // delegou CAPI send pra _lib/capi.js sendCapiEvents que usa internamente.
-import { ALLOWED_ORIGINS, getPixelByHost, isOriginAllowed } from './_lib/config.js';
+import { ALLOWED_ORIGINS, PIXEL_ID, PIXEL_ID_JPA, isOriginAllowed } from './_lib/config.js';
 import { sha256, normalizePhoneBR, escapeHtml, sanitizeHeader, sanitizeUrl, maskPhone as maskPhoneLocal } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
 import { sendCapiEvents, filterValidEvents } from './_lib/capi.js';
@@ -526,20 +526,11 @@ export default async function handler(req, res) {
     original_event_data: originalEventData,
   };
 
-  // Multi-tenant Pixel routing — resolve qual Pixel usar baseado em Origin/host.
-  // jpa.icelasers.com.br → Pixel JP (1386967056530127). Outros → Pixel Recife (default).
-  // Origin header tem URL completa do client (ex: 'https://jpa.icelasers.com.br'),
-  // extraímos só o host pra getPixelByHost match.
-  let routedPixelId;
-  let isJpRoute = false;
-  try {
-    const originHeader = req.headers['origin'] || '';
-    const originHost = originHeader ? new URL(originHeader).host : '';
-    routedPixelId = getPixelByHost(originHost);
-    isJpRoute = routedPixelId !== process.env.META_PIXEL_ID && routedPixelId === '1386967056530127';
-  } catch (e) {
-    routedPixelId = getPixelByHost(null);
-  }
+  // Multi-tenant Pixel routing — usar a MESMA detecção robusta do user_data.
+  // Origin pode faltar em keepalive/beacon/proxy; event_source_url e landing_url
+  // continuam chegando no body e são a fonte mais estável para JPA.
+  const isJpRoute = detectJpRequest(req, req.body);
+  const routedPixelId = isJpRoute ? PIXEL_ID_JPA : PIXEL_ID;
 
   // Token routing — CAPI_DATASET_TOKEN (Recife) é dataset-scoped, não posta no Pixel JP.
   // Pra JP: prefer CAPI_DATASET_TOKEN_JP (gerar via Events Manager UI), fallback META_ACCESS_TOKEN.
@@ -610,7 +601,8 @@ export default async function handler(req, res) {
     // CAPI send via helper central: retry 2x, rate limit monitor, defensive parse.
     const result = await sendCapiEvents(validatedEvents, token, { pixelId: routedPixelId });
     const finalResult = result;
-    const capiSuccess = !result.error;
+    const eventsReceived = Number(finalResult.events_received ?? 0);
+    const capiSuccess = !result.error && eventsReceived >= validatedEvents.length;
     if (result.error) {
       const { code, error_subcode, message, is_transient } = result.error;
       console.error(`[TRACK CAPI ERROR] code=${code} subcode=${error_subcode} transient=${is_transient} event=${event_name} msg=${message}`);
@@ -629,11 +621,17 @@ export default async function handler(req, res) {
     // Server-set cookies: bypass iOS ITP 7-day JS cookie limit
     // HTTP Set-Cookie headers persist up to 180 days even in Safari
     // Cookies setados independente de CAPI success (benefit user mesmo se Meta errou)
-    // Fix MEDIUM AI review 20/04/2026 (M16): Domain=.icelasers.com.br garante que
-    // cookie é visível em subdomínios (www/api/staging). Sem Domain=, é host-only
-    // → se LP está em www.icelasers.com.br e api em icelasers.com.br, cookies
-    // divergem e Pixel browser+CAPI server geram _fbp diferentes (dedup falha).
-    const cookieOpts = 'Path=/; Domain=.icelasers.com.br; SameSite=Lax; Secure; Max-Age=15552000'; // 180 days
+    // Compartilha cookies só entre apex/www Recife. Subdomínios de clínica
+    // (ex: jpa.icelasers.com.br) ficam host-only para não vazar _fbc/_fbp entre contas.
+    const requestHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(':')[0].toLowerCase();
+    const shouldSetParentDomain = requestHost === 'icelasers.com.br' || requestHost === 'www.icelasers.com.br';
+    const cookieOpts = [
+      'Path=/',
+      ...(shouldSetParentDomain ? ['Domain=.icelasers.com.br'] : []),
+      'SameSite=Lax',
+      'Secure',
+      'Max-Age=15552000',
+    ].join('; '); // 180 days
     const setCookies = [];
     if (finalFbp) setCookies.push(`_fbp=${finalFbp}; ${cookieOpts}`);
     if (finalFbc) setCookies.push(`_fbc=${finalFbc}; ${cookieOpts}`);
@@ -645,8 +643,8 @@ export default async function handler(req, res) {
     if (!capiSuccess) {
       return res.status(502).json({
         ok: false,
-        error: 'capi_upstream_error',
-        details: finalResult.error?.message || 'CAPI non-transient error',
+        error: finalResult.error?.message || 'capi_upstream_error',
+        details: `events_received=${eventsReceived}/${validatedEvents.length}`,
       });
     }
     return res.status(200).json({ ok: true, events_received: finalResult.events_received });
