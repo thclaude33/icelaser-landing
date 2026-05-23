@@ -38,6 +38,13 @@ export function looksLikeInternalContent(text) {
   return INTERNAL_PATTERNS.some((pattern) => pattern.test(t));
 }
 
+export function isSafeForClientHistory(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim();
+  if (!t) return false;
+  return !looksLikeInternalContent(t) && !isMetaConfirmation(t);
+}
+
 export function stripClientResponseDelimiters(text) {
   if (!text || typeof text !== 'string') return null;
   const match = CLIENT_RESPONSE_RE.exec(text);
@@ -79,12 +86,16 @@ export function extractClientResponseFromEvents(events = [], options = {}) {
     .filter((message) => message.delimitedText !== null);
 
   if (delimited.length > 0) {
-    const chosen = delimited[0];
+    // Quando session-reuse acumula múltiplos turnos com <resposta_cliente>,
+    // delimited[0] é a resposta VELHA. Honra preferSafeCandidate='last' como
+    // o caminho de fallback safe (linha 102) já faz, escolhendo a mais recente.
+    const preferLast = options.preferSafeCandidate === 'last';
+    const chosen = preferLast ? delimited[delimited.length - 1] : delimited[0];
     const text = chosen.delimitedText.trim();
     if (!text) return blockedResult('empty_delimited_response', chosen);
     if (isMetaConfirmation(text)) return blockedResult('meta_delimited_response', chosen);
     if (looksLikeInternalContent(text)) return blockedResult('internal_delimited_response', chosen);
-    return { ok: true, text, agentMsgIdx: chosen.idx, source: 'delimited' };
+    return { ok: true, text, agentMsgIdx: chosen.idx, source: preferLast ? 'delimited_last' : 'delimited' };
   }
 
   const safeMessages = messages.filter((message) => (

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   SAFE_CLIENT_FALLBACK,
   extractClientResponseFromEvents,
+  isSafeForClientHistory,
   looksLikeInternalContent,
   responseOrFallbackFromEvents,
 } from '../api/_lib/bia-client-response.js';
@@ -35,6 +36,13 @@ test('blocks internal alert reports', () => {
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'no_safe_agent_message');
   assert.equal(result.blockedAgentMsgIdx, 0);
+});
+
+test('blocks leaked internal reports from Chatwoot history prompts', () => {
+  const leaked = '*⚠️ Alerta interno — Vitória precisa ver isso* A resposta ao Thiago já foi enviada. last_followup_step: 6';
+
+  assert.equal(isSafeForClientHistory(leaked), false);
+  assert.equal(isSafeForClientHistory('Ótimo! Funcionamos de segunda a sábado 💜'), true);
 });
 
 test('blocks audit log paths and operational internals', () => {
@@ -141,4 +149,30 @@ test('preferSafeCandidate last chooses latest safe response after filtering inte
   assert.equal(result.text, 'Resposta nova');
   assert.equal(result.agentMsgIdx, 1);
   assert.equal(result.source, 'compat_last_safe');
+});
+
+test('preferSafeCandidate last picks latest <resposta_cliente> block in session-reuse', () => {
+  // Session reusada acumula 2 turnos com bloco delimitado. delimited[0] é VELHO,
+  // delimited[last] é a resposta do turno atual. Sem o fix, handler postava velho.
+  const result = extractClientResponseFromEvents([
+    agentMessage('<resposta_cliente>Resposta turno 1 (velha)</resposta_cliente>'),
+    agentMessage('<resposta_cliente>Resposta turno 2 (atual) 💜</resposta_cliente>'),
+  ], { preferSafeCandidate: 'last' });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'Resposta turno 2 (atual) 💜');
+  assert.equal(result.agentMsgIdx, 1);
+  assert.equal(result.source, 'delimited_last');
+});
+
+test('delimited path defaults to first block when preferSafeCandidate not set', () => {
+  // Backward compat: chamadas sem preferSafeCandidate continuam pegando delimited[0].
+  const result = extractClientResponseFromEvents([
+    agentMessage('<resposta_cliente>Primeiro bloco</resposta_cliente>'),
+    agentMessage('<resposta_cliente>Segundo bloco</resposta_cliente>'),
+  ]);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'Primeiro bloco');
+  assert.equal(result.source, 'delimited');
 });

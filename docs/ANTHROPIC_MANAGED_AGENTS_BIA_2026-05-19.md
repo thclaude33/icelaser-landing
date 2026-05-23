@@ -35,7 +35,7 @@ Coordinator:
 - name: `Bia Master Coordinator`
 - version: 41
 - model: `claude-sonnet-4-6`
-- skill: `skill_01VmKCpBmg717nKmCAWgnUYS`, version `latest`
+- skill: `skill_01NZsF2j4JnEsF3VM234Ljy8`, version `latest` (sanitizada v5 — 22/05/2026; velha `skill_01VmKCpBmg717nKmCAWgnUYS` descontinuada)
 - tools_count: 2
 - mcp_count: 0
 - updated_at: `2026-05-15T23:24:55.825324Z`
