@@ -67,7 +67,7 @@ export async function getRecentCtwaContextForPhone(rawPhone, opts = {}) {
               }
             }
           } catch (err) {
-            console.warn(`[FU-CTWA] blob read failed variant=${phoneKey}: ${err?.message || err}`);
+            console.warn(`[FU-CTWA] blob read failed variant=...${String(phoneKey).slice(-4)}: ${err?.message || err}`);
           }
         }
         cursor = result.hasMore ? result.cursor : undefined;
@@ -77,7 +77,7 @@ export async function getRecentCtwaContextForPhone(rawPhone, opts = {}) {
     console.warn(`[FU-CTWA] lookup failed phone=${String(rawPhone || '').slice(-4)}: ${err?.message || err}`);
   }
   if (best) {
-    console.log(`[FU-CTWA] found recent ctwa_clid for phone_variant=${best.phone_variant}`);
+    console.log(`[FU-CTWA] found recent ctwa_clid for phone_variant=...${String(best.phone_variant).slice(-4)}`);
     return best;
   }
   return { is_ctwa: false };

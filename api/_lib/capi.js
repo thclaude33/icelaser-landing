@@ -81,14 +81,31 @@ export async function sendCapiEvents(events, token, options = {}) {
   let lastResult = null;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     // Fix INFO AI deep v3 (capi.js:89): defensive JSON parse + check response.ok.
-    const res = await fetch(`${GRAPH_BASE}/${pixelId}/events`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
-    });
+    let res;
+    try {
+      res = await fetch(`${GRAPH_BASE}/${pixelId}/events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch (err) {
+      lastResult = {
+        error: {
+          message: err?.message || 'fetch_failed',
+          code: err?.name || 'FETCH_EXCEPTION',
+          is_transient: true,
+        },
+      };
+      console.error(`[CAPI FETCH attempt=${attempt}] ${lastResult.error.code}: ${lastResult.error.message}`);
+      if (attempt === maxRetries) return lastResult;
+      const delay = (attempt + 1) * 1000;
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
 
     monitorRateLimit(res);
     let result;

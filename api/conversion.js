@@ -41,7 +41,7 @@ async function findLeadInBlob(nome, telefone) {
   });
   const datas = await Promise.allSettled(
     blobs.map(async (blob) => {
-      const res = await fetch(blob.url);
+      const res = await fetch(blob.url, { signal: AbortSignal.timeout(3000) });
       const data = await res.json();
       return { data, blob };
     })
@@ -71,7 +71,7 @@ async function findLeadInBlob(nome, telefone) {
     const leadNome = (data?.nome || '').trim().toLowerCase();
     if (nomeLower && telDigits && leadNome && leadTel) {
       const nomePrimeiro = leadNome.split(/\s+/)[0];
-      const telSuffix = telDigits.slice(-8);
+      const telSuffix = telDigits.slice(-11);
       if (nomePrimeiro === nomeLower.split(/\s+/)[0] && leadTel.endsWith(telSuffix)) {
         return { data, blob };
       }

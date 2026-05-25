@@ -27,10 +27,25 @@ function detectJpRequest(req, body) {
     body?.event_source_url,
     body?.landing_url,
   ].filter(Boolean).map((s) => String(s).toLowerCase());
-  return sigs.some((s) =>
-    s.includes('jpa.icelasers') ||
-    /jpa|jp-routing|bancarios/i.test(s)
-  );
+  const explicitClinic = String(body?.clinic || body?.clinic_slug || '').toLowerCase();
+  if (explicitClinic === 'jpa') return true;
+
+  return sigs.some((s) => {
+    try {
+      const host = (s.startsWith('http://') || s.startsWith('https://'))
+        ? new URL(s).hostname
+        : String(s).split('/')[0].split('?')[0];
+      if (host === 'jpa.icelasers.com.br') return true;
+      return host.endsWith('.vercel.app') && (
+        host.startsWith('jpa-') ||
+        host.startsWith('jp-routing-') ||
+        host.includes('-jpa-') ||
+        host.includes('-jp-routing-')
+      );
+    } catch {
+      return false;
+    }
+  });
 }
 
 function parseDevice(ua) {
@@ -420,7 +435,9 @@ export default async function handler(req, res) {
       const blobs = await list({ prefix: 'leads/', limit: 100 });
       const candidates = blobs.blobs.filter(b => b.size > 200);
       const datas = await Promise.allSettled(
-        candidates.map(b => fetch(b.url).then(r => r.json()))
+        candidates.map(b => fetch(b.url, {
+          signal: AbortSignal.timeout(3000),
+        }).then(r => r.json()))
       );
       for (const result of datas) {
         if (result.status !== 'fulfilled') continue;
@@ -428,7 +445,7 @@ export default async function handler(req, res) {
         // Fix MEDIUM AI review 20/04/2026 (M14): `const res` shadowava o Vercel
         // Response do handler — renomeado pra blobData pra evitar armadilha.
         const blobTel = (data?.telefone || '').replace(/\D/g, '');
-        if (blobTel && telDigits.endsWith(blobTel.slice(-8))) {
+        if (blobTel && blobTel.length >= 10 && telDigits.endsWith(blobTel.slice(-11))) {
           if (!finalFbp && data.fbp) finalFbp = data.fbp;
           if (!finalFbc && data.fbc) finalFbc = data.fbc;
           if (finalFbp && finalFbc) break;
