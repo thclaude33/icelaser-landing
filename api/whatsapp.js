@@ -12,7 +12,7 @@ import { put, head, list, del } from '@vercel/blob';
 import { GRAPH_BASE } from './_lib/config.js';
 import { sha256, timingSafeStringEqual, maskPhone, maskEmail, maskName, escapeHtml, sanitizeHeader } from './_lib/security.js';
 import { buildUserData } from './_lib/piiBuilder.js';
-import { PARTNER_AGENT } from './_lib/capi.js';
+import { sendCapiEvents } from './_lib/capi.js';
 // FIX V4.2/V5.2.1 (Codex): rotear clínica por page_id/phone_id sem fallback cross-clinic.
 import { resolveClinicFromPageIdStrict, resolveClinicFromPhoneNumberIdStrict } from './_lib/clinic-routing.js';
 import { clinicSlug, shouldUseChatwoot } from './_lib/crm-routing.js';
@@ -24,6 +24,26 @@ const EMAIL_PASS      = process.env.EMAIL_PASS;
 const EMAIL_TO        = (process.env.EMAIL_TO   || 'espacoicelaserrecife2@gmail.com,thiagosml@gmail.com').split(',');
 const META_TOKEN      = process.env.META_ACCESS_TOKEN;       // broad scope — Graph API lookups (ad_id, profile_name, message media)
 const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID;
+
+async function persistCapiErrorAlert(source, details = {}) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  try {
+    const safeSource = String(source || 'unknown').replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'unknown';
+    const alertKey = `alerts/capi-errors/${Date.now()}-${safeSource}-${Math.random().toString(36).slice(2, 8)}.json`;
+    await put(alertKey, JSON.stringify({
+      at: new Date().toISOString(),
+      source,
+      ...details,
+    }), {
+      access: 'public',
+      addRandomSuffix: false,
+      contentType: 'application/json',
+      cacheControlMaxAge: 0,
+    });
+  } catch {
+    // Alert persistence must never break webhook processing.
+  }
+}
 
 // ── AD ACCOUNT FILTER ────────────────────────────────────────────────────────
 // Meta BM (122447015946218) entrega webhook ad_account de TODAS as contas do BM.
@@ -213,32 +233,22 @@ async function processarLeadFlow(from, nfmReply, ctwaClid, wamid, clinic = null)
             ...(ctwaClid ? { attribution: 'ctwa' } : { attribution: 'organic' }),
           },
         }],
-        partner_agent: PARTNER_AGENT,
       };
 
-      const r = await fetch(`${GRAPH_BASE}/${clinic.pixelId}/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clinic.capiToken}` },
-        body: JSON.stringify(payload),
-      });
-      if (!r.ok) {
-        const txt = (await r.text()).substring(0, 200);
-        console.error(`[FLOW LeadSubmitted] Meta API ${r.status}: ${txt}`);
+      const result = await sendCapiEvents(payload.data, clinic.capiToken, { pixelId: clinic.pixelId });
+      if (result?.error) {
+        await persistCapiErrorAlert('flow_leadsubmitted', {
+          clinic: clinicSlug(clinic),
+          pixel_id: clinic.pixelId,
+          event_name: 'LeadSubmitted',
+          event_id: eventId,
+          error: result.error,
+          fbtrace_id: result.fbtrace_id,
+          phone: maskPhone(from),
+        });
+        console.error(`[FLOW LeadSubmitted] CAPI error: ${result.error.message}`);
       } else {
-        const respBody = await r.json();
-        if (respBody?.error) {
-          console.error('[FLOW LeadSubmitted] CAPI error:', respBody.error.message);
-        } else {
-          // Fix CRITICAL 20/04/2026 (silent failure): log messages[] + silent drops.
-          const eventsReceived = respBody.events_received ?? 0;
-          if (Array.isArray(respBody.messages) && respBody.messages.length > 0) {
-            console.warn(`[CAPI WARN FLOW] received=${eventsReceived} messages=${JSON.stringify(respBody.messages)} fbtrace=${respBody.fbtrace_id || 'n/a'}`);
-          }
-          if (eventsReceived === 0) {
-            console.error(`[CAPI SILENT_DROP FLOW] received=0 fbtrace=${respBody.fbtrace_id || 'n/a'}`);
-          }
-          console.log(`[FLOW LeadSubmitted] ✅ ph=${maskPhone(from)} ctwa=${!!ctwaClid} received=${eventsReceived}`);
-        }
+        console.log(`[FLOW LeadSubmitted] ✅ ph=${maskPhone(from)} ctwa=${!!ctwaClid} received=${result.events_received ?? 0}`);
       }
 
     } catch (e) {
@@ -515,7 +525,7 @@ async function processarCTWA(from, message, referral, profileName, clinic = null
         // previne enumeration do pathname. Recovery em crm-webhook.js usa
         // list({prefix:'ctwa/'})+iterate, funciona com suffix random.
       }), { access: 'public', addRandomSuffix: true, contentType: 'application/json' });
-      console.log(`[CTWA] Saved to Blob: ctwa/${safeFrom}-*.json (profile=${!!profileName}, ad_meta=${!!adMetadata})`);
+      console.log(`[CTWA] Saved to Blob: ctwa/...${safeFrom.slice(-4)}-*.json (profile=${!!profileName}, ad_meta=${!!adMetadata})`);
     } catch (e) {
       console.warn('[CTWA] Blob save failed:', e.message);
     }
@@ -589,88 +599,75 @@ async function processarCTWA(from, message, referral, profileName, clinic = null
       // Para CTWA ads, page_id é o Facebook Page que hospeda o ad → melhora
       // attribution cross-device.
       if (clinic.pageId) userData.page_id = clinic.pageId;
-      const r = await fetch(
-        `${GRAPH_BASE}/${clinic.pixelId}/events`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${clinic.capiToken}`, // dataset-scoped por clínica
-          },
-          body: JSON.stringify({
-            data: [{
-              // Oficial Meta 2026: Lista eventos válidos pra business_messaging (14):
-              // Purchase, LeadSubmitted, InitiateCheckout, AddToCart, ViewContent,
-              // OrderCreated/Shipped/Delivered/Canceled/Returned, CartAbandoned,
-              // QualifiedLead, RatingProvided, ReviewProvided.
-              // "Lead" NÃO está — gerava rejeição silenciosa antes.
-              event_name: 'LeadSubmitted',
-              event_time: eventTime,
-              event_id: eventId,
-              action_source: 'business_messaging',
-              // OBRIGATÓRIO em business_messaging. Sem isto, Meta retorna 2804063.
-              messaging_channel: 'whatsapp',
-              user_data: userData,
-              custom_data: {
-                // Fix CRITICAL 20/04/2026: event_source: 'crm' OBRIGATÓRIO per Meta
-                // Conversion Leads spec. IceLaser Chatwoot = CRM → classificação.
-                event_source: 'crm',
-                // Fix MEDIUM 20/04/2026: CRM name canônico 'Chatwoot'
-                lead_event_source: 'Chatwoot',
-                ctwa_source: 'WhatsApp CTWA',  // debug interno
-                source_url: sourceUrl,
-                content_name: 'CTWA Contact Started - WhatsApp',
-                content_category: 'depilacao_laser',
-                customer_segmentation: 'new_customer_to_business',
-                // Enriquecimento: ad metadata do Meta Graph API lookup (source_id → adset/campaign).
-                // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
-                ...(adMetadata?.ad_id ? { ad_id: adMetadata.ad_id } : {}),
-                ...(adMetadata?.ad_name ? { ad_name: adMetadata.ad_name } : {}),
-                ...(adMetadata?.adset_id ? { adset_id: adMetadata.adset_id } : {}),
-                ...(adMetadata?.adset_name ? { adset_name: adMetadata.adset_name } : {}),
-                ...(adMetadata?.campaign_id ? { campaign_id: adMetadata.campaign_id } : {}),
-                ...(adMetadata?.campaign_name ? { campaign_name: adMetadata.campaign_name } : {}),
-                ...(adMetadata?.optimization_goal ? { optimization_goal: adMetadata.optimization_goal } : {}),
-                ...(adMetadata?.destination_type ? { destination_type: adMetadata.destination_type } : {}),
-                ...(adMetadata?.publisher_platforms ? { publisher_platforms: adMetadata.publisher_platforms } : {}),
-                ...(adMetadata?.campaign_objective ? { campaign_objective: adMetadata.campaign_objective } : {}),
-                // Campos não-Meta-oficial no referral (presentes em alguns providers).
-                // Enviamos como custom_data custom fields — Meta aceita qualquer chave.
-                ...(refCustom ? { ref_custom: refCustom } : {}),
-                ...(sourceApp ? { source_app: sourceApp } : {}),  // "facebook" | "instagram"
-                ...(adType ? { ad_type: adType } : {}),            // "CTWA" | "CAWC"
-                // Intent signal: tipo da 1ª msg (text/audio/image/video/etc).
-                ...(firstMsgType ? { first_message_type: firstMsgType } : {}),
-                // Temporal context (útil pra segmentação pattern analysis).
-                hour_of_day_brt: new Intl.DateTimeFormat('en-US', {
-                  timeZone: 'America/Recife', hour: '2-digit', hour12: false,
-                }).format(new Date(eventTime * 1000)),
-                day_of_week_brt: new Intl.DateTimeFormat('en-US', {
-                  timeZone: 'America/Recife', weekday: 'short',
-                }).format(new Date(eventTime * 1000)),
-              },
-            }],
-            // Meta best practice: partner_agent identifica plataforma (<23 chars, >=2 letras).
-            partner_agent: PARTNER_AGENT,
-          }),
-        }
-      );
-      // Log da resposta pra detectar rejeições silenciosas no futuro
-      const respBody = await r.json();
-      if (respBody.error) {
-        console.warn(`[CTWA] ⚠️  CAPI rejected: code=${respBody.error.code} sub=${respBody.error.error_subcode} ${respBody.error.message}`);
+      const eventPayload = {
+        // Oficial Meta 2026: Lista eventos válidos pra business_messaging (14):
+        // Purchase, LeadSubmitted, InitiateCheckout, AddToCart, ViewContent,
+        // OrderCreated/Shipped/Delivered/Canceled/Returned, CartAbandoned,
+        // QualifiedLead, RatingProvided, ReviewProvided.
+        // "Lead" NÃO está — gerava rejeição silenciosa antes.
+        event_name: 'LeadSubmitted',
+        event_time: eventTime,
+        event_id: eventId,
+        action_source: 'business_messaging',
+        // OBRIGATÓRIO em business_messaging. Sem isto, Meta retorna 2804063.
+        messaging_channel: 'whatsapp',
+        user_data: userData,
+        custom_data: {
+          // Fix CRITICAL 20/04/2026: event_source: 'crm' OBRIGATÓRIO per Meta
+          // Conversion Leads spec. IceLaser Chatwoot = CRM → classificação.
+          event_source: 'crm',
+          // Fix MEDIUM 20/04/2026: CRM name canônico 'Chatwoot'
+          lead_event_source: 'Chatwoot',
+          ctwa_source: 'WhatsApp CTWA',  // debug interno
+          source_url: sourceUrl,
+          content_name: 'CTWA Contact Started - WhatsApp',
+          content_category: 'depilacao_laser',
+          customer_segmentation: 'new_customer_to_business',
+          // Enriquecimento: ad metadata do Meta Graph API lookup (source_id → adset/campaign).
+          // Meta Andromeda 2026 usa esses IDs pra attribution cross-device.
+          ...(adMetadata?.ad_id ? { ad_id: adMetadata.ad_id } : {}),
+          ...(adMetadata?.ad_name ? { ad_name: adMetadata.ad_name } : {}),
+          ...(adMetadata?.adset_id ? { adset_id: adMetadata.adset_id } : {}),
+          ...(adMetadata?.adset_name ? { adset_name: adMetadata.adset_name } : {}),
+          ...(adMetadata?.campaign_id ? { campaign_id: adMetadata.campaign_id } : {}),
+          ...(adMetadata?.campaign_name ? { campaign_name: adMetadata.campaign_name } : {}),
+          ...(adMetadata?.optimization_goal ? { optimization_goal: adMetadata.optimization_goal } : {}),
+          ...(adMetadata?.destination_type ? { destination_type: adMetadata.destination_type } : {}),
+          ...(adMetadata?.publisher_platforms ? { publisher_platforms: adMetadata.publisher_platforms } : {}),
+          ...(adMetadata?.campaign_objective ? { campaign_objective: adMetadata.campaign_objective } : {}),
+          // Campos não-Meta-oficial no referral (presentes em alguns providers).
+          // Enviamos como custom_data custom fields — Meta aceita qualquer chave.
+          ...(refCustom ? { ref_custom: refCustom } : {}),
+          ...(sourceApp ? { source_app: sourceApp } : {}),  // "facebook" | "instagram"
+          ...(adType ? { ad_type: adType } : {}),            // "CTWA" | "CAWC"
+          // Intent signal: tipo da 1ª msg (text/audio/image/video/etc).
+          ...(firstMsgType ? { first_message_type: firstMsgType } : {}),
+          // Temporal context (útil pra segmentação pattern analysis).
+          hour_of_day_brt: new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Recife', hour: '2-digit', hour12: false,
+          }).format(new Date(eventTime * 1000)),
+          day_of_week_brt: new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Recife', weekday: 'short',
+          }).format(new Date(eventTime * 1000)),
+        },
+      };
+      const result = await sendCapiEvents([eventPayload], clinic.capiToken, { pixelId: clinic.pixelId });
+      if (result?.error) {
+        await persistCapiErrorAlert('ctwa_leadsubmitted', {
+          clinic: clinicSlug(clinic),
+          pixel_id: clinic.pixelId,
+          event_name: 'LeadSubmitted',
+          event_id: eventId,
+          has_ctwa_clid: !!clid,
+          error: result.error,
+          fbtrace_id: result.fbtrace_id,
+          phone: maskPhone(from),
+        });
+        console.warn(`[CTWA] ⚠️  CAPI rejected: ${result.error.message}`);
       } else {
-        // Fix CRITICAL 20/04/2026 (silent failure): log messages[] + silent drops.
-        const eventsReceived = respBody.events_received ?? 0;
-        if (Array.isArray(respBody.messages) && respBody.messages.length > 0) {
-          console.warn(`[CAPI WARN CTWA] received=${eventsReceived} messages=${JSON.stringify(respBody.messages)} fbtrace=${respBody.fbtrace_id || 'n/a'}`);
-        }
-        if (eventsReceived === 0) {
-          console.error(`[CAPI SILENT_DROP CTWA] ph=${maskPhone(from)} received=0 fbtrace=${respBody.fbtrace_id || 'n/a'}`);
-        }
         // Fix LOW AI review 20/04/2026 (L6): usar maskPhone em vez de slice(-4)
         // pra consistência com o resto do código (PII mascarado em logs).
-        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${maskPhone(from)} received=${eventsReceived}`);
+        console.log(`[CTWA] ✅ CAPI LeadSubmitted fired: ph=${maskPhone(from)} received=${result.events_received ?? 0}`);
       }
 
     } catch (e) {
@@ -719,6 +716,7 @@ async function enviarTemplateConfirmacao(to, nome, servico) {
   const r = await fetch(`https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${META_TOKEN}` },
+    signal: AbortSignal.timeout(10000),
     body: JSON.stringify({
       messaging_product: 'whatsapp',
       to,
@@ -1262,7 +1260,9 @@ export default async function handler(req, res) {
                         `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/contacts/${contactId}/contact_inboxes`,
                         { method: 'POST', headers: cwHeaders, body: JSON.stringify({ inbox_id: Number(CHATWOOT_LEADS_INBOX_ID) }) },
                         5000
-                      ).catch(() => {});
+                      ).catch((e) => {
+                        console.warn(`[LEADGEN→CHATWOOT-INBOX-LINK] failed contact=${contactId}: ${e?.message || e}`);
+                      });
 
                       // FIX BUG P0-5 (Codex 17/05/2026): merge custom_attributes do leadgen no contato existente.
                       // Antes: contato existente não recebia leadgen_id/form_id/ad_id/page_id atualizados → routing CRM
@@ -1488,53 +1488,29 @@ export default async function handler(req, res) {
                           customer_segmentation: 'new_customer_to_business',
                         },
                       }],
-                      partner_agent: PARTNER_AGENT,
                     };
                     // FIX V4.2: Pixel + CAPI token da clínica (JP ou Recife)
-                    const leadResp = await fetch(`${GRAPH_BASE}/${clinic.pixelId}/events`, {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${clinic.capiToken}`,
-                      },
-                      body: JSON.stringify(leadPayload),
-                    });
-                    const leadJson = await leadResp.json();
-                    if (leadJson.error) {
-                      console.error(`[LEADGEN CAPI] ⚠️ Rejected: code=${leadJson.error.code} subcode=${leadJson.error.error_subcode} msg=${leadJson.error.message} lead_id=${leadId}`);
+                    const leadResult = await sendCapiEvents(leadPayload.data, clinic.capiToken, { pixelId: clinic.pixelId });
+                    if (leadResult?.error) {
+                      console.error(`[LEADGEN CAPI] ⚠️ Rejected: code=${leadResult.error.code} subcode=${leadResult.error.error_subcode} msg=${leadResult.error.message} lead_id=${leadId}`);
                       // Fix 23/04/2026: persist em Blob alerts pra cron capi-alerts detectar.
                       // Silent reject no Pixel LP seria invisivel pro wizard Conversion Leads.
-                      try {
-                        if (process.env.BLOB_READ_WRITE_TOKEN) {
-                          const alertKey = `alerts/capi-errors/${Date.now()}-${leadJson.error.error_subcode || leadJson.error.code || 'unknown'}-${Math.random().toString(36).slice(2, 8)}.json`;
-                          await put(alertKey, JSON.stringify({
-                            at: new Date().toISOString(),
-                            source: 'pixel_lp_leadgen_handler',
-                            pixel_id: clinic.pixelId,
-                            clinic: clinic.clinic,
-                            event_name: 'Lead',
-                            event_id: `leadgen_${leadId}`,
-                            lead_id: String(leadId),
-                            action_source: 'system_generated',
-                            error_code: leadJson.error.code,
-                            error_subcode: leadJson.error.error_subcode,
-                            error_type: leadJson.error.type,
-                            error_message: leadJson.error.message,
-                            fbtrace_id: leadJson.fbtrace_id,
-                          }), {
-                            access: 'public', addRandomSuffix: false,
-                            contentType: 'application/json', cacheControlMaxAge: 0,
-                          });
-                        }
-                      } catch { /* alert persist não pode quebrar handler */ }
+                      await persistCapiErrorAlert('pixel_lp_leadgen_handler', {
+                        pixel_id: clinic.pixelId,
+                        clinic: clinic.clinic,
+                        event_name: 'Lead',
+                        event_id: `leadgen_${leadId}`,
+                        lead_id: String(leadId),
+                        action_source: 'system_generated',
+                        error_code: leadResult.error.code,
+                        error_subcode: leadResult.error.error_subcode,
+                        error_type: leadResult.error.type,
+                        error_message: leadResult.error.message,
+                        fbtrace_id: leadResult.fbtrace_id,
+                        error: leadResult.error,
+                      });
                     } else {
-                      const received = leadJson.events_received ?? 0;
-                      if (Array.isArray(leadJson.messages) && leadJson.messages.length > 0) {
-                        console.warn(`[CAPI WARN LEADGEN] received=${received} messages=${JSON.stringify(leadJson.messages)} fbtrace=${leadJson.fbtrace_id}`);
-                      }
-                      if (received === 0) {
-                        console.error(`[LEADGEN CAPI SILENT_DROP] received=0 fbtrace=${leadJson.fbtrace_id || 'n/a'} lead_id=${leadId}`);
-                      }
+                      const received = leadResult.events_received ?? 0;
                       console.log(`[LEADGEN CAPI] ✅ Lead event fired: lead_id=${leadId} received=${received}`);
                     }
 
@@ -1688,6 +1664,7 @@ export default async function handler(req, res) {
         method: 'POST',
         headers,
         body: payload,
+        signal: AbortSignal.timeout(10000),
       });
       console.log(`[CHATWOOT] ${label}: ${r.status}`);
       return r;
@@ -1743,7 +1720,7 @@ export default async function handler(req, res) {
         const safeType = String(msg.type || 'media').replace(/[^a-z]/gi, '').slice(0, 20);
         const filename = `media/${safeFrom}/${Date.now()}_${safeType}.${ext}`;
         const blob = await put(filename, buffer, { access: 'public', contentType: mediaObj.mime_type || 'application/octet-stream' });
-        console.log(`[MEDIA] ✅ ${filename} (${buffer.length} bytes)`);
+        console.log(`[MEDIA] ✅ ${filename.replace(safeFrom, `...${safeFrom.slice(-4)}`)} (${buffer.length} bytes)`);
         return blob.url;
       } catch (e) {
         console.error(`[MEDIA] ❌ ${e.message}`);

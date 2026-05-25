@@ -88,17 +88,36 @@ async function sendCAPI(events, token, retryCount = 0, targetPixelId = PIXEL_ID)
   // partner_agent: Meta best practice — identifica plataforma emissora (<23 chars, >=2 letras).
   // targetPixelId: FIX 26/04/2026 cross-clinic — quando lead é JP (page_id JP),
   // override pra Pixel JP (1386967056530127). Default Pixel Recife.
-  const res = await fetch(
-    `${GRAPH_BASE}/${targetPixelId}/events`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+  let res;
+  try {
+    res = await fetch(
+      `${GRAPH_BASE}/${targetPixelId}/events`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ data: events, partner_agent: PARTNER_AGENT }),
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+  } catch (err) {
+    const result = {
+      error: {
+        message: err?.message || 'fetch_failed',
+        code: err?.name || 'FETCH_EXCEPTION',
+        is_transient: true,
       },
-      body: JSON.stringify({ data: events, partner_agent: PARTNER_AGENT }),
+    };
+    console.error(`[CAPI FETCH CRM] attempt=${retryCount} ${result.error.code}: ${result.error.message}`);
+    if (retryCount < 2) {
+      const delay = (retryCount + 1) * 1000;
+      await new Promise(r => setTimeout(r, delay));
+      return sendCAPI(events, token, retryCount + 1, targetPixelId);
     }
-  );
+    return result;
+  }
 
   // Monitorar X-App-Usage e X-Business-Use-Case-Usage pra antecipar rate limits
   const appUsage = res.headers.get('x-app-usage');
@@ -582,46 +601,51 @@ export default async function handler(req, res) {
     //    enriquecidos — pra usar em advanced matching + ad attribution nos events
     //    Lead Quente / Purchase disparados pelo label do Chatwoot.
     try {
-      // Limit 200 (era 50) — volume CTWA alto pode perder clicks antigos.
-      // Fix MEDIUM AI review 20/04/2026 (M6).
-      const ctwaBlobs = await list({ prefix: 'ctwa/', limit: 200 });
-      for (const blob of ctwaBlobs.blobs) {
-        // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
-        // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
-        // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
-        // Fix H-2 (22/04/2026 audit linha-a-linha): pathnames reais em prod são
-        // `ctwa/55{DDD}{phone}.json` (safeFrom em whatsapp.js:468 = 12-13 digits
-        // começando com "55"). slice(-11) remove os "55" → pattern `ctwa/{11d}.`
-        // NUNCA bate (char[5] "5" vs "8"). Validado LIVE 30 blobs amostrados = 0
-        // matches, attribution CRM quebrada 100% desde que safeFrom começou com 55.
-        //
-        // Fix Q1 (23/04/2026 AI review Opus 4.6): trocar `includes()` por
-        // `endsWith()` ancorado à direita. `includes()` permite substring match
-        // em qualquer posição — risco teórico de false positive se dois phones
-        // distintos compartilham os 11 últimos dígitos via substring (improvável
-        // com DDD+celular BR, mas defensivo). `endsWith()` garante match exato
-        // apenas quando phoneKey termina o path (sem o .json/suffix random).
-        // Formato esperado: `ctwa/55XXXXXXXXXXX.json` ou `ctwa/55XXXXXXXXXXX-abc.json`.
-        const phoneKey = telDigits.slice(-11);
-        const blobPhoneStr = blob.pathname
-          .slice(5)                          // remove 'ctwa/'
-          .replace(/\.json$/, '')            // remove .json extension
-          .replace(/-[A-Za-z0-9]+$/, '');    // remove -suffix random (se addRandomSuffix)
-        if (blob.pathname.startsWith('ctwa/') && blobPhoneStr.endsWith(phoneKey)) {
-          // Fix VA-1 (23/04/2026 AI review Opus 4.6): AbortSignal.timeout(5s) pra
-          // proteger handler. Blob store latência alta pode travar webhook up to
-          // 60s (Pro timeout) e Chatwoot retenta → webhook storm. 5s é generoso
-          // pra fetch JSON <10KB do Blob CDN.
-          const blobResp = await fetch(blob.url, { signal: AbortSignal.timeout(5000) });
-          const data = await blobResp.json();
-          if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
-            ctwaData = data;
-            if (!ctwaClid && data.ctwa_clid) ctwaClid = data.ctwa_clid;
-            console.log(`[CRM-WEBHOOK] Recovered CTWA data from Blob: clid=${!!data.ctwa_clid} profile=${!!data.profile_name} ad_meta=${!!data.ad_metadata}`);
-            break;
+      // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
+      // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
+      // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
+      // Fix H-2 (22/04/2026 audit linha-a-linha): pathnames reais em prod são
+      // `ctwa/55{DDD}{phone}.json` (safeFrom em whatsapp.js:468 = 12-13 digits
+      // começando com "55"). slice(-11) remove os "55" → pattern `ctwa/{11d}.`
+      // NUNCA bate (char[5] "5" vs "8"). Validado LIVE 30 blobs amostrados = 0
+      // matches, attribution CRM quebrada 100% desde que safeFrom começou com 55.
+      //
+      // Fix Q1 (23/04/2026 AI review Opus 4.6): trocar `includes()` por
+      // `endsWith()` ancorado à direita. `includes()` permite substring match
+      // em qualquer posição — risco teórico de false positive se dois phones
+      // distintos compartilham os 11 últimos dígitos via substring (improvável
+      // com DDD+celular BR, mas defensivo). `endsWith()` garante match exato
+      // apenas quando phoneKey termina o path (sem o .json/suffix random).
+      // Formato esperado: `ctwa/55XXXXXXXXXXX.json` ou `ctwa/55XXXXXXXXXXX-abc.json`.
+      const phoneKey = telDigits.slice(-11);
+      let cursor;
+      let foundCtwa = false;
+      do {
+        const ctwaBlobs = await list({ prefix: 'ctwa/', cursor, limit: 100 });
+        for (const blob of ctwaBlobs.blobs || []) {
+          const blobPhoneStr = blob.pathname
+            .slice(5)                          // remove 'ctwa/'
+            .replace(/\.json$/, '')            // remove .json extension
+            .replace(/-[A-Za-z0-9]+$/, '');    // remove -suffix random (se addRandomSuffix)
+          if (blob.pathname.startsWith('ctwa/') && blobPhoneStr.endsWith(phoneKey)) {
+            // Fix VA-1 (23/04/2026 AI review Opus 4.6): AbortSignal.timeout(5s) pra
+            // proteger handler. Blob store latência alta pode travar webhook up to
+            // 60s (Pro timeout) e Chatwoot retenta → webhook storm. 5s é generoso
+            // pra fetch JSON <10KB do Blob CDN.
+            const blobResp = await fetch(blob.url, { signal: AbortSignal.timeout(5000) });
+            const data = await blobResp.json();
+            if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
+              ctwaData = data;
+              if (!ctwaClid && data.ctwa_clid) ctwaClid = data.ctwa_clid;
+              console.log(`[CRM-WEBHOOK] Recovered CTWA data from Blob: clid=${!!data.ctwa_clid} profile=${!!data.profile_name} ad_meta=${!!data.ad_metadata}`);
+              foundCtwa = true;
+              break;
+            }
           }
         }
-      }
+        if (foundCtwa) break;
+        cursor = ctwaBlobs.hasMore ? ctwaBlobs.cursor : undefined;
+      } while (cursor);
     } catch (e) {
       console.warn('[CRM-WEBHOOK] CTWA Blob recovery failed:', e.message);
     }

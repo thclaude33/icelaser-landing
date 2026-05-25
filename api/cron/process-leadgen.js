@@ -19,7 +19,7 @@
 
 import { list, put, del } from '@vercel/blob';
 import { GRAPH_BASE } from '../_lib/config.js';
-import { PARTNER_AGENT } from '../_lib/capi.js';
+import { sendCapiEvents } from '../_lib/capi.js';
 import { buildUserData } from '../_lib/piiBuilder.js';
 import { brtISO, isVercelCron } from '../_lib/time.js';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
@@ -317,22 +317,15 @@ export default async function handler(req, res) {
               // Agora: parse response, loga subcode/messages, persist em Blob alerts/
               // pra cron capi-alerts enviar email se acumular erros.
               // FIX V4.2: Pixel + CAPI token da clínica (JP ou Recife)
-              const leadCapiResp = await fetch(`${GRAPH_BASE}/${clinic.pixelId}/events`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clinic.capiToken}` },
-                body: JSON.stringify({
-                  data: [{
-                    event_name: 'Lead',
-                    event_time: eventTime,
-                    event_id: `leadgen_${leadId}`,  // idempotent
-                    action_source: 'system_generated',
-                    user_data: userData,
-                    custom_data: customData,
-                  }],
-                  partner_agent: PARTNER_AGENT,
-                }),
-              });
-              const leadCapiJson = await leadCapiResp.json().catch(() => ({}));
+              const leadEvent = {
+                event_name: 'Lead',
+                event_time: eventTime,
+                event_id: `leadgen_${leadId}`,  // idempotent
+                action_source: 'system_generated',
+                user_data: userData,
+                custom_data: customData,
+              };
+              const leadCapiJson = await sendCapiEvents([leadEvent], clinic.capiToken, { pixelId: clinic.pixelId });
               if (leadCapiJson.error) {
                 console.error(`[DLQ-CRON CAPI] ⚠️ Rejected: code=${leadCapiJson.error.code} subcode=${leadCapiJson.error.error_subcode} msg=${leadCapiJson.error.message} lead_id=${leadId}`);
                 // Persist em Blob alerts/capi-errors/ pra cron capi-alerts detectar
@@ -359,12 +352,6 @@ export default async function handler(req, res) {
                 } catch { /* alert persistence não pode quebrar DLQ */ }
               } else {
                 const received = leadCapiJson.events_received ?? 0;
-                if (Array.isArray(leadCapiJson.messages) && leadCapiJson.messages.length > 0) {
-                  console.warn(`[DLQ-CRON CAPI WARN] received=${received} messages=${JSON.stringify(leadCapiJson.messages)} lead_id=${leadId}`);
-                }
-                if (received === 0) {
-                  console.error(`[DLQ-CRON CAPI SILENT_DROP] received=0 fbtrace=${leadCapiJson.fbtrace_id || 'n/a'} lead_id=${leadId}`);
-                }
                 console.log(`[DLQ-CRON CAPI] ✅ Lead fired lead_id=${leadId} received=${received}`);
               }
             } catch (capiErr) { console.error(`[DLQ-CRON CAPI] exception: ${capiErr.message} lead_id=${leadId}`); }
