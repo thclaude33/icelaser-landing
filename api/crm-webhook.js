@@ -25,6 +25,7 @@ import { normalizeChangedAttributes, hasLabelChange, extractPreviousLabels, extr
 import { decideTargetDataset, parsePurchaseValue, isRoutingEnabled, DATASET_PIXEL_LP } from './_lib/purchase-routing.js';
 import { disarmCascade, isOutgoingFromBia } from './_lib/cascade.js';
 import { clearActiveSession } from './_lib/session-reuse.js';
+import { ctwaPhoneVariants } from './_lib/followup-ctwa.js';
 
 // Raw body necessário pra validação HMAC (re-serialização JSON.stringify não
 // preserva byte-por-byte o body original que Chatwoot usou pra computar signature).
@@ -601,37 +602,17 @@ export default async function handler(req, res) {
     //    enriquecidos — pra usar em advanced matching + ad attribution nos events
     //    Lead Quente / Purchase disparados pelo label do Chatwoot.
     try {
-      // Phone match usa últimos 11 dígitos (padrão celular BR: 2 DDD + 9 dígitos).
-      // Antes era slice(-8) que colidia entre DDDs (81 vs 11 com mesmo sufixo).
-      // Fix HIGH via AI code review 19/04/2026 (Claude Opus 4.6).
-      // Fix H-2 (22/04/2026 audit linha-a-linha): pathnames reais em prod são
-      // `ctwa/55{DDD}{phone}.json` (safeFrom em whatsapp.js:468 = 12-13 digits
-      // começando com "55"). slice(-11) remove os "55" → pattern `ctwa/{11d}.`
-      // NUNCA bate (char[5] "5" vs "8"). Validado LIVE 30 blobs amostrados = 0
-      // matches, attribution CRM quebrada 100% desde que safeFrom começou com 55.
-      //
-      // Fix Q1 (23/04/2026 AI review Opus 4.6): trocar `includes()` por
-      // `endsWith()` ancorado à direita. `includes()` permite substring match
-      // em qualquer posição — risco teórico de false positive se dois phones
-      // distintos compartilham os 11 últimos dígitos via substring (improvável
-      // com DDD+celular BR, mas defensivo). `endsWith()` garante match exato
-      // apenas quando phoneKey termina o path (sem o .json/suffix random).
-      // Formato esperado: `ctwa/55XXXXXXXXXXX.json` ou `ctwa/55XXXXXXXXXXX-abc.json`.
-      const phoneKey = telDigits.slice(-11);
-      let cursor;
+      // Narrow prefix lookup: same ctwaPhoneVariants pattern used by
+      // followup-ctwa.js and kommo-webhook.js. This avoids an O(N) scan of the
+      // append-only ctwa/ store on organic lead misses.
+      const variants = ctwaPhoneVariants(telefone);
       let foundCtwa = false;
-      do {
-        const ctwaBlobs = await list({ prefix: 'ctwa/', cursor, limit: 100 });
-        for (const blob of ctwaBlobs.blobs || []) {
-          const blobPhoneStr = blob.pathname
-            .slice(5)                          // remove 'ctwa/'
-            .replace(/\.json$/, '')            // remove .json extension
-            .replace(/-[A-Za-z0-9]+$/, '');    // remove -suffix random (se addRandomSuffix)
-          if (blob.pathname.startsWith('ctwa/') && blobPhoneStr.endsWith(phoneKey)) {
-            // Fix VA-1 (23/04/2026 AI review Opus 4.6): AbortSignal.timeout(5s) pra
-            // proteger handler. Blob store latência alta pode travar webhook up to
-            // 60s (Pro timeout) e Chatwoot retenta → webhook storm. 5s é generoso
-            // pra fetch JSON <10KB do Blob CDN.
+      for (const phoneKey of variants) {
+        if (foundCtwa) break;
+        let cursor;
+        do {
+          const ctwaBlobs = await list({ prefix: `ctwa/${phoneKey}`, cursor, limit: 100 });
+          for (const blob of ctwaBlobs.blobs || []) {
             const blobResp = await fetch(blob.url, { signal: AbortSignal.timeout(5000) });
             const data = await blobResp.json();
             if (data && (data.ctwa_clid || data.profile_name || data.ad_metadata)) {
@@ -642,10 +623,10 @@ export default async function handler(req, res) {
               break;
             }
           }
-        }
-        if (foundCtwa) break;
-        cursor = ctwaBlobs.hasMore ? ctwaBlobs.cursor : undefined;
-      } while (cursor);
+          if (foundCtwa) break;
+          cursor = ctwaBlobs.hasMore ? ctwaBlobs.cursor : undefined;
+        } while (cursor);
+      }
     } catch (e) {
       console.warn('[CRM-WEBHOOK] CTWA Blob recovery failed:', e.message);
     }
