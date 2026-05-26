@@ -153,3 +153,37 @@ test('fetchChatwootConversation returns network errors instead of throwing', asy
     global.fetch = originalFetch;
   }
 });
+
+test('validateFollowupConversation allows lead_quente when bia_teste is present', () => {
+  const result = validateFollowupConversation({
+    status: 'open',
+    labels: ['bia_teste', 'lead_quente'],
+    messages: [],
+  }, state);
+
+  assert.equal(result.ok, true);
+});
+
+test('validateFollowupConversation still blocks lead_quente without bia_teste', () => {
+  const result = validateFollowupConversation({
+    status: 'open',
+    labels: ['lead_quente'],
+    messages: [],
+  }, state);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'terminal_label');
+  assert.equal(result.label, 'lead_quente');
+});
+
+test('validateFollowupConversation still blocks compra_realizada even with bia_teste', () => {
+  const result = validateFollowupConversation({
+    status: 'open',
+    labels: ['bia_teste', 'compra_realizada'],
+    messages: [],
+  }, state);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'terminal_label');
+  assert.equal(result.label, 'compra_realizada');
+});

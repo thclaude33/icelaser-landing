@@ -462,9 +462,23 @@ export default async function handler(req, res) {
   // compra_realizada = lead fechou → não tem porque seguir follow-up
   // desqualificado = lead morto → não persegue
   // lead_quente = gerente vai atender manual → cascade duplicaria esforço
-  const DISARM_LABELS = ['compra_realizada', 'desqualificado', 'lead_quente'];
+  // Shadow mode: quando label bia_teste presente, Bia AI substitui humana e
+  // continua follow-up mesmo em lead_quente. compra_realizada/desqualificado
+  // seguem terminais sempre.
+  const HARD_DISARM_LABELS = ['compra_realizada', 'desqualificado'];
+  const HOT_LEAD_DISARM_LABELS = ['lead_quente'];
+  const allLabelsLower = allLabels.map((l) => String(l).toLowerCase());
+  const hasBiaTesteLabel = allLabelsLower.includes('bia_teste');
+
   const convIdForFU = conversation?.id ?? body.conversation_id;
-  if (convIdForFU && labels.some((l) => DISARM_LABELS.includes(String(l).toLowerCase()))) {
+  const shouldDisarmCascade = labels.some((l) => {
+    const label = String(l).toLowerCase();
+    if (HARD_DISARM_LABELS.includes(label)) return true;
+    if (HOT_LEAD_DISARM_LABELS.includes(label) && !hasBiaTesteLabel) return true;
+    return false;
+  });
+
+  if (convIdForFU && shouldDisarmCascade) {
     try {
       // PROMPT 2: cascade DEL
       if (process.env.FOLLOWUP_ENABLED === '1') {
