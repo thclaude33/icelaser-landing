@@ -117,7 +117,14 @@ export function validateFollowupConversation(conversation = {}, state = {}) {
   }
 
   const labels = normalizeChatwootLabels(conversation);
-  const terminalLabel = labels.find((label) => TERMINAL_LABELS.has(label));
+  const hasBiaTeste = labels.includes('bia_teste');
+  const HOT_LEAD_LABELS = ['lead_quente', '🔥_lead_quente', 'lead quente', 'hot_lead'];
+
+  const terminalLabel = labels.find((label) => {
+    if (hasBiaTeste && HOT_LEAD_LABELS.includes(label)) return false;
+    return TERMINAL_LABELS.has(label);
+  });
+
   if (terminalLabel) {
     return { ok: false, reason: 'terminal_label', label: terminalLabel, cleanup: true };
   }
