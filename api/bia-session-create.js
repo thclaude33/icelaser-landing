@@ -33,6 +33,7 @@ import { armCascade, disarmCascade, markBiaOutgoing, buildSnapshotFromContext } 
 import { resolveSessionForThread, setActiveSession } from './_lib/session-reuse.js';
 import { isSafeForClientHistory, responseOrFallbackFromEvents } from './_lib/bia-client-response.js';
 import { getRecentCtwaContextForPhone } from './_lib/followup-ctwa.js';
+import { prepareAudioMessageForBia, sanitizeAudioHistoryReferences } from './_lib/audio-transcription.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -505,6 +506,29 @@ export default async function handler(req, res) {
   const t_start = Date.now();
   const headers = buildAnthropicHeaders();
 
+  // PRE-TRANSCRIBE AUDIO (27/05/2026 — incidente conv 615 Janaina):
+  //   Se a mensagem do cliente é "🎤 Áudio recebido\n🔗 <blob_url>", transcreve
+  //   server-side via Cloudflare Whisper antes de mandar pra Bia. Razão: o Coord
+  //   agent v48 tem custom tool `transcribe_audio` registrada mas a Anthropic
+  //   Managed Agents API não expõe submit_tool_result endpoint (validado LIVE
+  //   4 endpoints → 404), então pre-transcribe é a única forma viável de a Bia
+  //   responder áudios sem travar a sessão em stop_reason=requires_action.
+  //
+  //   Fail-safe: em qualquer erro, helper retorna texto fallback PEDINDO que a
+  //   cliente escreva, e NUNCA repassa a URL do Blob — assim a Bia não tem
+  //   como tentar chamar a tool (sem executor) e travar.
+  if (mensagem_cliente) {
+    const audioPrepared = await prepareAudioMessageForBia(mensagem_cliente);
+    if (audioPrepared.transcribed) {
+      mensagem_cliente = audioPrepared.text;
+    } else if (audioPrepared.reason && audioPrepared.reason !== 'feature_disabled') {
+      // Transcrição foi tentada (havia áudio) mas falhou. Usa fallback seguro
+      // para impedir que a Bia veja a URL e tente chamar a tool quebrada.
+      mensagem_cliente = audioPrepared.text;
+    }
+    // reason === 'feature_disabled' → mantém texto original (rollout gradual)
+  }
+
   // PROMPT 2 — DISARM cascade: cliente respondeu (incoming msg recebida).
   // Roda ANTES do KV claim pra garantir desarme imediato mesmo se claim falhar.
   // Fail-open: erro KV log mas não bloqueia handler.
@@ -621,7 +645,11 @@ export default async function handler(req, res) {
         // pra não duplicar
         const prev = histLines.slice(0, -1);
         if (prev.length > 0) {
-          historico = `(HISTÓRICO CONVERSA CHATWOOT — você está em CONTINUAÇÃO, NÃO repita saudação completa, aplique Cenário D do decision tree):\n${prev.join('\n')}\n\n(MENSAGEM ATUAL DO CLIENTE — responde ela):\n`;
+          // Sanitiza referências antigas a "🎤 Áudio recebido\n🔗 <url>" → "[áudio anterior]"
+          // Evita que a Bia/Coord veja URLs de Blob de turnos passados e tente chamar
+          // a custom tool `transcribe_audio` (sem executor) retroativamente.
+          const sanitizedHistorico = sanitizeAudioHistoryReferences(prev.join('\n'));
+          historico = `(HISTÓRICO CONVERSA CHATWOOT — você está em CONTINUAÇÃO, NÃO repita saudação completa, aplique Cenário D do decision tree):\n${sanitizedHistorico}\n\n(MENSAGEM ATUAL DO CLIENTE — responde ela):\n`;
         }
       }
     }
