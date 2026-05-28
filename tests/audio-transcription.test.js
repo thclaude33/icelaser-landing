@@ -173,6 +173,43 @@ test('prepareAudioMessageForBia transcreve com sucesso via Whisper', async () =>
   }
 });
 
+test('prepareAudioMessageForBia tolera whitespace/newline nas envs de áudio', async () => {
+  const snap = snapshotEnv();
+  setupEnv({ maxBytes: ' 1000\n', timeoutMs: '\t20000\n' });
+  process.env.BIA_AUDIO_TRANSCRIPTION_ENABLED = ' 1\n';
+  process.env.CLOUDFLARE_ACCOUNT_ID = ' test-account\n';
+  process.env.CLOUDFLARE_WORKERS_AI_TOKEN = '\ttest-token\n';
+
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    const u = String(url);
+    if (u.includes('vercel-storage.com')) {
+      return fakeBlobResp(Buffer.from([1, 2, 3, 4]), { 'content-length': 4 });
+    }
+    if (u.includes('cloudflare.com')) {
+      return fakeWhisperOk('Qual o valor do pacote?');
+    }
+    throw new Error(`unexpected url ${url}`);
+  };
+
+  try {
+    const r = await prepareAudioMessageForBia(VALID_AUDIO_TEXT);
+    assert.equal(r.transcribed, true);
+    assert.equal(r.text, '🎤 Áudio transcrito: "Qual o valor do pacote?"');
+
+    const whisperCall = calls.find((c) => c.url.includes('cloudflare.com'));
+    assert.ok(whisperCall);
+    assert.equal(whisperCall.url.includes('\n'), false);
+    assert.equal(whisperCall.url.includes('\t'), false);
+    assert.equal(whisperCall.options.headers.Authorization, 'Bearer test-token');
+  } finally {
+    global.fetch = originalFetch;
+    restoreEnv(snap);
+  }
+});
+
 test('prepareAudioMessageForBia escapa aspas dentro do transcript', async () => {
   const snap = snapshotEnv();
   setupEnv();

@@ -31,17 +31,21 @@ const WHISPER_MODEL = '@cf/openai/whisper-large-v3-turbo';
 const TRANSCRIPT_PREFIX = '🎤 Áudio transcrito:';
 const HISTORY_PLACEHOLDER = '[áudio anterior]';
 
+function envValue(name) {
+  return String(process.env[name] || '').trim();
+}
+
 function isEnabled() {
-  return process.env.BIA_AUDIO_TRANSCRIPTION_ENABLED === '1';
+  return envValue('BIA_AUDIO_TRANSCRIPTION_ENABLED') === '1';
 }
 
 function getMaxBytes() {
-  const v = Number(process.env.BIA_AUDIO_TRANSCRIPTION_MAX_BYTES);
+  const v = Number(envValue('BIA_AUDIO_TRANSCRIPTION_MAX_BYTES'));
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_MAX_BYTES;
 }
 
 function getTimeoutMs() {
-  const v = Number(process.env.BIA_AUDIO_TRANSCRIPTION_TIMEOUT_MS);
+  const v = Number(envValue('BIA_AUDIO_TRANSCRIPTION_TIMEOUT_MS'));
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_TIMEOUT_MS;
 }
 
@@ -94,8 +98,8 @@ async function downloadAudio(url) {
 }
 
 async function callWhisper(audioBuffer, language = 'pt') {
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const token = process.env.CLOUDFLARE_WORKERS_AI_TOKEN;
+  const accountId = envValue('CLOUDFLARE_ACCOUNT_ID');
+  const token = envValue('CLOUDFLARE_WORKERS_AI_TOKEN');
   if (!accountId || !token) {
     return { ok: false, reason: 'cloudflare_env_missing' };
   }
@@ -110,7 +114,7 @@ async function callWhisper(audioBuffer, language = 'pt') {
     resp = await fetch(`${CLOUDFLARE_API}/${accountId}/ai/run/${WHISPER_MODEL}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token.trim()}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body,
