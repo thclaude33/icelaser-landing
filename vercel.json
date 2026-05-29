@@ -19,6 +19,7 @@
     { "path": "/api/cron/bia-daily-review",  "schedule": "0 2 * * *" },
     { "path": "/api/cron/bia-skill-refresh", "schedule": "30 2 * * *" },
     { "path": "/api/cron/bia-postback",      "schedule": "* * * * *" },
+    { "path": "/api/cron/bia-pending-drain", "schedule": "* * * * *" },
     { "path": "/api/cron/bia-followup-cascade", "schedule": "*/2 * * * *" },
     { "path": "/api/cron/process-wa-pending",   "schedule": "*/5 * * * *" },
     { "path": "/api/cron/funnel-signal-monitor", "schedule": "0 */6 * * *" }
@@ -133,6 +134,10 @@
     },
     "api/cron/bia-postback.js": {
       "maxDuration": 60,
+      "regions": ["gru1"]
+    },
+    "api/cron/bia-pending-drain.js": {
+      "maxDuration": 30,
       "regions": ["gru1"]
     },
     "api/cron/bia-followup-cascade.js": {

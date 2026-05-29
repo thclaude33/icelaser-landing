@@ -223,3 +223,78 @@ export async function kvZrangebyscore(key, min, max, limit = 50) {
   const members = Array.isArray(result) ? result : [];
   return { ok: true, members };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// PENDING QUEUE (28/05/2026 — incidente Rosane conv 614) — list ops.
+// Mensagem que chega enquanto a thread está in_flight é enfileirada em
+// bia:pending:{conv} (lista FIFO) em vez de descartada no 429. O cron
+// bia-pending-drain reprocessa quando o lock libera.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * RPUSH — append value ao fim da lista (FIFO). Retorna { ok, length }.
+ */
+export async function kvRpush(key, value) {
+  if (!kvAvailable()) return { ok: true, fallback: true, length: 0 };
+  const r = await kvFetch(['rpush', key, value]);
+  if (!r.ok) {
+    console.error(`[KV-RPUSH] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, length: 0, error: r.error };
+  }
+  return { ok: true, length: Number(r.body?.result || 0) };
+}
+
+/**
+ * LLEN — tamanho da lista. Retorna { ok, length }.
+ */
+export async function kvLlen(key) {
+  if (!kvAvailable()) return { ok: true, fallback: true, length: 0 };
+  const r = await kvFetch(['llen', key]);
+  if (!r.ok) {
+    console.error(`[KV-LLEN] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, length: 0, error: r.error };
+  }
+  return { ok: true, length: Number(r.body?.result || 0) };
+}
+
+/**
+ * LRANGE — lê itens [start..stop] (inclusive). stop=-1 = fim. Retorna { ok, items }.
+ */
+export async function kvLrange(key, start, stop) {
+  if (!kvAvailable()) return { ok: true, fallback: true, items: [] };
+  const r = await kvFetch(['lrange', key, start, stop]);
+  if (!r.ok) {
+    console.error(`[KV-LRANGE] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, items: [], error: r.error };
+  }
+  const result = r.body?.result;
+  return { ok: true, items: Array.isArray(result) ? result : [] };
+}
+
+/**
+ * LTRIM — mantém apenas [start..stop], remove o resto. Drain atômico:
+ * lê N itens com LRANGE 0 N-1, depois LTRIM N -1 mantém só os que chegaram
+ * DURANTE o drain (não usa DEL, que apagaria mensagem nova). Retorna { ok }.
+ */
+export async function kvLtrim(key, start, stop) {
+  if (!kvAvailable()) return { ok: true, fallback: true };
+  const r = await kvFetch(['ltrim', key, start, stop]);
+  if (!r.ok) {
+    console.error(`[KV-LTRIM] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, error: r.error };
+  }
+  return { ok: true };
+}
+
+/**
+ * EXPIRE — define TTL em segundos numa key existente (hygiene anti-órfã).
+ */
+export async function kvExpire(key, ttlSec) {
+  if (!kvAvailable()) return { ok: true, fallback: true };
+  const r = await kvFetch(['expire', key, ttlSec]);
+  if (!r.ok) {
+    console.error(`[KV-EXPIRE] fetch_error key=${key} err=${r.error}`);
+    return { ok: true, fallback: true, error: r.error };
+  }
+  return { ok: true };
+}

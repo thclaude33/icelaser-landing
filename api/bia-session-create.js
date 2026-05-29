@@ -34,6 +34,7 @@ import { resolveSessionForThread, setActiveSession } from './_lib/session-reuse.
 import { isSafeForClientHistory, responseOrFallbackFromEvents } from './_lib/bia-client-response.js';
 import { getRecentCtwaContextForPhone } from './_lib/followup-ctwa.js';
 import { prepareAudioMessageForBia, sanitizeAudioHistoryReferences } from './_lib/audio-transcription.js';
+import { enqueuePending } from './_lib/pending-queue.js';
 
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const COORDINATOR_AGENT_ID = 'agent_018zZxrjHftuiePCuJEUNTqL'; // Coord v18 Sonnet 4.6 + LATENCY HARD
@@ -560,6 +561,22 @@ export default async function handler(req, res) {
   const KV_CLAIM_TTL_SEC = 90;
   const kvClaimResult = await kvClaim(kvClaimKey, kvClaimValue, KV_CLAIM_TTL_SEC);
   if (!kvClaimResult.ok && !kvClaimResult.fallback) {
+    // BUG FIX (28/05/2026 — incidente Rosane conv 614): a mensagem que chega
+    // enquanto a thread está in_flight NÃO pode ser descartada. Enfileira em
+    // bia:pending:{conv}; o cron bia-pending-drain reprocessa quando o lock
+    // liberar (a Bia responde num 2º balão, agrupando o que veio na rajada).
+    // Só enfileira no path Chatwoot (cliente real). Direct path mantém 429 —
+    // evita loop: o próprio drain re-injeta o turno e só roda com lock livre.
+    if (source === 'chatwoot_webhook' && chatwoot_thread_id && mensagem_cliente) {
+      try {
+        const enq = await enqueuePending(chatwoot_thread_id, telefone, mensagem_cliente, extra.chatwoot_message_id);
+        console.log(`[BIA-PENDING] enqueued conv=${chatwoot_thread_id} dedup=${enq.dedup} len=${enq.length ?? '?'}`);
+        return res.status(200).json({ ok: true, queued: true, reason: 'in_flight_enqueued', dedup: enq.dedup, source });
+      } catch (e) {
+        console.error(`[BIA-PENDING] enqueue failed conv=${chatwoot_thread_id}: ${e?.message || e}`);
+        // fail-safe: cai pro 429 antigo (no pior caso volta ao comportamento atual)
+      }
+    }
     return res.status(429).json({
       error: 'rate_limit_in_flight',
       detail: 'Outra requisição já está processando esta thread/telefone',
