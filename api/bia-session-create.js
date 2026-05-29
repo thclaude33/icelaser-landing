@@ -570,8 +570,11 @@ export default async function handler(req, res) {
     if (source === 'chatwoot_webhook' && chatwoot_thread_id && mensagem_cliente) {
       try {
         const enq = await enqueuePending(chatwoot_thread_id, telefone, mensagem_cliente, extra.chatwoot_message_id);
-        console.log(`[BIA-PENDING] enqueued conv=${chatwoot_thread_id} dedup=${enq.dedup} len=${enq.length ?? '?'}`);
-        return res.status(200).json({ ok: true, queued: true, reason: 'in_flight_enqueued', dedup: enq.dedup, source });
+        if (enq.ok) {
+          console.log(`[BIA-PENDING] enqueued conv=${chatwoot_thread_id} dedup=${enq.dedup} len=${enq.length ?? '?'}`);
+          return res.status(200).json({ ok: true, queued: true, reason: 'in_flight_enqueued', dedup: enq.dedup, source });
+        }
+        console.error(`[BIA-PENDING] enqueue not durable conv=${chatwoot_thread_id}: ${enq.error || 'unknown_error'}`);
       } catch (e) {
         console.error(`[BIA-PENDING] enqueue failed conv=${chatwoot_thread_id}: ${e?.message || e}`);
         // fail-safe: cai pro 429 antigo (no pior caso volta ao comportamento atual)

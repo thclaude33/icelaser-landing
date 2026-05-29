@@ -21,6 +21,7 @@
 
 import {
   kvClaim,
+  kvRelease,
   kvGet,
   kvSet,
   kvDel,
@@ -65,11 +66,15 @@ const injectedKey = (conv) => `${INJECTED_PREFIX}${conv}`;
 export async function enqueuePending(conv, telefone, text, msgId) {
   if (!conv || !text) return { ok: false, dedup: false };
 
+  let seenClaimKey = null;
+  let seenClaimed = false;
   if (msgId !== null && msgId !== undefined && String(msgId) !== '') {
-    const seen = await kvClaim(seenKey(conv, msgId), '1', SEEN_TTL_SEC);
+    seenClaimKey = seenKey(conv, msgId);
+    const seen = await kvClaim(seenClaimKey, '1', SEEN_TTL_SEC);
     if (!seen.ok && !seen.fallback) {
       return { ok: true, dedup: true };
     }
+    seenClaimed = seen.ok === true && seen.fallback !== true;
   }
 
   const item = JSON.stringify({
@@ -80,8 +85,16 @@ export async function enqueuePending(conv, telefone, text, msgId) {
   });
 
   const pushed = await kvRpush(pendingKey(conv), item);
+  if (!pushed.ok || pushed.fallback || !pushed.length) {
+    if (seenClaimed && seenClaimKey) await kvRelease(seenClaimKey);
+    return { ok: false, dedup: false, error: pushed.error || 'rpush_failed' };
+  }
   await kvExpire(pendingKey(conv), PENDING_TTL_SEC);
-  await kvZadd(PENDING_INDEX, Math.floor(Date.now() / 1000), String(conv));
+  const indexed = await kvZadd(PENDING_INDEX, Math.floor(Date.now() / 1000), String(conv));
+  if (!indexed.ok || indexed.fallback) {
+    if (seenClaimed && seenClaimKey) await kvRelease(seenClaimKey);
+    return { ok: false, dedup: false, length: pushed.length, error: indexed.error || 'index_failed' };
+  }
 
   return { ok: true, dedup: false, length: pushed.length };
 }

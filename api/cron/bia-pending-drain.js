@@ -24,8 +24,9 @@ import { skipIfNotPrimary } from '../_lib/primary-project.js';
 import { resolveSessionForThread, setActiveSession } from '../_lib/session-reuse.js';
 import { responseOrFallbackFromEvents } from '../_lib/bia-client-response.js';
 import { shouldSendNow } from '../_lib/send-window.js';
-import { markBiaOutgoing } from '../_lib/cascade.js';
-import { kvClaim, kvRelease, kvGet } from '../_lib/kv-rate-limit.js';
+import { markBiaOutgoing, armCascade, buildSnapshotFromContext } from '../_lib/cascade.js';
+import { getRecentCtwaContextForPhone } from '../_lib/followup-ctwa.js';
+import { kvClaim, kvRelease } from '../_lib/kv-rate-limit.js';
 import {
   listPendingConvs,
   peekPending,
@@ -65,12 +66,40 @@ function anthropicHeaders() {
 }
 
 async function fetchEvents(sid) {
-  const resp = await fetch(`${ANTHROPIC_BASE}/sessions/${sid}/events?limit=100`, {
+  const resp = await fetch(`${ANTHROPIC_BASE}/sessions/${sid}/events?limit=300`, {
     headers: anthropicHeaders(), signal: AbortSignal.timeout(10000),
   });
   if (!resp.ok) throw new Error(`Anthropic events HTTP ${resp.status}`);
   const body = await resp.json();
   return body.data || [];
+}
+
+function countIdleEvents(events = []) {
+  return events.filter((e) => e?.type === 'session.status_idle').length;
+}
+
+function latestSessionIsRunning(events = []) {
+  const status = [...events].reverse().find((e) => (
+    e?.type === 'session.status_running' ||
+    e?.type === 'session.thread_status_running' ||
+    e?.type === 'session.status_idle' ||
+    e?.type === 'session.thread_status_idle'
+  ));
+  return status?.type === 'session.status_running' || status?.type === 'session.thread_status_running';
+}
+
+function dedupePendingItems(items = []) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const id = item?.msg_id ? String(item.msg_id) : null;
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    out.push(item);
+  }
+  return out;
 }
 
 async function postTurn(sid, telefone, text) {
@@ -134,6 +163,20 @@ async function postChatwoot(convId, content) {
   try { return JSON.parse(txt); } catch { return { raw: txt }; }
 }
 
+async function armFollowupAfterDrain(convId, sid, clean, marker = {}) {
+  if (process.env.FOLLOWUP_ENABLED !== '1') return;
+  try {
+    const snapshot = buildSnapshotFromContext(null, clean);
+    snapshot.telefone = marker.telefone || null;
+    const ctwa = await getRecentCtwaContextForPhone(marker.telefone || null);
+    snapshot.is_ctwa = ctwa.is_ctwa === true;
+    if (ctwa.template_free_until_at) snapshot.template_free_until_at = ctwa.template_free_until_at;
+    await armCascade(convId, sid, snapshot);
+  } catch (e) {
+    console.error(`[FU-ARM-DRAIN] conv=${convId} ${e?.message || e}`);
+  }
+}
+
 // Revalida bia_teste lendo labels (array) E cached_label_list (CSV) — shapes do Chatwoot.
 async function stillBiaTeste(conv) {
   try {
@@ -175,17 +218,15 @@ export default async function handler(req, res) {
     const dl = await kvClaim(drainLockKey, '1', 60);
     if (!dl.ok && !dl.fallback) { stats.lock_busy += 1; continue; }
 
+    const threadLockKey = `rl:thread:${conv}:in_flight`;
+    let threadLockAcquired = false;
+    let releaseThreadLock = true;
     try {
-      // Turno em andamento? não atropela — espera próximo tick.
-      const inFlight = await kvGet(`rl:thread:${conv}:in_flight`);
-      if (inFlight.ok && inFlight.value) { stats.busy += 1; continue; }
-
-      // Anti-loop
-      const cycle = await bumpDrainCycle(conv);
-      if (cycle.exceeded) {
-        console.warn(`[BIA-DRAIN] loop guard conv=${conv} cycles=${cycle.count} — limpa pendência`);
-        await clearPendingAll(conv); stats.loop_guard += 1; continue;
-      }
+      // Participa do MESMO lock canônico do handler. Só o drain_lock não basta:
+      // sem este SETNX, um webhook novo poderia injetar outro turno na sessão em paralelo.
+      const threadLock = await kvClaim(threadLockKey, `pending_${Date.now()}`, 90);
+      if (!threadLock.ok && !threadLock.fallback) { stats.busy += 1; continue; }
+      threadLockAcquired = threadLock.ok === true && threadLock.fallback !== true;
 
       // Revalida bia_teste (humano pode ter assumido)
       const label = await stillBiaTeste(conv);
@@ -203,23 +244,38 @@ export default async function handler(req, res) {
 
       // Marker de turno já injetado? (re-entrada após poll timeout — NÃO re-injeta)
       let marker = await getInjected(conv);
-      let sid, n, baselineLen;
+      let sid, n, baselineLen, baselineIdleCount;
       if (marker && marker.sid) {
-        sid = marker.sid; n = marker.n; baselineLen = marker.baselineLen;
+        sid = marker.sid;
+        n = marker.n;
+        baselineLen = marker.baselineLen || 0;
+        baselineIdleCount = marker.baselineIdleCount || 0;
       } else {
         const peek = await peekPending(conv);
         if (!peek.count) { await clearPendingIndex(conv); continue; }
-        const telefone = peek.items.find((i) => i.telefone)?.telefone || '';
-        const text = peek.items.map((i) => i.text).filter(Boolean).join('\n');
+        const pendingItems = dedupePendingItems(peek.items);
+        const telefone = pendingItems.find((i) => i.telefone)?.telefone || '';
+        const text = pendingItems.map((i) => i.text).filter(Boolean).join('\n');
         if (!telefone || !text) { await clearPendingIndex(conv); continue; }
 
         sid = reuse.sessionId;
         n = peek.count;
         const before = await fetchEvents(sid);
+        if (latestSessionIsRunning(before)) { stats.busy += 1; continue; }
         baselineLen = before.length;
+        baselineIdleCount = countIdleEvents(before);
+
+        // Anti-loop conta apenas NOVAS injeções. Re-poll de marker já injetado não
+        // pode queimar o contador e descartar mensagem por "entrega lenta".
+        const cycle = await bumpDrainCycle(conv);
+        if (cycle.exceeded) {
+          console.warn(`[BIA-DRAIN] loop guard conv=${conv} cycles=${cycle.count} — limpa pendência`);
+          await clearPendingAll(conv); stats.loop_guard += 1; continue;
+        }
+
         await postTurn(sid, telefone, text); // injeta o lote como turno novo
-        await setInjected(conv, { sid, n, baselineLen, ts: Date.now() });
-        marker = { sid, n, baselineLen };
+        await setInjected(conv, { sid, n, baselineLen, baselineIdleCount, telefone, ts: Date.now() });
+        marker = { sid, n, baselineLen, baselineIdleCount, telefone };
       }
 
       // Poll: espera o turno novo completar (idle + agent.message além do baseline)
@@ -227,16 +283,23 @@ export default async function handler(req, res) {
       let ready = false;
       while (Date.now() < pollDeadline) {
         events = await fetchEvents(sid);
+        const idleCount = countIdleEvents(events);
+        const hasNewIdle = idleCount > baselineIdleCount;
         const fresh = events.slice(baselineLen);
-        if (fresh.some((e) => e.type === 'session.status_idle') && fresh.some((e) => e.type === 'agent.message')) {
+        const hasNewAgentMessage = fresh.some((e) => e.type === 'agent.message');
+        if (hasNewIdle && hasNewAgentMessage) {
           ready = true; break;
         }
         await new Promise((r) => setTimeout(r, POLL_TICK_MS));
       }
-      if (!ready) { stats.poll_timeout += 1; continue; } // marker fica; próximo tick só entrega
+      if (!ready) {
+        stats.poll_timeout += 1;
+        releaseThreadLock = false; // turno pode ainda estar rodando; deixa TTL segurar a thread
+        continue;
+      } // marker fica; próximo tick só entrega
 
       // Extrai a resposta do turno novo (última segura) + entrega
-      const extracted = responseOrFallbackFromEvents(events, { preferSafeCandidate: 'last' });
+      const extracted = responseOrFallbackFromEvents(events, { baselineEventCount: baselineLen, preferSafeCandidate: 'last' });
       const clean = extracted.ok ? stripWhatsAppMarkdown(extracted.text) : '';
       if (!clean) { stats.errors += 1; continue; } // marker fica; tenta de novo
 
@@ -255,6 +318,7 @@ export default async function handler(req, res) {
         await markPosted(dedupKey, { session_id: sid, conv_id: conv, chatwoot_msg_id: posted.id, agent_msg_idx: extracted.agentMsgIdx, posted_by: 'pending_drain_confirmed', dedup_key: dedupKey, posted_at: new Date().toISOString() });
         try { await markBiaOutgoing(conv); } catch { /* non-fatal */ }
         try { await setActiveSession(conv, sid); } catch { /* renova TTL — non-fatal */ }
+        await armFollowupAfterDrain(conv, sid, clean, marker);
         // P0 — ack SÓ AGORA (entrega confirmada). P1 — reindexa se sobrou msg do meio do drain.
         await ackPending(conv, n);
         await reindexIfRemaining(conv);
@@ -271,6 +335,7 @@ export default async function handler(req, res) {
       stats.errors += 1;
       console.error(`[BIA-DRAIN] conv=${conv} erro: ${e?.message || e} — pendência mantida`);
     } finally {
+      if (threadLockAcquired && releaseThreadLock) await kvRelease(threadLockKey);
       await kvRelease(drainLockKey);
     }
   }

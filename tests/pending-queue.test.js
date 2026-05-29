@@ -11,10 +11,11 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-function makeFakeRedis() {
+function makeFakeRedis(opts = {}) {
   const str = new Map();
   const listM = new Map();
   const zset = new Map();
+  const failOnce = new Set(opts.failOnce || []);
   const getL = (k) => { if (!listM.has(k)) listM.set(k, []); return listM.get(k); };
   const norm = (i, len) => (i < 0 ? len + i : i);
 
@@ -22,6 +23,10 @@ function makeFakeRedis() {
     const u = new URL(url);
     const parts = u.pathname.split('/').filter(Boolean).map((p) => decodeURIComponent(p));
     const [cmd, ...a] = parts;
+    if (failOnce.has(cmd)) {
+      failOnce.delete(cmd);
+      return { ok: false, status: 500, text: async () => JSON.stringify({ error: `forced_${cmd}_failure` }) };
+    }
     let result = null;
     switch (cmd) {
       case 'set': {
@@ -109,6 +114,19 @@ describe('pending-queue — at-least-once + dedup + reindex', () => {
     assert.equal(a.dedup, false);
     assert.equal(b.dedup, true);
     const peek = await pq.peekPending('614');
+    assert.equal(peek.count, 1);
+  });
+
+  test('enqueuePending não promete fila quando RPUSH falha e libera dedup para retry', async () => {
+    globalThis.fetch = makeFakeRedis({ failOnce: ['rpush'] });
+    const a = await pq.enqueuePending('615', '5581', 'x', '100');
+    assert.equal(a.ok, false);
+    assert.match(a.error, /rpush|forced/i);
+
+    const b = await pq.enqueuePending('615', '5581', 'x', '100');
+    assert.equal(b.ok, true);
+    assert.equal(b.dedup, false, 'retry precisa conseguir enfileirar a mesma msg_id');
+    const peek = await pq.peekPending('615');
     assert.equal(peek.count, 1);
   });
 
