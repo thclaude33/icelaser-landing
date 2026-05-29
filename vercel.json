@@ -137,7 +137,7 @@
       "regions": ["gru1"]
     },
     "api/cron/bia-pending-drain.js": {
-      "maxDuration": 30,
+      "maxDuration": 60,
       "regions": ["gru1"]
     },
     "api/cron/bia-followup-cascade.js": {

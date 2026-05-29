@@ -1,24 +1,39 @@
 // api/cron/bia-pending-drain.js
-// Cron 1×/min — drena mensagens pendentes (28/05/2026, incidente Rosane conv 614).
+// Cron 1×/min — entrega mensagens pendentes em rajada (incidente Rosane conv 614).
 //
-// Quando o cliente manda 2+ mensagens em rajada, a 2ª chega enquanto a Bia ainda
-// processa a 1ª, toma lock in_flight e — em vez de ser descartada (429) — é
-// enfileirada em bia:pending:{conv} (ver api/_lib/pending-queue.js).
+// Quando o cliente manda 2+ mensagens, a 2ª chega durante o lock in_flight e é
+// enfileirada em bia:pending:{conv} (api/_lib/pending-queue.js) em vez de ser
+// descartada no 429. Este cron, quando o lock libera, re-injeta o lote como UM
+// turno novo na MESMA sessão (reuse) e ENTREGA a resposta ele mesmo (2º balão).
 //
-// Este cron, quando o lock libera, drena TODAS as pendentes de uma vez (lote),
-// re-injeta como UM turno novo na MESMA sessão Anthropic (reuse), e o cron
-// bia-postback entrega a resposta (2º balão). Sem loopback HTTP, sem waitUntil.
+// Correções da review (Codex 28/05):
+//   P0 — at-least-once: peek (LRANGE, não remove) → injeta → poll → posta no
+//        Chatwoot → SÓ ENTÃO ack (LTRIM). Se qualquer passo falhar, a mensagem
+//        continua na fila pro próximo tick. (antes: LTRIM antes do post = perda)
+//   P1 — entrega própria (inline poll+post), NÃO depende do bia-postback (que
+//        filtra sessions por created_at<35min → 2º balão somia em sessão antiga).
+//   P1 — reindexIfRemaining: msg que chega durante o drain re-entra no índice.
+//   P2 — drain_lock SETNX por conv (evita 2 execuções drenarem a mesma conv).
+//   Bônus — revalida bia_teste lendo labels E cached_label_list (shape Chatwoot).
 //
-// Guardas: lock-free check (não atropela turno em andamento) + revalidação de
-// bia_teste (se humano assumiu, descarta sem responder) + anti-loop (máx 3
-// ciclos/5min por conv) + skipIfNotPrimary (roda só no projeto primário).
+// Dedup CRUZADO: usa o MESMO BLOB_PREFIX e a MESMA dedup key (agent_{sid}_{idx})
+// do bia-postback. Se um já postou, o outro vê alreadyPosted e pula → zero dup.
 
+import { list, put, del } from '@vercel/blob';
 import { skipIfNotPrimary } from '../_lib/primary-project.js';
 import { resolveSessionForThread, setActiveSession } from '../_lib/session-reuse.js';
-import { kvGet } from '../_lib/kv-rate-limit.js';
+import { responseOrFallbackFromEvents } from '../_lib/bia-client-response.js';
+import { shouldSendNow } from '../_lib/send-window.js';
+import { markBiaOutgoing } from '../_lib/cascade.js';
+import { kvClaim, kvRelease, kvGet } from '../_lib/kv-rate-limit.js';
 import {
   listPendingConvs,
-  drainPending,
+  peekPending,
+  ackPending,
+  reindexIfRemaining,
+  setInjected,
+  getInjected,
+  clearInjected,
   clearPendingAll,
   clearPendingIndex,
   bumpDrainCycle,
@@ -27,8 +42,11 @@ import {
 const ANTHROPIC_BASE = 'https://api.anthropic.com/v1';
 const CHATWOOT_BASE_URL = process.env.CHATWOOT_BASE_URL || 'https://chatwoot-production-af5f.up.railway.app';
 const CHATWOOT_ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || '1';
-const SHADOW_LABEL = process.env.BIA_SHADOW_LABEL || 'bia_teste';
-const MAX_PER_RUN = 15;
+const SHADOW_LABEL = (process.env.BIA_SHADOW_LABEL || 'bia_teste').toLowerCase();
+const BLOB_PREFIX = 'bia/postback/posted/'; // MESMO do bia-postback → dedup cruzado
+const MAX_PER_RUN = 10;
+const RUN_BUDGET_MS = 48000; // não inicia nova conv depois disso (maxDuration 60s)
+const POLL_TICK_MS = 2500;
 
 function isAuthorized(req) {
   const expected = process.env.CRON_SECRET;
@@ -46,108 +64,214 @@ function anthropicHeaders() {
   };
 }
 
-// Revalida que a conv ainda tem o label bia_teste. Se o humano removeu (assumiu
-// o atendimento), as pendentes são descartadas — a Bia não responde por cima.
+async function fetchEvents(sid) {
+  const resp = await fetch(`${ANTHROPIC_BASE}/sessions/${sid}/events?limit=100`, {
+    headers: anthropicHeaders(), signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) throw new Error(`Anthropic events HTTP ${resp.status}`);
+  const body = await resp.json();
+  return body.data || [];
+}
+
+async function postTurn(sid, telefone, text) {
+  const content = `(TELEFONE_CLIENTE: +${telefone}) ${text}`;
+  const resp = await fetch(`${ANTHROPIC_BASE}/sessions/${sid}/events`, {
+    method: 'POST', headers: anthropicHeaders(),
+    body: JSON.stringify({ events: [{ type: 'user.message', content: [{ type: 'text', text: content }] }] }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) {
+    const d = await resp.text().catch(() => '');
+    throw new Error(`Anthropic event POST HTTP ${resp.status}: ${d.slice(0, 200)}`);
+  }
+  return true;
+}
+
+function stripWhatsAppMarkdown(text) {
+  return String(text || '')
+    .replace(/\*\*([^*\n]+)\*\*/g, '*$1*')
+    .replace(/^---+\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+const getDedupKey = (sid, idx) =>
+  (idx !== null && idx !== undefined && idx >= 0) ? `agent_${sid}_${idx}` : `sess_${sid}`;
+
+async function alreadyPosted(dedupKey) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return false;
+  try {
+    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
+    return blobs.length > 0;
+  } catch (e) { console.error(`[BIA-DRAIN-DEDUP] ${dedupKey}: ${e?.message || e}`); return false; }
+}
+
+async function markPosted(dedupKey, payload) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  try {
+    await put(`${BLOB_PREFIX}${dedupKey}.json`, JSON.stringify(payload), {
+      access: 'public', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json',
+    });
+  } catch (e) { console.error(`[BIA-DRAIN-MARK] ${dedupKey}: ${e?.message || e}`); }
+}
+
+async function deleteMarker(dedupKey) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  try {
+    const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
+    for (const b of blobs) await del(b.url);
+  } catch (e) { console.error(`[BIA-DRAIN-DEL] ${dedupKey}: ${e?.message || e}`); }
+}
+
+async function postChatwoot(convId, content) {
+  const resp = await fetch(
+    `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages`,
+    { method: 'POST', headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, message_type: 'outgoing' }) }
+  );
+  const txt = await resp.text();
+  if (!resp.ok) throw new Error(`Chatwoot ${resp.status}: ${txt.slice(0, 200)}`);
+  try { return JSON.parse(txt); } catch { return { raw: txt }; }
+}
+
+// Revalida bia_teste lendo labels (array) E cached_label_list (CSV) — shapes do Chatwoot.
 async function stillBiaTeste(conv) {
   try {
     const resp = await fetch(
       `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${conv}`,
       { headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN }, signal: AbortSignal.timeout(8000) }
     );
-    if (!resp.ok) return { ok: false, unknown: true };
+    if (!resp.ok) return { unknown: true };
     const body = await resp.json();
-    const con0 = body?.payload || body?.data || body || {};
-    const labels = Array.isArray(con0.labels) ? con0.labels.map((l) => String(l).toLowerCase()) : [];
-    return { ok: true, has: labels.includes(SHADOW_LABEL.toLowerCase()) };
-  } catch (e) {
-    return { ok: false, unknown: true, error: String(e?.message || e) };
-  }
-}
-
-// Re-injeta o lote de mensagens como UM turno novo na sessão reusada.
-async function postTurn(sessionId, telefone, text) {
-  const content = `(TELEFONE_CLIENTE: +${telefone}) ${text}`;
-  const resp = await fetch(`${ANTHROPIC_BASE}/sessions/${sessionId}/events`, {
-    method: 'POST',
-    headers: anthropicHeaders(),
-    body: JSON.stringify({ events: [{ type: 'user.message', content: [{ type: 'text', text: content }] }] }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!resp.ok) {
-    const detail = await resp.text().catch(() => '');
-    throw new Error(`Anthropic event POST HTTP ${resp.status}: ${detail.slice(0, 200)}`);
-  }
-  return true;
+    const c = body?.payload || body?.data || body || {};
+    const fromArray = Array.isArray(c.labels) ? c.labels : [];
+    const fromCsv = typeof c.cached_label_list === 'string' ? c.cached_label_list.split(',') : [];
+    const labels = [...fromArray, ...fromCsv].map((l) => String(l).trim().toLowerCase()).filter(Boolean);
+    return { has: labels.includes(SHADOW_LABEL) };
+  } catch (e) { return { unknown: true, error: String(e?.message || e) }; }
 }
 
 export default async function handler(req, res) {
-  if (!isAuthorized(req)) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
+  if (!isAuthorized(req)) return res.status(401).json({ error: 'unauthorized' });
   if (skipIfNotPrimary(res, 'bia-pending-drain')) return;
+  if (!process.env.ANTHROPIC_API_KEY_ICELASER || !process.env.CHATWOOT_API_TOKEN) {
+    return res.status(500).json({ error: 'missing_env' });
+  }
 
-  const stats = { scanned: 0, drained: 0, skipped_busy: 0, skipped_no_label: 0, skipped_no_session: 0, loop_guard: 0, errors: 0 };
+  const runStart = Date.now();
+  const pollDeadline = runStart + RUN_BUDGET_MS;
+  const stats = { scanned: 0, delivered: 0, busy: 0, no_label: 0, no_session: 0, loop_guard: 0, lock_busy: 0, poll_timeout: 0, errors: 0 };
 
   let convs = [];
-  try {
-    convs = await listPendingConvs(MAX_PER_RUN, 0);
-  } catch (e) {
-    return res.status(200).json({ ok: false, error: 'list_failed', detail: String(e?.message || e) });
-  }
+  try { convs = await listPendingConvs(MAX_PER_RUN, 0); }
+  catch (e) { return res.status(200).json({ ok: false, error: 'list_failed', detail: String(e?.message || e) }); }
 
   for (const conv of convs) {
+    if (Date.now() > pollDeadline) break; // sem budget pra mais uma conv neste tick
     stats.scanned += 1;
-    try {
-      // 1) Lock ativo? Turno em andamento → espera o próximo tick (não atropela).
-      const lock = await kvGet(`rl:thread:${conv}:in_flight`);
-      if (lock.ok && lock.value) { stats.skipped_busy += 1; continue; }
 
-      // 2) Anti-loop: máx 3 drenagens/5min por conv.
+    // P2 — drain_lock por conv (evita 2 execuções na mesma conv)
+    const drainLockKey = `bia:pending:drain_lock:${conv}`;
+    const dl = await kvClaim(drainLockKey, '1', 60);
+    if (!dl.ok && !dl.fallback) { stats.lock_busy += 1; continue; }
+
+    try {
+      // Turno em andamento? não atropela — espera próximo tick.
+      const inFlight = await kvGet(`rl:thread:${conv}:in_flight`);
+      if (inFlight.ok && inFlight.value) { stats.busy += 1; continue; }
+
+      // Anti-loop
       const cycle = await bumpDrainCycle(conv);
       if (cycle.exceeded) {
-        console.warn(`[BIA-DRAIN] loop guard conv=${conv} cycles=${cycle.count} — limpando pendência`);
-        await clearPendingAll(conv);
-        stats.loop_guard += 1;
-        continue;
+        console.warn(`[BIA-DRAIN] loop guard conv=${conv} cycles=${cycle.count} — limpa pendência`);
+        await clearPendingAll(conv); stats.loop_guard += 1; continue;
       }
 
-      // 3) Revalida bia_teste (humano pode ter assumido entre enfileirar e drenar).
+      // Revalida bia_teste (humano pode ter assumido)
       const label = await stillBiaTeste(conv);
-      if (label.ok && !label.has) {
-        console.log(`[BIA-DRAIN] bia_teste removido conv=${conv} — descartando pendência (humano assumiu)`);
-        await clearPendingAll(conv);
-        stats.skipped_no_label += 1;
-        continue;
+      if (label.unknown) { stats.errors += 1; continue; } // Chatwoot indisponível → retry depois
+      if (!label.has) {
+        console.log(`[BIA-DRAIN] bia_teste removido conv=${conv} — descarta pendência`);
+        await clearPendingAll(conv); stats.no_label += 1; continue;
       }
-      // label.unknown (Chatwoot indisponível) → não descarta, tenta próximo tick.
-      if (label.unknown) { stats.errors += 1; continue; }
 
-      // 4) Sessão reusável? (após balloon1, setActiveSession renovou TTL 30min)
+      // Sessão reusável (após balloon1, setActiveSession renovou TTL)
       const reuse = await resolveSessionForThread(conv);
       if (!reuse.reused || !reuse.sessionId) {
-        // Sem sessão ativa (raro: TTL expirou). Não dá pra re-injetar barato; deixa
-        // a lista expirar (TTL 1h) e tira do índice pra não varrer toda hora.
-        await clearPendingIndex(conv);
-        stats.skipped_no_session += 1;
-        continue;
+        await clearPendingIndex(conv); stats.no_session += 1; continue;
       }
 
-      // 5) Drena TODAS as pendentes (lote) e concatena na ordem que chegaram.
-      const { items } = await drainPending(conv);
-      if (!items.length) { await clearPendingIndex(conv); continue; }
-      const telefone = items.find((i) => i.telefone)?.telefone || '';
-      const text = items.map((i) => i.text).filter(Boolean).join('\n');
-      if (!telefone || !text) { await clearPendingIndex(conv); continue; }
+      // Marker de turno já injetado? (re-entrada após poll timeout — NÃO re-injeta)
+      let marker = await getInjected(conv);
+      let sid, n, baselineLen;
+      if (marker && marker.sid) {
+        sid = marker.sid; n = marker.n; baselineLen = marker.baselineLen;
+      } else {
+        const peek = await peekPending(conv);
+        if (!peek.count) { await clearPendingIndex(conv); continue; }
+        const telefone = peek.items.find((i) => i.telefone)?.telefone || '';
+        const text = peek.items.map((i) => i.text).filter(Boolean).join('\n');
+        if (!telefone || !text) { await clearPendingIndex(conv); continue; }
 
-      // 6) Re-injeta como turno novo. bia-postback entrega a resposta (2º balão).
-      await postTurn(reuse.sessionId, telefone, text);
-      try { await setActiveSession(conv, reuse.sessionId); } catch { /* renova TTL — non-fatal */ }
-      await clearPendingIndex(conv);
-      stats.drained += 1;
-      console.log(`[BIA-DRAIN] conv=${conv} sid=${reuse.sessionId} msgs=${items.length} re-injetadas`);
+        sid = reuse.sessionId;
+        n = peek.count;
+        const before = await fetchEvents(sid);
+        baselineLen = before.length;
+        await postTurn(sid, telefone, text); // injeta o lote como turno novo
+        await setInjected(conv, { sid, n, baselineLen, ts: Date.now() });
+        marker = { sid, n, baselineLen };
+      }
+
+      // Poll: espera o turno novo completar (idle + agent.message além do baseline)
+      let events = [];
+      let ready = false;
+      while (Date.now() < pollDeadline) {
+        events = await fetchEvents(sid);
+        const fresh = events.slice(baselineLen);
+        if (fresh.some((e) => e.type === 'session.status_idle') && fresh.some((e) => e.type === 'agent.message')) {
+          ready = true; break;
+        }
+        await new Promise((r) => setTimeout(r, POLL_TICK_MS));
+      }
+      if (!ready) { stats.poll_timeout += 1; continue; } // marker fica; próximo tick só entrega
+
+      // Extrai a resposta do turno novo (última segura) + entrega
+      const extracted = responseOrFallbackFromEvents(events, { preferSafeCandidate: 'last' });
+      const clean = extracted.ok ? stripWhatsAppMarkdown(extracted.text) : '';
+      if (!clean) { stats.errors += 1; continue; } // marker fica; tenta de novo
+
+      const dedupKey = getDedupKey(sid, extracted.agentMsgIdx);
+      if (await alreadyPosted(dedupKey)) {
+        // bia-postback já entregou esse turno → só limpa a fila.
+        await ackPending(conv, n); await reindexIfRemaining(conv); await clearInjected(conv);
+        stats.delivered += 1; continue;
+      }
+      const gate = shouldSendNow({ session_type: 'reactive_reply' });
+      if (!gate.ok) continue; // fora da janela → marker fica, entrega quando abrir
+
+      await markPosted(dedupKey, { session_id: sid, conv_id: conv, posted_by: 'pending_drain_claiming', dedup_key: dedupKey, posted_at: new Date().toISOString() });
+      try {
+        const posted = await postChatwoot(conv, clean);
+        await markPosted(dedupKey, { session_id: sid, conv_id: conv, chatwoot_msg_id: posted.id, agent_msg_idx: extracted.agentMsgIdx, posted_by: 'pending_drain_confirmed', dedup_key: dedupKey, posted_at: new Date().toISOString() });
+        try { await markBiaOutgoing(conv); } catch { /* non-fatal */ }
+        try { await setActiveSession(conv, sid); } catch { /* renova TTL — non-fatal */ }
+        // P0 — ack SÓ AGORA (entrega confirmada). P1 — reindexa se sobrou msg do meio do drain.
+        await ackPending(conv, n);
+        await reindexIfRemaining(conv);
+        await clearInjected(conv);
+        stats.delivered += 1;
+        console.log(`[BIA-DRAIN] conv=${conv} sid=${sid} msgs=${n} entregue msg_id=${posted.id}`);
+      } catch (postErr) {
+        await deleteMarker(dedupKey); // libera pra retry
+        stats.errors += 1;
+        console.error(`[BIA-DRAIN] post falhou conv=${conv}: ${postErr?.message || postErr} — pendência mantida`);
+        // NÃO faz ack: mensagem continua na fila; marker fica; próximo tick re-entrega.
+      }
     } catch (e) {
       stats.errors += 1;
-      console.error(`[BIA-DRAIN] conv=${conv} erro: ${e?.message || e}`);
+      console.error(`[BIA-DRAIN] conv=${conv} erro: ${e?.message || e} — pendência mantida`);
+    } finally {
+      await kvRelease(drainLockKey);
     }
   }
 

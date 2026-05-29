@@ -3,99 +3,60 @@
  * Runtime: node:test (node 18+).
  *
  * Estratégia: kvFetch usa globalThis.fetch contra a REST do Upstash (path-style).
- * Montamos um fake-Redis em memória e monkey-patch do fetch pra rotear os comandos.
- * Isso testa a LÓGICA real (dedup SETNX, FIFO, drain LTRIM-não-DEL).
+ * Montamos um fake-Redis em memória e monkey-patch do fetch pra rotear comandos.
+ * Testa a LÓGICA real: peek-não-remove (at-least-once P0), ack remove N,
+ * msg que chega no meio sobrevive (P1), dedup, reindex, anti-loop.
  */
 
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-// ───────────────────────── fake Upstash REST ─────────────────────────
 function makeFakeRedis() {
-  const str = new Map(); // key -> string
-  const list = new Map(); // key -> array
-  const zset = new Map(); // key -> Map(member -> score)
-
-  function getList(k) {
-    if (!list.has(k)) list.set(k, []);
-    return list.get(k);
-  }
-
-  // resolve índice negativo estilo Redis (-1 = último)
+  const str = new Map();
+  const listM = new Map();
+  const zset = new Map();
+  const getL = (k) => { if (!listM.has(k)) listM.set(k, []); return listM.get(k); };
   const norm = (i, len) => (i < 0 ? len + i : i);
 
   return async function fakeFetch(url) {
     const u = new URL(url);
     const parts = u.pathname.split('/').filter(Boolean).map((p) => decodeURIComponent(p));
-    const [cmd, ...args] = parts;
+    const [cmd, ...a] = parts;
     let result = null;
-
     switch (cmd) {
       case 'set': {
-        const [k, v, ...rest] = args;
-        const nx = rest.includes('NX');
-        if (nx && str.has(k)) { result = null; break; }
-        str.set(k, v);
-        result = 'OK';
-        break;
+        const nx = a.slice(2).includes('NX');
+        if (nx && str.has(a[0])) { result = null; break; }
+        str.set(a[0], a[1]); result = 'OK'; break;
       }
-      case 'get': result = str.has(args[0]) ? str.get(args[0]) : null; break;
+      case 'get': result = str.has(a[0]) ? str.get(a[0]) : null; break;
       case 'del': {
-        let removed = 0;
-        if (str.delete(args[0])) removed++;
-        if (list.delete(args[0])) removed++;
-        if (zset.delete(args[0])) removed++;
-        result = removed;
-        break;
+        let r = 0;
+        if (str.delete(a[0])) r++;
+        if (listM.delete(a[0])) r++;
+        if (zset.delete(a[0])) r++;
+        result = r; break;
       }
-      case 'incr': {
-        const n = Number(str.get(args[0]) || 0) + 1;
-        str.set(args[0], String(n));
-        result = n;
-        break;
-      }
+      case 'incr': { const n = Number(str.get(a[0]) || 0) + 1; str.set(a[0], String(n)); result = n; break; }
       case 'expire': result = 1; break;
-      case 'rpush': {
-        const l = getList(args[0]);
-        l.push(args[1]);
-        result = l.length;
-        break;
-      }
-      case 'llen': result = (list.get(args[0]) || []).length; break;
+      case 'rpush': { const l = getL(a[0]); l.push(a[1]); result = l.length; break; }
+      case 'llen': result = (listM.get(a[0]) || []).length; break;
       case 'lrange': {
-        const l = list.get(args[0]) || [];
-        const start = norm(Number(args[1]), l.length);
-        const stop = norm(Number(args[2]), l.length);
-        result = l.slice(start, stop + 1);
-        break;
+        const l = listM.get(a[0]) || [];
+        result = l.slice(norm(Number(a[1]), l.length), norm(Number(a[2]), l.length) + 1); break;
       }
       case 'ltrim': {
-        const l = list.get(args[0]) || [];
-        const start = norm(Number(args[1]), l.length);
-        const stop = norm(Number(args[2]), l.length);
-        list.set(args[0], l.slice(start, stop + 1));
-        result = 'OK';
-        break;
+        const l = listM.get(a[0]) || [];
+        listM.set(a[0], l.slice(norm(Number(a[1]), l.length), norm(Number(a[2]), l.length) + 1));
+        result = 'OK'; break;
       }
-      case 'zadd': {
-        if (!zset.has(args[0])) zset.set(args[0], new Map());
-        zset.get(args[0]).set(args[2], Number(args[1]));
-        result = 1;
-        break;
-      }
-      case 'zrem': {
-        const z = zset.get(args[0]);
-        result = z && z.delete(args[1]) ? 1 : 0;
-        break;
-      }
+      case 'zadd': { if (!zset.has(a[0])) zset.set(a[0], new Map()); zset.get(a[0]).set(a[2], Number(a[1])); result = 1; break; }
+      case 'zrem': { const z = zset.get(a[0]); result = z && z.delete(a[1]) ? 1 : 0; break; }
       case 'zrangebyscore': {
-        const z = zset.get(args[0]) || new Map();
-        const min = args[1] === '-inf' ? -Infinity : Number(args[1]);
-        const max = args[2] === '+inf' ? Infinity : Number(args[2]);
-        result = [...z.entries()]
-          .filter(([, score]) => score >= min && score <= max)
-          .sort((a, b) => a[1] - b[1])
-          .map(([m]) => m);
+        const z = zset.get(a[0]) || new Map();
+        const min = a[1] === '-inf' ? -Infinity : Number(a[1]);
+        const max = a[2] === '+inf' ? Infinity : Number(a[2]);
+        result = [...z.entries()].filter(([, s]) => s >= min && s <= max).sort((x, y) => x[1] - y[1]).map(([m]) => m);
         break;
       }
       default: result = null;
@@ -104,10 +65,8 @@ function makeFakeRedis() {
   };
 }
 
-describe('pending-queue — fila de mensagens em rajada', () => {
-  let originalFetch;
-  let originalEnv;
-  let pq;
+describe('pending-queue — at-least-once + dedup + reindex', () => {
+  let originalFetch, originalEnv, pq;
 
   beforeEach(async () => {
     originalFetch = globalThis.fetch;
@@ -115,72 +74,81 @@ describe('pending-queue — fila de mensagens em rajada', () => {
     process.env.KV_REST_API_URL = 'https://fake.upstash.io';
     process.env.KV_REST_API_TOKEN = 'faketoken';
     globalThis.fetch = makeFakeRedis();
-    // re-import fresco (pega env atual no module-scope do kv-rate-limit)
     pq = await import(`../api/_lib/pending-queue.js?v=${Date.now()}`);
   });
+  afterEach(() => { globalThis.fetch = originalFetch; process.env = originalEnv; });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    process.env = originalEnv;
+  test('peekPending NÃO remove — at-least-once (P0)', async () => {
+    await pq.enqueuePending('614', '5581', 'msg1', '1');
+    await pq.enqueuePending('614', '5581', 'msg2', '2');
+    const p1 = await pq.peekPending('614');
+    const p2 = await pq.peekPending('614');
+    assert.equal(p1.count, 2);
+    assert.equal(p2.count, 2, 'peek é idempotente — não consome a fila');
+    assert.equal(p1.items[0].text, 'msg1');
+    assert.equal(p1.items[1].text, 'msg2');
   });
 
-  test('enqueue + drain preserva ordem FIFO e parseia itens', async () => {
-    await pq.enqueuePending('614', '558199999999', 'Oi tudo bem?', '7705');
-    await pq.enqueuePending('614', '558199999999', 'onde fica a unidade?', '7706');
-
-    const { items, drained } = await pq.drainPending('614');
-    assert.equal(drained, 2);
-    assert.equal(items[0].text, 'Oi tudo bem?');
-    assert.equal(items[1].text, 'onde fica a unidade?');
-    assert.equal(items[0].telefone, '558199999999');
-    assert.equal(items[0].msg_id, '7705');
+  test('ackPending remove só os N entregues; msg que chega no meio sobrevive (P0/P1)', async () => {
+    await pq.enqueuePending('614', '5581', 'msg1', '1');
+    await pq.enqueuePending('614', '5581', 'msg2', '2');
+    const peek = await pq.peekPending('614'); // n=2 (o que será injetado)
+    assert.equal(peek.count, 2);
+    // chega uma 3ª DURANTE o drain (antes do ack)
+    await pq.enqueuePending('614', '5581', 'msg3-durante-drain', '3');
+    // ack remove só os 2 entregues
+    await pq.ackPending('614', peek.count);
+    const after = await pq.peekPending('614');
+    assert.equal(after.count, 1, 'msg que chegou durante o drain NÃO foi perdida');
+    assert.equal(after.items[0].text, 'msg3-durante-drain');
   });
 
   test('dedup por msg_id — retry do Chatwoot não duplica', async () => {
-    const a = await pq.enqueuePending('614', '5581', 'mesma msg', '999');
-    const b = await pq.enqueuePending('614', '5581', 'mesma msg', '999'); // retry
+    const a = await pq.enqueuePending('614', '5581', 'x', '99');
+    const b = await pq.enqueuePending('614', '5581', 'x', '99');
     assert.equal(a.dedup, false);
     assert.equal(b.dedup, true);
-
-    const { drained } = await pq.drainPending('614');
-    assert.equal(drained, 1, 'só 1 item apesar do retry');
+    const peek = await pq.peekPending('614');
+    assert.equal(peek.count, 1);
   });
 
-  test('drain vazio retorna items=[] sem quebrar', async () => {
-    const r = await pq.drainPending('999');
-    assert.deepEqual(r.items, []);
-    assert.equal(r.drained, 0);
+  test('reindexIfRemaining: sobrou → re-ZADD; vazio → ZREM (P1-órfão)', async () => {
+    await pq.enqueuePending('700', '5581', 'a', '1');
+    await pq.enqueuePending('700', '5581', 'b', '2');
+    // entrega 1, sobra 1 → deve continuar no índice
+    await pq.ackPending('700', 1);
+    let r = await pq.reindexIfRemaining('700');
+    assert.equal(r.remaining, 1);
+    assert.equal(r.reindexed, true);
+    assert.ok((await pq.listPendingConvs(20, 0)).includes('700'), 'conv ainda no índice');
+    // entrega a última, sobra 0 → sai do índice
+    await pq.ackPending('700', 1);
+    r = await pq.reindexIfRemaining('700');
+    assert.equal(r.remaining, 0);
+    assert.ok(!(await pq.listPendingConvs(20, 0)).includes('700'), 'conv removida do índice');
   });
 
-  test('LTRIM-não-DEL: msg que chega DURANTE o drain sobrevive', async () => {
-    // Simula: 2 itens na fila quando o drain lê o tamanho.
-    await pq.enqueuePending('614', '5581', 'msg1', '1');
-    await pq.enqueuePending('614', '5581', 'msg2', '2');
-    // O drain lê llen=2, faz lrange 0..1, e LTRIM 2 -1 (mantém índices >=2).
-    // Mas se uma 3ª chega ANTES do ltrim, ela está no índice 2 e DEVE sobreviver.
-    // Reproduz: empurra msg3 e então drena — drain lê llen=3 → drena as 3.
-    // Aqui validamos o caso central: após drenar N, a lista esvazia (sem msg nova).
-    const { drained } = await pq.drainPending('614');
-    assert.equal(drained, 2);
-    const again = await pq.drainPending('614');
-    assert.equal(again.drained, 0, 'fila vazia após drain completo');
+  test('inject marker set/get/clear', async () => {
+    await pq.setInjected('614', { sid: 'sesn_x', n: 2, baselineLen: 10 });
+    const m = await pq.getInjected('614');
+    assert.equal(m.sid, 'sesn_x');
+    assert.equal(m.n, 2);
+    await pq.clearInjected('614');
+    assert.equal(await pq.getInjected('614'), null);
   });
 
-  test('listPendingConvs retorna conv enfileirada e clearPendingAll limpa', async () => {
-    await pq.enqueuePending('700', '5581', 'oi', '50');
-    let convs = await pq.listPendingConvs(20, 0);
-    assert.ok(convs.includes('700'), 'conv 700 no índice');
-
-    await pq.clearPendingAll('700');
-    convs = await pq.listPendingConvs(20, 0);
-    assert.ok(!convs.includes('700'), 'conv 700 removida do índice após clear');
-    const { drained } = await pq.drainPending('700');
-    assert.equal(drained, 0, 'lista vazia após clearPendingAll');
+  test('clearPendingAll limpa lista + índice + marker', async () => {
+    await pq.enqueuePending('800', '5581', 'oi', '1');
+    await pq.setInjected('800', { sid: 's', n: 1, baselineLen: 0 });
+    await pq.clearPendingAll('800');
+    assert.equal((await pq.peekPending('800')).count, 0);
+    assert.ok(!(await pq.listPendingConvs(20, 0)).includes('800'));
+    assert.equal(await pq.getInjected('800'), null);
   });
 
-  test('anti-loop: bumpDrainCycle marca exceeded após MAX_CYCLES', async () => {
+  test('anti-loop: bumpDrainCycle marca exceeded após MAX_CYCLES (3)', async () => {
     let last;
     for (let i = 0; i < 5; i++) last = await pq.bumpDrainCycle('614');
-    assert.equal(last.exceeded, true, 'exceeded após passar de 3 ciclos');
+    assert.equal(last.exceeded, true);
   });
 });
