@@ -48,6 +48,8 @@ const BLOB_PREFIX = 'bia/postback/posted/'; // MESMO do bia-postback → dedup c
 const MAX_PER_RUN = 10;
 const RUN_BUDGET_MS = 48000; // não inicia nova conv depois disso (maxDuration 60s)
 const POLL_TICK_MS = 2500;
+const THREAD_LOCK_TTL_SEC = 180;
+const POST_CLAIM_STALE_MS = 2 * 60 * 1000;
 
 function isAuthorized(req) {
   const expected = process.env.CRON_SECRET;
@@ -127,12 +129,35 @@ function stripWhatsAppMarkdown(text) {
 const getDedupKey = (sid, idx) =>
   (idx !== null && idx !== undefined && idx >= 0) ? `agent_${sid}_${idx}` : `sess_${sid}`;
 
-async function alreadyPosted(dedupKey) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return false;
+async function postMarkerState(dedupKey) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return 'none';
   try {
     const { blobs } = await list({ prefix: `${BLOB_PREFIX}${dedupKey}` });
-    return blobs.length > 0;
-  } catch (e) { console.error(`[BIA-DRAIN-DEDUP] ${dedupKey}: ${e?.message || e}`); return false; }
+    let hasFreshClaim = false;
+    for (const b of blobs || []) {
+      let data = {};
+      try {
+        const resp = await fetch(b.url, { signal: AbortSignal.timeout(3000) });
+        if (resp.ok) data = await resp.json();
+      } catch (e) {
+        console.error(`[BIA-DRAIN-DEDUP] marker read failed ${dedupKey}: ${e?.message || e}`);
+        hasFreshClaim = true;
+        continue;
+      }
+      const postedBy = String(data.posted_by || '');
+      if (postedBy.endsWith('_confirmed') || data.chatwoot_msg_id) return 'confirmed';
+      if (postedBy.includes('claiming')) {
+        const postedMs = Date.parse(data.posted_at || '');
+        const stale = Number.isNaN(postedMs) || (Date.now() - postedMs) > POST_CLAIM_STALE_MS;
+        if (stale) {
+          try { await del(b.url); } catch { /* retry next tick if delete fails */ }
+        } else {
+          hasFreshClaim = true;
+        }
+      }
+    }
+    return hasFreshClaim ? 'claiming' : 'none';
+  } catch (e) { console.error(`[BIA-DRAIN-DEDUP] ${dedupKey}: ${e?.message || e}`); return 'none'; }
 }
 
 async function markPosted(dedupKey, payload) {
@@ -224,7 +249,7 @@ export default async function handler(req, res) {
     try {
       // Participa do MESMO lock canônico do handler. Só o drain_lock não basta:
       // sem este SETNX, um webhook novo poderia injetar outro turno na sessão em paralelo.
-      const threadLock = await kvClaim(threadLockKey, `pending_${Date.now()}`, 90);
+      const threadLock = await kvClaim(threadLockKey, `pending_${Date.now()}`, THREAD_LOCK_TTL_SEC);
       if (!threadLock.ok && !threadLock.fallback) { stats.busy += 1; continue; }
       threadLockAcquired = threadLock.ok === true && threadLock.fallback !== true;
 
@@ -239,7 +264,9 @@ export default async function handler(req, res) {
       // Sessão reusável (após balloon1, setActiveSession renovou TTL)
       const reuse = await resolveSessionForThread(conv);
       if (!reuse.reused || !reuse.sessionId) {
-        await clearPendingIndex(conv); stats.no_session += 1; continue;
+        const pending = await peekPending(conv);
+        if (!pending.count) await clearPendingIndex(conv);
+        stats.no_session += 1; continue;
       }
 
       // Marker de turno já injetado? (re-entrada após poll timeout — NÃO re-injeta)
@@ -304,11 +331,13 @@ export default async function handler(req, res) {
       if (!clean) { stats.errors += 1; continue; } // marker fica; tenta de novo
 
       const dedupKey = getDedupKey(sid, extracted.agentMsgIdx);
-      if (await alreadyPosted(dedupKey)) {
+      const markerState = await postMarkerState(dedupKey);
+      if (markerState === 'confirmed') {
         // bia-postback já entregou esse turno → só limpa a fila.
         await ackPending(conv, n); await reindexIfRemaining(conv); await clearInjected(conv);
         stats.delivered += 1; continue;
       }
+      if (markerState === 'claiming') { stats.busy += 1; continue; }
       const gate = shouldSendNow({ session_type: 'reactive_reply' });
       if (!gate.ok) continue; // fora da janela → marker fica, entrega quando abrir
 
