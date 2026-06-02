@@ -273,6 +273,30 @@ export default async function handler(req, res) {
     ];
     const hasBiaTesteLabel = allLabelsForGate.includes('bia_teste');
 
+    // DESARME por remoção de bia_teste: detecta a TRANSIÇÃO (tinha → não tem mais), não a
+    // ausência (que seria amplo demais). previousLabels vêm de changed_attributes (best-effort);
+    // o backstop confiável é o cron guard em validateFollowupConversation.
+    const changedAttrs = body.changed_attributes || body.conversation?.changed_attributes || [];
+    const previousLabels = [];
+    for (const ca of (Array.isArray(changedAttrs) ? changedAttrs : [])) {
+      for (const key of Object.keys(ca || {})) {
+        if (!/label/i.test(key)) continue;
+        const prev = ca[key]?.previous_value ?? (Array.isArray(ca[key]) ? ca[key][0] : undefined);
+        if (Array.isArray(prev)) previousLabels.push(...prev);
+        else if (typeof prev === 'string') previousLabels.push(...prev.split(','));
+      }
+    }
+    const prevLabelsLower = previousLabels.map((l) => String(l).trim().toLowerCase()).filter(Boolean);
+    const biaTesteRemoved = prevLabelsLower.includes('bia_teste') && !hasBiaTesteLabel;
+    if (biaTesteRemoved) {
+      const cidRemoved = body.id || body.conversation?.id;
+      if (cidRemoved) {
+        await disarmCascade(cidRemoved, 'bia_teste_removed');
+        await clearActiveSession(cidRemoved, 'bia_teste_removed');
+        console.log(`[CRM-WEBHOOK] bia_teste removido → cascade desarmado conv=${cidRemoved}`);
+      }
+    }
+
     if (isWhatsAppRecife && isBotEvent && hasBiaTesteLabel) {
       console.log(`[CRM-BOT] skipped: bia_teste label present — Bia AI handles this conv | event=${event} conv=${body.id || body.conversation?.id || '?'}`);
     } else if (isWhatsAppRecife && isBotEvent) {

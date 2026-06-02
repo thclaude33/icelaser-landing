@@ -356,6 +356,9 @@ async function fetchChatwootHistory(convId, limit = 50) {
       const t = m.message_type;
       const isText = t === 0 || t === 1 || t === 'incoming' || t === 'outgoing';
       const content = String(m.content || '').trim();
+      // Exclui nudges do follow-up cascade (content_attributes.bia_followup): não são fala real
+      // da Bia e poluiriam o contexto do coordinator (causa drift / off-topic).
+      if (m.content_attributes?.bia_followup) return false;
       return isText && !m.private && isSafeForClientHistory(content);
     });
     // Order ASC by timestamp + limit últimas N (mais recentes ao final)

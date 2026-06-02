@@ -23,7 +23,7 @@ const LAST_BIA_OUTGOING_TTL_SEC = 300;
 export const OUTGOING_SELF_DETECT_THRESHOLD_MS = LAST_BIA_OUTGOING_TTL_SEC * 1000;
 const DAILY_COUNT_TTL_SEC = 25 * 3600;
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const FREEFORM_EXPIRES_AFTER_MS = 23 * 3600 * 1000;
 export const TEMPLATE_FREE_UNTIL_AFTER_MS = 70 * 3600 * 1000;
 
@@ -32,25 +32,19 @@ const DAILY_MAX_SENDS = 20;                       // por conversa/dia BRT
 export const MAX_SENDS_PER_CASCADE = 24;          // por cascade armada
 const SNAPSHOT_REFRESH_AFTER_MS = 24 * 3600 * 1000;
 
-// VALOR DE TESTE (shadow mode) — recalibrar antes do go-live geral.
-export const F1_INTERVALS_MIN = [5, 10, 15, 21, 30, 45, 60, 90, 120, 145, 170, 195, 240, 300, 360, 450];
+// Dia 1 (dia que a conversa chega) — cadência definida pela operação:
+// 5min · 15min · 45min · 1h10 · 1h50 · 2h30 · 3h30 · 4h50 · 5h30
+export const F1_INTERVALS_MIN = [5, 15, 45, 70, 110, 150, 210, 290, 330];
 
 const F1_MESSAGES = [
   'Oi {nome}! Conseguiu ver direitinho? Se tiver qualquer dúvida, tô aqui 💜',
   'Posso te explicar com calma como funcionam os pacotes e valores, se quiser 😊',
-  '{nome}, se preferir, eu também posso começar te mostrando as opções mais leves pra começar.',
   'Me fala quais áreas você pensa em fazer que eu te ajudo a escolher o pacote mais certinho pra sua rotina 💜',
   'E se a dúvida for dor, resultado ou forma de pagamento, pode perguntar sem vergonha tá?',
-  'Também consigo ver horários disponíveis pra você sem compromisso, só pra ter uma ideia.',
-  '{nome}, sigo por aqui. Quando quiser, posso te mandar um resumo simples com áreas, valores e parcelas 😊',
-  'Uma coisa boa é que dá pra começar com poucas áreas e ir aumentando depois, se fizer mais sentido pra você.',
   'Posso te mostrar uma opção mais econômica pra começar e outra mais completa, pra você comparar com calma 💜',
-  'Se você ainda estiver pensando, tudo bem. Só quero deixar fácil caso queira tirar alguma dúvida comigo.',
   '{nome}, quer que eu veja qual pacote combina melhor com o que você quer fazer agora?',
   'Dá pra parcelar em até 12x sem juros. Se quiser, te mostro como ficaria de um jeito bem simples.',
   'Passando só pra saber se ficou alguma dúvida específica sobre áreas, valores ou atendimento 💜',
-  'Se preferir, posso te mandar só as melhores opções pra começar sem gastar muito.',
-  '{nome}, ainda faz sentido pra você? Se não for o momento, tudo bem também.',
   'Vou deixar por aqui por enquanto 💜 Quando quiser retomar, me chama que eu te ajudo com calma.',
 ];
 
@@ -257,6 +251,18 @@ export async function armCascade(convId, sessionId, snapshot = {}) {
     return { ok: false, reason: 'killswitch_off' };
   }
   if (!convId) return { ok: false, reason: 'no_conv_id' };
+
+  // Idempotência: se já há cascade ARMADA do schema atual, não re-armar (não reinicia o relógio
+  // a cada resposta da Bia). State de schema antigo (< SCHEMA_VERSION) é ignorado e re-armado
+  // fresco com a cadência nova — senão um cascade velho "acordaria" com agenda/step velhos.
+  const existingState = await kvGet(stateKey(convId));
+  if (existingState.ok && existingState.value) {
+    let parsedExisting = null;
+    try { parsedExisting = JSON.parse(existingState.value); } catch { parsedExisting = null; }
+    if (parsedExisting && Number(parsedExisting.schema_version) >= SCHEMA_VERSION) {
+      return { ok: true, reason: 'already_armed', conv_id: convId };
+    }
+  }
 
   const now = new Date();
   const nowMs = now.getTime();
