@@ -53,7 +53,9 @@ async function postChatwoot(convId, content) {
     {
       method: 'POST',
       headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, message_type: 'outgoing' }),
+      // content_attributes.bia_followup: marca o nudge pra não poluir o histórico que vai
+      // ao coordinator (fetchChatwootHistory filtra essas msgs como [NUDGE], não como BIA real).
+      body: JSON.stringify({ content, message_type: 'outgoing', content_attributes: { bia_followup: true } }),
       signal: AbortSignal.timeout(CHATWOOT_FETCH_TIMEOUT_MS),
     }
   );
@@ -118,6 +120,13 @@ export function validateFollowupConversation(conversation = {}, state = {}) {
 
   const labels = normalizeChatwootLabels(conversation);
   const hasBiaTeste = labels.includes('bia_teste');
+
+  // GUARD (backstop confiável): se a conversa não tem mais `bia_teste`, desarma — mesmo que o
+  // webhook tenha perdido o evento de remoção. Não depende de previousLabels (lê o estado atual).
+  if (!hasBiaTeste) {
+    return { ok: false, reason: 'bia_teste_removed', cleanup: true };
+  }
+
   const HOT_LEAD_LABELS = ['lead_quente', '🔥_lead_quente', 'lead quente', 'hot_lead'];
 
   const terminalLabel = labels.find((label) => {

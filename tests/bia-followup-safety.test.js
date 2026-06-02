@@ -32,7 +32,7 @@ test('validateFollowupConversation blocks non-open conversations', () => {
 });
 
 test('validateFollowupConversation blocks terminal labels', () => {
-  const result = validateFollowupConversation({ status: 'open', labels: ['lead_quente'] }, state);
+  const result = validateFollowupConversation({ status: 'open', labels: ['bia_teste', 'desqualificado'] }, state);
 
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'terminal_label');
@@ -42,7 +42,7 @@ test('validateFollowupConversation blocks terminal labels', () => {
 test('validateFollowupConversation blocks incoming messages after follow-up state', () => {
   const result = validateFollowupConversation({
     status: 'open',
-    labels: [],
+    labels: ['bia_teste'],
     messages: [
       { id: 1, message_type: 0, created_at: '2026-05-19T12:11:00.000Z' },
     ],
@@ -55,7 +55,7 @@ test('validateFollowupConversation blocks incoming messages after follow-up stat
 test('validateFollowupConversation blocks human outgoing messages after follow-up state', () => {
   const result = validateFollowupConversation({
     status: 'open',
-    labels: [],
+    labels: ['bia_teste'],
     messages: [
       { id: 2, message_type: 1, created_at: '2026-05-19T12:11:00.000Z', sender: { type: 'user' } },
     ],
@@ -164,7 +164,9 @@ test('validateFollowupConversation allows lead_quente when bia_teste is present'
   assert.equal(result.ok, true);
 });
 
-test('validateFollowupConversation still blocks lead_quente without bia_teste', () => {
+test('validateFollowupConversation disarms when bia_teste was removed (cron backstop)', () => {
+  // Remoção de bia_teste = desarme: o cron busca a conversa, vê que não tem mais bia_teste e
+  // limpa, mesmo se o webhook perdeu o evento. Supersede a lógica de label terminal.
   const result = validateFollowupConversation({
     status: 'open',
     labels: ['lead_quente'],
@@ -172,8 +174,8 @@ test('validateFollowupConversation still blocks lead_quente without bia_teste', 
   }, state);
 
   assert.equal(result.ok, false);
-  assert.equal(result.reason, 'terminal_label');
-  assert.equal(result.label, 'lead_quente');
+  assert.equal(result.reason, 'bia_teste_removed');
+  assert.equal(result.cleanup, true);
 });
 
 test('validateFollowupConversation still blocks compra_realizada even with bia_teste', () => {

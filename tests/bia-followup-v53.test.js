@@ -29,12 +29,12 @@ import {
   shouldSkipOverdueTemplateStep,
 } from '../api/cron/bia-followup-cascade.js';
 
-test('V5.3 F1 has the approved 16-step shadow cadence', () => {
+test('F1 has the day-1 cadence (9 steps): 5/15/45min · 1h10/1h50/2h30 · 3h30/4h50/5h30', () => {
   assert.deepEqual(
     F1_INTERVALS_MIN,
-    [5, 10, 15, 21, 30, 45, 60, 90, 120, 145, 170, 195, 240, 300, 360, 450]
+    [5, 15, 45, 70, 110, 150, 210, 290, 330]
   );
-  assert.equal(F1_STEPS.length, 16);
+  assert.equal(F1_STEPS.length, 9);
   assert.equal(DAILY_MAX_SENDS, 20);
   assert.equal(MAX_SENDS_PER_CASCADE, 24);
 });
@@ -42,7 +42,8 @@ test('V5.3 F1 has the approved 16-step shadow cadence', () => {
 test('computeScheduledAt schedules F1 by offset minutes', () => {
   const startedAtMs = Date.parse('2026-05-20T20:10:00.000Z');
   assert.equal(computeScheduledAt(1, 0, startedAtMs).toISOString(), '2026-05-20T20:15:00.000Z');
-  assert.equal(computeScheduledAt(1, 15, startedAtMs).toISOString(), '2026-05-21T03:40:00.000Z');
+  // último passo (8) = +330min (5h30): 20:10 + 5h30 = 01:40 do dia seguinte
+  assert.equal(computeScheduledAt(1, 8, startedAtMs).toISOString(), '2026-05-21T01:40:00.000Z');
 });
 
 test('template D+1 schedule uses approved templates and BRT wall-clock times', () => {
@@ -81,7 +82,8 @@ test('rescheduling an early-morning F1 step preserves spacing instead of causing
   };
   const rescheduled = scheduleCurrentStepAt(state, new Date('2026-05-20T11:00:00.000Z'));
   assert.equal(rescheduled.f1_anchor_at, '2026-05-20T10:55:00.000Z');
-  assert.equal(getNextStep(rescheduled).scheduledAt.toISOString(), '2026-05-20T11:05:00.000Z');
+  // passo 1 agora é +15min do anchor (cadência nova): 10:55 + 15min = 11:10
+  assert.equal(getNextStep(rescheduled).scheduledAt.toISOString(), '2026-05-20T11:10:00.000Z');
 });
 
 test('template migration skips D+1 slots that are already in the past', () => {
