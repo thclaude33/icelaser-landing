@@ -32,6 +32,8 @@ const BLOB_PREFIX = 'bia/postback/posted/';
 // respondia 11-30min depois (gap session-reuse vs postback lookback).
 const LOOKBACK_MIN = 35;
 const MAX_PER_RUN = 15;
+const ANTHROPIC_FETCH_TIMEOUT_MS = 10000;
+const CHATWOOT_POST_TIMEOUT_MS = 10000;
 
 function isAuthorized(req) {
   const expected = process.env.CRON_SECRET;
@@ -48,13 +50,14 @@ function stripWhatsAppMarkdown(text) {
     .trim();
 }
 
-async function fetchAnthropic(path) {
+export async function fetchAnthropic(path, timeoutMs = ANTHROPIC_FETCH_TIMEOUT_MS) {
   const resp = await fetch(`${ANTHROPIC_BASE}${path}`, {
     headers: {
       'x-api-key': process.env.ANTHROPIC_API_KEY_ICELASER,
       'anthropic-version': '2023-06-01',
       'anthropic-beta': 'managed-agents-2026-04-01',
     },
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!resp.ok) throw new Error(`Anthropic ${path} HTTP ${resp.status}`);
   return resp.json();
@@ -111,13 +114,14 @@ async function deleteMarker(dedupKey) {
   }
 }
 
-async function postChatwoot(convId, content) {
+export async function postChatwoot(convId, content, timeoutMs = CHATWOOT_POST_TIMEOUT_MS) {
   const resp = await fetch(
     `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages`,
     {
       method: 'POST',
       headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN, 'Content-Type': 'application/json' },
       body: JSON.stringify({ content, message_type: 'outgoing' }),
+      signal: AbortSignal.timeout(timeoutMs),
     }
   );
   const txt = await resp.text();

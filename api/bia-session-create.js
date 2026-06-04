@@ -54,6 +54,11 @@ const POLLING_TICK_MS = 2000; // 2s entre polls
 // FASE 1 Item 4 (15/05/2026): 45 → 55s. Vercel maxDuration handler é 60s → sobra 5s pra POST+return.
 // Reduz cron-fallback rate de ~22% pra ~5% (msgs Bia entre 45-55s agora pegam dentro do handler).
 const POLLING_TIMEOUT_MS = 55000;
+const ANTHROPIC_WRITE_TIMEOUT_MS = 12000;
+const ANTHROPIC_READ_TIMEOUT_MS = 10000;
+const CHATWOOT_FETCH_TIMEOUT_MS = 8000;
+const CHATWOOT_POST_TIMEOUT_MS = 10000;
+const AUDIT_WRITE_TIMEOUT_MS = 8000;
 
 // FASE 1 Item 3 (15/05/2026): alerta crítico rate-limited (bucket 4h)
 // Evita spam de email/SMTP — max 6 alertas/dia se incidente prolongado.
@@ -181,6 +186,7 @@ async function logAuditAlert(envName, message) {
       method: 'POST',
       headers,
       body: JSON.stringify({ path, content }),
+      signal: AbortSignal.timeout(AUDIT_WRITE_TIMEOUT_MS),
     });
     if (!resp.ok) {
       console.error(`[BIA-ALERT-AUDIT] HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
@@ -294,8 +300,11 @@ function stripWhatsAppMarkdown(text) {
     .trim();
 }
 
-async function fetchAnthropic(path) {
-  const resp = await fetch(`${ANTHROPIC_BASE}${path}`, { headers: buildAnthropicHeaders() });
+export async function fetchAnthropic(path, timeoutMs = ANTHROPIC_READ_TIMEOUT_MS) {
+  const resp = await fetch(`${ANTHROPIC_BASE}${path}`, {
+    headers: buildAnthropicHeaders(),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
   if (!resp.ok) throw new Error(`Anthropic ${path} HTTP ${resp.status}`);
   return resp.json();
 }
@@ -346,6 +355,7 @@ async function fetchChatwootHistory(convId, limit = 50) {
       `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages?page=1`,
       {
         headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN },
+        signal: AbortSignal.timeout(CHATWOOT_FETCH_TIMEOUT_MS),
       }
     );
     if (!resp.ok) return null;
@@ -378,13 +388,14 @@ async function fetchChatwootHistory(convId, limit = 50) {
   }
 }
 
-async function postChatwootMessage(convId, content) {
+export async function postChatwootMessage(convId, content, timeoutMs = CHATWOOT_POST_TIMEOUT_MS) {
   const resp = await fetch(
     `${CHATWOOT_BASE_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/conversations/${convId}/messages`,
     {
       method: 'POST',
       headers: { 'api_access_token': process.env.CHATWOOT_API_TOKEN, 'Content-Type': 'application/json' },
       body: JSON.stringify({ content, message_type: 'outgoing' }),
+      signal: AbortSignal.timeout(timeoutMs),
     }
   );
   const txt = await resp.text();
@@ -637,8 +648,10 @@ export default async function handler(req, res) {
           { type: 'memory_store', memory_store_id: BIA_AUDIT_LOG },
         ],
       };
+      console.log(`[BIA-STEP] conv=${chatwoot_thread_id || '?'} session_create_start reason=${reuseReason || 'no_thread'}`);
       const sessResp = await fetch(`${ANTHROPIC_BASE}/sessions`, {
         method: 'POST', headers, body: JSON.stringify(sessionPayload),
+        signal: AbortSignal.timeout(ANTHROPIC_WRITE_TIMEOUT_MS),
       });
       const sessText = await sessResp.text();
       if (!sessResp.ok) {
@@ -654,6 +667,7 @@ export default async function handler(req, res) {
       if (chatwoot_thread_id) {
         await setActiveSession(chatwoot_thread_id, session.id);
       }
+      console.log(`[BIA-STEP] conv=${chatwoot_thread_id || '?'} session_create_done sid=${session.id}`);
       console.log(`[SESSION-REUSE] MISS conv=${chatwoot_thread_id || '?'} new_sid=${session.id} reason=${reuseReason || 'no_thread'}`);
     }
 
@@ -698,8 +712,10 @@ export default async function handler(req, res) {
     const eventPayload = {
       events: [{ type: 'user.message', content: [{ type: 'text', text: mensagemComPrefixo }] }],
     };
+    console.log(`[BIA-STEP] conv=${chatwoot_thread_id || '?'} event_send_start sid=${session.id}`);
     const evResp = await fetch(`${ANTHROPIC_BASE}/sessions/${session.id}/events`, {
       method: 'POST', headers, body: JSON.stringify(eventPayload),
+      signal: AbortSignal.timeout(ANTHROPIC_WRITE_TIMEOUT_MS),
     });
     const evText = await evResp.text();
     if (!evResp.ok) {
@@ -707,6 +723,7 @@ export default async function handler(req, res) {
       if (preSessionDedupKey) await deleteMarker(preSessionDedupKey);
       return res.status(502).json({ error: 'event_send_failed', session_id: session.id, status: evResp.status, detail: evText.slice(0, 500), source });
     }
+    console.log(`[BIA-STEP] conv=${chatwoot_thread_id || '?'} event_send_done sid=${session.id}`);
 
     // 4. SE Chatwoot webhook → polling inline síncrono + posta resposta
     if (source === 'chatwoot_webhook' && chatwoot_thread_id) {
